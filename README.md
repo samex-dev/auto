@@ -19,8 +19,8 @@ chemical reactions, and a dated addendum of what to watch for in new updates).
 | Track | Finds the ball once (event-driven `DescendantAdded` + throttled fallback scan), samples its position history. |
 | Sense | Two-window velocity/acceleration estimator (fast warmup, curve deadzone + cap), ping-compensated. |
 | Predict | Scalar trajectory integrator: where the ball crosses the line, closest approach to where the **keeper will be**, time-to-impact. |
-| Decide | Possession (network `NetworkOwner`, else carrier/carry/last-shooter), controlled-ball gate (carried ≠ shot), carry correlation, fake/bleed detector, receiver gate (a pass is not a shot), honest wide/over ruling, urgency tiers, a handler stance for EVERY style in the roster (v2.47) plus per-move counters — and a live **handler read** that runs on EVERY frame (v2.47: no longer starved by the ball-speed gates, so slow dribbles and at-rest role swaps keep the counter fresh): whoever holds the ball arms his style's stance, flipping the frame a pass or steal changes hands. |
-| Act | One of `Left` / `Right` / `Forward` / `Middle` fired on the game's dive remote the frame the ball becomes saveable and reachable — plus GK tackle on a carrier at your feet, loft catch, punch-out, slow-ball step-up, and a top-bin jump before high dives. |
+| Decide | Possession (network `NetworkOwner`, else carrier/carry/last-shooter), controlled-ball gate (carried ≠ shot), carry correlation, fake/bleed detector, receiver gate (a pass is not a shot), honest wide/over ruling, urgency tiers, a handler stance for EVERY style in the roster (v2.47) plus per-move counters — and a live **handler read** that runs on EVERY frame (v2.47: no longer starved by the ball-speed gates, so slow dribbles and at-rest role swaps keep the counter fresh): whoever holds the ball arms his style's stance, flipping the frame a pass or steal changes hands. **Role forensics** (v2.48) overrules the game's once-checked, between-matches-stale role labels using what players actually CAST. |
+| Act | One of `Left` / `Right` / `Forward` / `Middle` fired on the game's dive remote the frame the ball becomes saveable and reachable — plus GK tackle on a carrier at your feet, loft catch, punch-out, slow-ball step-up, a top-bin jump before high dives, answered in kind by an **apex double-jump hop** for crossbar clippers (v2.50 — the game's own Shidou kit proves mid-air second jumps exist). The keeper's own root hitbox carries a **reach boost** (+1.5 studs/axis, v2.51): the game decides catches by hitbox overlap and client-owned parts replicate. |
 | Learn | Per-player shot-power history (commit distance adapts), save/concede stats from what the ball actually did. |
 
 ## Running it
@@ -28,7 +28,7 @@ chemical reactions, and a dated addendum of what to watch for in new updates).
 Drop it in as a `LocalScript` ( StarterPlayerScripts ) or execute it — it is
 defensive about missing pieces:
 
-* the dive remote is *searched* (`Events.GKDive`, `Dive`, `KeeperDive`, …) and a
+* the dive remote is *searched* (`Events.GKDive`, `Dive`, `KeeperDive`, …), **and re-searched for life** (v2.49: the handle is validated at every use and re-acquired the moment the game's match framework rebuilds it — a new match can no longer kill the AI) and a
   missing one degrades to "predict + log", never a hang;
 * a missing goal falls back to the measured net (`NET_CROSSBAR_STUDS` /
   `NET_WIDTH_STUDS`);
