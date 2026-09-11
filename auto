@@ -1,11 +1,31 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.47 "Full-roster counters + the role read never stops"
+	⚡ ZERO-LATENCY GK AI — v2.49 "Self-healing dive handle: match resets can't kill it"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.49 in one breath: the script had the SAME disease it was built to out-read.
+	The dive RemoteEvent was resolved ONCE at boot; when the game's match framework
+	destroyed and rebuilt it between matches, every FireServer hit a corpse inside
+	a silent pcall — decisions logged, keeper never dived, "after a new match it
+	just doesn't work anymore". The handle now self-heals: validated at every use,
+	re-found the instant a replacement appears (DescendantAdded, zero polling),
+	re-searched at most every 4 s, and it logs 🔌 when it dies and heals.
+
+	v2.48 in one breath: role FORENSICS. The game checks each player's style ONCE
+	(join / match start), so its role labels go stale between matches — ghost names
+	floating over empty grass while the real players moved on (user screenshot, the
+	"it checks the player roles once" report). The script cannot rewrite the
+	server's labels, but its EFFECTS cannot lie: every resolved <Char><Move> tag
+	credits the nearest opponent at its spawn point, and two same-style casts that
+	contradict a claimed role OVERRIDE it — tag + handler read follow the truth,
+	and the override stands down the moment the game's own Values string changes.
+	Our style tags are also destroyed while a player has no live character (ours
+	will never ghost), and tag roots re-bind on character identity change, not just
+	part death.
 
 	v2.47 in one breath: STYLE_COUNTERS covers EVERY style in the classification
 	table — 16 more handler stances derived from each style's own move rows
@@ -49,7 +69,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 26 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 28 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -88,12 +108,15 @@ local sqrt, abs = math.sqrt, math.abs
 local DIVE_EVENT_PARENTS = { "Events", "GKEvents", "Remotes" }
 local DIVE_EVENT_NAMES   = { "GKDive", "GK Dive", "Dive", "KeeperDive", "GoalkeeperDive" }
 
-local function findDiveRemote()
+-- v2.49: findDiveRemote(instant) — instant=true skips the WaitForChild blocks (the
+-- self-heal path runs IN-GAME between dives; a 3s freeze per folder there would
+-- miss the very shots the keeper exists for). Boot still uses the patient form.
+local function findDiveRemote(instant)
 	local parents = {}
 	parents[#parents + 1] = ReplicatedStorage
 	for _, folderName in ipairs(DIVE_EVENT_PARENTS) do
 		local f = ReplicatedStorage:FindFirstChild(folderName)
-		if not f then
+		if not f and not instant then
 			-- the game may still be streaming it in: bounded wait, never forever
 			local ok, inst = pcall(function() return ReplicatedStorage:WaitForChild(folderName, 3) end)
 			if ok then f = inst end
@@ -424,6 +447,39 @@ local CONFIG = {
 -- ==========================================
 local function log(...)
 	if CONFIG.VERBOSE then print(...) end
+end
+
+-- 🔌 v2.49 SELF-HEALING DIVE HANDLE — "when a new match happens it just doesn't
+-- work anymore", and it was US, not the game: the boot lookup above grabbed the
+-- dive RemoteEvent exactly ONCE. Roblox match frameworks destroy and rebuild
+-- match-scoped objects between matches; a client firing into the old instance
+-- gets an error inside a silent pcall — every gate still decides, every line
+-- still logs, the keeper never dives again. (Same class of bug as the game's own
+-- once-checked roles, ironically.) The handle is now live: validated at every
+-- use, re-found the instant a replacement exists, and it announces itself so
+-- the console shows the healing instead of the silence.
+local diveBlockedWarned = false
+local diveRetryAt = 0
+local function ensureDiveRemote()
+	if DiveEvent and DiveEvent.Parent then return DiveEvent end
+	local now = os.clock()
+	local died = false
+	if DiveEvent then
+		DiveEvent, diveEventPath = nil, nil
+		log("[AI-Dive] 🔌 dive remote vanished (match reset?) — re-searching")
+		died = true     -- death under our feet is a legit trigger: search NOW,
+	end                 -- never make the keeper wait out the poll throttle
+	if died or now >= diveRetryAt then
+		diveRetryAt = now + 4
+		local ev, path = findDiveRemote(true)
+		if ev then
+			DiveEvent, diveEventPath = ev, path
+			diveBlockedWarned = false
+			log("[AI-Dive] 🔌 dive remote acquired: " .. tostring(path))
+			return ev
+		end
+	end
+	return nil
 end
 
 -- ==========================================
@@ -2097,17 +2153,78 @@ local function scanModelForChar(plr)
 	return nil
 end
 
+-- 🕵️ v2.48 ROLE FORENSICS: the game checks a player's style/role ONCE (at join or
+-- match start) — the user's screenshot showed the fallout: stale red labels
+-- ("STAND USER") floating over EMPTY GRASS mid-pitch after another match, names
+-- that stopped matching anyone. We cannot rewrite the server's labels, but its
+-- EFFECTS cannot lie: an instance named "ShidouBigBangDrive" was cast by a Shidou,
+-- right there, right then. Every resolved move credits the nearest opponent to
+-- its spawn point; TWO same-style casts that contradict the claimed role OVERRIDE
+-- it (tag + handler read follow), until the game itself changes its Values string
+-- — then the override stands down and the label is trusted again (self-heal).
+local liveRoleEvidence = {} -- [Player] = { char, n, t }
+local roleOverride     = {} -- [Player] = the corrected char key
+local lastRawStyle     = {} -- [Player] = last raw Values string (self-heal detect)
+local ROLE_FORENSIC_RADIUS = 14 -- studs: an effect spawns AT its caster
+local function roleForensics(charKey, inst)
+	-- keeper-kit effects get thrown/cleared all over the box around OTHER players
+	-- — field styles are the trustworthy casting evidence
+	if not charKey or charKey == "gagamaru" then return end
+	local ok, pos = pcall(function() return inst.Position end)
+	if not (ok and pos) then return end
+	local now = os.clock()
+	local best, bd = nil, ROLE_FORENSIC_RADIUS
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer and plr.Character then
+			local root = plr.Character:FindFirstChild("HumanoidRootPart")
+			if root then
+				local d = (root.Position - pos).Magnitude
+				if d < bd then bd, best = d, plr end
+			end
+		end
+	end
+	if not best then return end
+	local ev = liveRoleEvidence[best]
+	if (not ev) or ev.char ~= charKey or (now - ev.t) > 6 then
+		liveRoleEvidence[best] = { char = charKey, n = 1, t = now }
+		return
+	end
+	ev.n, ev.t = ev.n + 1, now
+	if ev.n >= 2 and charByPlayer[best] ~= charKey then
+		roleOverride[best] = charKey
+		local lbl = (CHAR_PROFILES[charKey] and CHAR_PROFILES[charKey].label) or charKey
+		log(string.format("[AI-Dive] 🕵️ ROLE FORENSICS | %s | game says \"%s\" but cast %s twice — trusting the CASTS",
+			best.Name, tostring(styleNameByPlayer[best] or "?"), lbl))
+		charByPlayer[best]      = charKey
+		styleNameByPlayer[best] = lbl
+	end
+end
+
 local function scanCharacters()
 	local now = os.clock()
 	if now - lastCharScan < 1 then return end
 	lastCharScan = now
 
 	for _, plr in ipairs(Players:GetPlayers()) do
-		-- 1) The game's Values folder (authoritative)
+		-- 1) The game's Values folder (authoritative — until forensics proves it stale)
 		local name, key = readPlayerStyle(plr)
+		if name ~= nil then
+			if lastRawStyle[plr] ~= name and roleOverride[plr] then
+				roleOverride[plr] = nil            -- the game updated its own mind: stand down
+				liveRoleEvidence[plr] = nil
+				log("[AI-Dive] 🕵️ ROLE FORENSICS | " .. plr.Name .. " | Values changed — trusting the game again")
+			end
+			lastRawStyle[plr] = name
+		end
 		if key then
-			charByPlayer[plr] = key
-			styleNameByPlayer[plr] = name or CHAR_PROFILES[key].label
+			if roleOverride[plr] then
+				key = roleOverride[plr]
+				charByPlayer[plr] = key
+				styleNameByPlayer[plr] = (CHAR_PROFILES[key] and CHAR_PROFILES[key].label) or name
+			else
+				charByPlayer[plr] = key
+				styleNameByPlayer[plr] = name or CHAR_PROFILES[key].label
+			end
 		elseif name then
 			charByPlayer[plr] = nil
 			styleNameByPlayer[plr] = name -- unknown style: still show it
@@ -2189,6 +2306,18 @@ local function armAbility(info, moveKey, rawName, counterKey)
 end
 
 workspace.DescendantAdded:Connect(function(inst)
+	-- 🔌 v2.49: when the game RE-CREATES the dive remote (new match), grab it the
+	-- instant it appears — zero polling, zero missed dives in between.
+	if not DiveEvent and inst:IsA("RemoteEvent") then
+		local dname = string.lower(inst.Name or "")
+		if dname == "gkdive" or dname:find("dive", 1, true) then
+			DiveEvent = inst
+			diveEventPath = (inst.Parent and inst.Parent.Name or "?") .. "." .. inst.Name
+			diveBlockedWarned = false
+			log("[AI-Dive] 🔌 dive remote acquired: " .. tostring(diveEventPath))
+		end
+	end
+
 	local name = inst.Name
 	if not name or #name < 4 then return end
 
@@ -2206,6 +2335,7 @@ workspace.DescendantAdded:Connect(function(inst)
 	local info = MOVE_EXACT_INFO[lower]
 	if info then
 		armAbility(info, MOVE_EXACT_KEY[lower], name)
+		roleForensics(info.char, inst)
 		return
 	end
 	if not lower:find("[^%a%d]") and lower:sub(1, 6) ~= "ichigo" then
@@ -2217,6 +2347,7 @@ workspace.DescendantAdded:Connect(function(inst)
 	info, moveKey = lookupMove(key)
 	if info and moveKey then
 		armAbility(info, moveKey, name)
+		roleForensics(info.char, inst)
 	else
 		-- 🥅 ICHIGO GENERIC CATCH-ALL (v2.40): his in-game move names are
 		-- unpublished, so ANY effect named "Ichigo<Move>" arms the ICHIGO
@@ -2270,6 +2401,13 @@ local function updateStyleTags()
 
 	local alive = {}
 	for _, plr in ipairs(Players:GetPlayers()) do
+		-- v2.48: a tag needs a LIVING character with a root to sit on. Players in
+		-- intermission/respawn get none, and last match's tag is torn down instead
+		-- of ghosting over empty grass — the exact failure the game's own role
+		-- labels show mid-pitch after "another match happens".
+		local char = plr.Character
+		local rootForTag = char and char:FindFirstChild("HumanoidRootPart")
+		if rootForTag then
 		alive[plr] = true
 		local tag = styleTags[plr]
 		if not tag then
@@ -2299,11 +2437,11 @@ local function updateStyleTags()
 			label.Text = "..."
 			label.Parent = bb
 
-			tag = { anchor = anchor, label = label, root = nil }
+			tag = { anchor = anchor, label = label, root = rootForTag }
 			styleTags[plr] = tag
 			tagAnchors[#tagAnchors + 1] = {
 				player = plr, anchor = anchor,
-				root = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart"),
+				root = rootForTag, char = char,
 			}
 		end
 
@@ -2318,6 +2456,7 @@ local function updateStyleTags()
 		local c = tagColorFor(plr)
 		if tag.label.TextColor3 ~= c then
 			tag.label.TextColor3 = c
+		end
 		end
 	end
 
@@ -2347,8 +2486,13 @@ RunService.Heartbeat:Connect(function()
 	for i = 1, n do
 		local t = tagAnchors[i]
 		local root = t.root
-		if not root or not root.Parent then
+		if not root or not root.Parent or t.char ~= t.player.Character then
+			-- v2.48: re-bind also when the CHARACTER identity changed even if the
+			-- old root technically survived (models recycled between matches) — the
+			-- ghost-label-after-restart case, found because the loop no longer
+			-- trusts the root it grabbed at tag-creation time.
 			local char = t.player.Character
+			t.char = char
 			root = char and char:FindFirstChild("HumanoidRootPart")
 			t.root = root
 		end
@@ -2372,6 +2516,9 @@ local playerShotStats = {} -- Player -> { sum, n } rolling shot-power memory
 Players.PlayerRemoving:Connect(function(plr)
 	charByPlayer[plr] = nil
 	styleNameByPlayer[plr] = nil
+	liveRoleEvidence[plr] = nil   -- v2.48 forensics state
+	roleOverride[plr] = nil
+	lastRawStyle[plr] = nil
 	playerVelStore[plr] = nil
 	playerShotStats[plr] = nil
 	-- v2.44: the other per-player stores too — a Player table that no longer
@@ -3166,15 +3313,22 @@ local pathCount = 0
 -- and they did NOT repeat them identically: the GK-tackle branch never tinted the
 -- impact marker, and every site built its own pcall closure per dive. One helper
 -- owns the sequence now, so a dive can never half-register.
-local diveBlockedWarned = false
 local function fireDive(direction, tFrame, ballSpeed, approach, cooldown, jumpImpact, jumpGoal)
 	ST.cooldownUntil = tFrame + cooldown
 	CHARGE.lastDive  = tFrame
 	diveWatch = { time = tFrame, speed = ballSpeed, approach = approach, resolved = false }
 	if impactPart then impactPart.Color = Color3.fromRGB(255, 60, 60) end
 	tryAutoJump(jumpImpact, jumpGoal)
-	if DiveEvent then
-		pcall(function() DiveEvent:FireServer(direction) end)
+	-- 🔌 v2.49: NEVER fire into a stale handle — validate (and if needed, re-find)
+	-- at the exact moment of use, and if the FireServer itself errors the remote
+	-- died under us: drop it so the next decision re-acquires.
+	local ev = ensureDiveRemote()
+	if ev then
+		local ok = pcall(function() ev:FireServer(direction) end)
+		if not ok then
+			DiveEvent = nil
+			log("[AI-Dive] 🔌 dive remote died mid-fire — re-acquiring on the next decision")
+		end
 	elseif not diveBlockedWarned then
 		diveBlockedWarned = true
 		warn("[Auto-Dive] ⚠️ a dive was decided (" .. tostring(direction)
