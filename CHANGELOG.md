@@ -7,6 +7,52 @@ fixed, so they double as the design rationale for the thresholds in `CONFIG`.
 
 ---
 
+## v2.47 — full-roster counters + the role read never stops (2026-09-11)
+
+- **THE staleness fix (the user-reported "it checks the player roles once"):**
+  the roster pass / possession / handler read sat BELOW the two interest gates
+  (`speed < MIN_INTEREST_SPEED → markIdle + return`), so the armed counter only
+  updated on frames where the ball was faster than 10 studs/s. A slow dribble, a
+  walk-in at a dead ball, or a mid-match role swap at rest left the previous
+  counter standing — indistinguishable from "checked once". The whole READ
+  (myKey, shooter-key re-resolve, goal scan, one roster pass, poss, handler
+  read) is now hoisted above the gates: it runs every frame, markIdle included.
+  The gates still skip the expensive PREDICTION for quiet balls. Regression
+  proof: scenario S25 (Role-attribute-only classification, flipped mid-match at
+  dribble speed → the flip log). 26/26 pass; no behavior change at shot speeds.
+- **STYLE_COUNTERS now covers the entire classification roster** (was 8 of 24):
+  shidou, dio, luffy, ichigo, bachira, chigiri, ronaldo, donlorenzo, kurona,
+  gagamaru, yukimiya, otoya, aiku, igaguri, kunigami, hiori + naoya. Every stance
+  is derived from that style's OWN rows (tricky/dribble families → forced
+  2-frame read; straight 'extreme' rows → quickSpeed 95 + faster re-arm;
+  carrier/throw-in styles → rangeBoost), using only fields the activeMode
+  pipeline already consumes. NO invented game numbers — the fandom publishes
+  none (docs/GAME_RESEARCH.md); these are read-timing choices, not claims.
+- **Naoya registered** — the September "naoya" code (50k) follows the
+  KURONA/SHIDOU pattern of codes named after styles, but no fandom style page
+  exists yet, so: CHAR_NAMES alias + CHAR_PROFILES placeholder + MOVE_PREFIXES
+  "naoya" (a "Naoya<Move>" effect tag resolves through the existing cross
+  product) + STYLE_COUNTERS.naoya = PERFECT IMPACT WATCH (forced 2-frame read —
+  the universal stance for an unread handler). Unknown effect names still
+  self-report in the console for a dedicated counter later.
+- **readPlayerStyle now reads Role/Position attributes** from the player's
+  Values folder (previously only Character/Style/CharacterName/StyleName) — a
+  player whose style is stored in a Role field used to be invisible to the
+  classifier entirely.
+- **Research (docs/GAME_RESEARCH.md addendum):** the game's own GK guide
+  (bluelockskibidi.wiki) recorded verbatim — Q to dive, follow the BALL not the
+  players, "react to the ball's release rather than the opening animation",
+  leave the goal only to beat the attacker to a loose ball — every pillar
+  matches this script's gates (release gate, fake hold, carrier read, sweeper
+  logic): the strongest outside confirmation the model has had. Dio: Secret
+  tier, Timestop-based (fandom styles page + bluelockskibidi.com) — consistent
+  with the existing timestop/timestopbarrage COUNTER_MODEs (shot lands after
+  time resumes → 6 s armed window).
+- Harness: roblox_mock implements Get/SetAttribute for real (both were no-op
+  stubs, so attribute-shaped game data was untestable).
+
+---
+
 ---
 
 ## v2.46 — the counter follows the ball (handler style read + Kurona One-Two)
