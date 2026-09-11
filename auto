@@ -1,11 +1,20 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.51 "Whole-game wiki sync + the reach-boost hitbox"
+	⚡ ZERO-LATENCY GK AI — v2.52 "Admin-grade hitbox expander (Infinite-Yield style)"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.52 in one breath: the reach boost done the way the admin tools do it. The
+	HITBOX EXPANDER (Infinite Yield `expandhitbox` / Nameless Admin): instead of
+	resizing the root, a big INVISIBLE MASSLESS non-colliding cube is WELDED to
+	HumanoidRootPart — part lists decide catches, and an attached part belongs to
+	the character; with the ball running client-side in this game, the cube is
+	keeper. HITBOX_EXPAND = 14 studs default (treat it like an admin command);
+	one per character, auto-re-weld if scrubbed, clamped, 0 disables, invisible
+	to our own save-detector so internal truth stays body-honest.
 
 	v2.51 in one breath: the ENTIRE fandom (every character page + mechanics + GK
 	guide) was swept and reconciled against the model, line by line. Gaps closed:
@@ -220,13 +229,20 @@ local CONFIG = {
 	AUTO_DOUBLE_JUMP            = true,
 	AUTO_DOUBLE_JUMP_DELAY      = 0.26,  -- s after the first hop: fire near apex
 	DOUBLE_JUMP_HEIGHT_FRACTION = 0.95,  -- only for impacts ≥ 95% of the net
-	-- 🧱 v2.51 REACH BOOST (the requested “small hitbox”): the game decides
-	-- catches by HITBOX OVERLAP — and a LocalScript resizing its OWN character
-	-- works, because character parts are client-owned and the size REPLICATES
-	-- to the server. Growing our root a little on every axis grows the keeper’s
-	-- catch box in the GAME’S math, not just ours. Modest on purpose; 0 = off;
-	-- no-ops safely if the game ever locks sizes.
-	HITBOX_REACH                = 1.5,       -- studs added to every axis of the root
+	-- 🧱 v2.52 HITBOX EXPANDER — the admin-tool way (Infinite Yield’s
+	-- `expandhitbox` / Nameless Admin’s hitbox command): do NOT resize the root
+	-- (the server re-syncs sizes it owns, and a fat root clips the stadium).
+	-- INSTEAD: weld a big INVISIBLE, MASSLESS, non-colliding cube onto
+	-- HumanoidRootPart. Games decide touches/catches against a character’s PART
+	-- LIST — and an attached part IS part of the character. This game runs the
+	-- BALL client-side (NetworkOwners everywhere — literally how our handler-read
+	-- works), the exact class of game where the cube registers: the ball touches
+	-- 14 studs of “keepers” before his body is anywhere near it. If the game ever
+	-- validates part lists itself, this is just an invisible box — harmless.
+	-- 0 disables. Set it like an admin command: 14 = box+reflexes, 24 = wall,
+	-- 40+ = “why is the ball mine now”.
+	HITBOX_EXPAND               = 14,        -- studs, cube side welded to the root
+	HITBOX_EXPAND_MAX           = 60,        -- sanity clamp (Infinite Yield clamps at 1000; that swallows the goal camera)
 	CENTER_TOLERANCE      = 4.5,    -- |horizontal offset| below this = Middle
 	CENTER_ACTION         = "Middle",
 
@@ -548,7 +564,8 @@ local CONFIG_RULES = {
 	{ "AUTO_JUMP_COOLDOWN",         0.0,    5.0,   0.6 },
 	{ "AUTO_DOUBLE_JUMP_DELAY",     0.05,   1.0,   0.26 },
 	{ "DOUBLE_JUMP_HEIGHT_FRACTION",0.5,    2.0,   0.95 },
-	{ "HITBOX_REACH",               0.0,    4.0,   1.5 },
+	{ "HITBOX_EXPAND",              0.0,    60.0,  14 },
+	{ "HITBOX_EXPAND_MAX",        4.0,    200.0, 60 },
 	{ "CENTER_TOLERANCE",           0.0,    20.0,  4.5 },
 	{ "BALL_RADIUS",                0.1,    5.0,   1.0 },
 	{ "MIN_SHOT_SPEED",             1.0,    400.0, 20 },
@@ -2940,7 +2957,7 @@ local function ballOverlapsKeeper(character, ballPos)
 	if hitboxCache.char ~= character or not parts or (t - hitboxCache.t) >= 0.5 then
 		parts = {}
 		for _, p in ipairs(character:GetDescendants()) do
-			if p:IsA("BasePart") then parts[#parts + 1] = p end
+			if p:IsA("BasePart") and p.Name ~= "GKHitbox" then parts[#parts + 1] = p end
 		end
 		hitboxCache.char, hitboxCache.parts, hitboxCache.t = character, parts, t
 	end
@@ -3447,6 +3464,44 @@ local function fireDive(direction, tFrame, ballSpeed, approach, cooldown, jumpIm
 	end
 end
 
+-- 🧱 v2.52: the welder itself. One part per character, named so our OWN
+-- save-detector can skip it (the expander is for the GAME's catch math; our
+-- internal "did the ball touch the keeper" truth must stay body-honest or a
+-- fake overlap would resolve diveWatch as saved and stop the re-react).
+local function weldHitboxExpansion(char)
+	local r = CONFIG.HITBOX_EXPAND
+	if not char or not r or r <= 0 then return nil end
+	local size = math.min(r, CONFIG.HITBOX_EXPAND_MAX)
+	local root = char:FindFirstChild("HumanoidRootPart")
+	if not root then return nil end
+	local made
+	pcall(function()
+		local old = root:FindFirstChild("GKHitbox")
+		if old then
+			made = old
+			return
+		end
+		local p = Instance.new("Part")
+		p.Name = "GKHitbox"
+		p.Size = Vector3.new(size, size, size)
+		p.Transparency = 1
+		p.CanCollide = false
+		p.CanTouch = true
+		p.CastShadow = false
+		p.Massless = true
+		p.Anchored = false
+		p.Parent = root
+		local w = Instance.new("Weld")
+		w.Part0 = root
+		w.Part1 = p
+		w.C0 = CFrame.new()
+		w.C1 = CFrame.new()
+		w.Parent = p
+		made = p
+	end)
+	return made
+end
+
 -- ==========================================
 -- ⏸ PAUSE / RE-ARM (CONFIG.PAUSE_KEY)
 -- ==========================================
@@ -3573,39 +3628,26 @@ local function mainStep(deltaTime)
 		end
 	end
 
-	-- 🧱 v2.51 REACH BOOST: apply once per CHARACTER (respawn/new match hands us
-	-- a fresh root), re-assert at most every 4 s if the game resets the size. No
-	-- stacking: the resize reads the CURRENT size only when a new character appears.
+	-- 🧱 v2.52: hitbox-expansion cube. Welded once per CHARACTER (a respawn
+	-- kills the old one WITH the old root automatically — it is a child of it),
+	-- re-checked every 4 s in case a server sweep scrubs it while we still live.
 	do
 		local rbChar = LocalPlayer.Character
 		if rbChar and rbChar ~= ST.rbChar then
 			ST.rbChar = rbChar
-			ST.rbWant = nil
-			local r = CONFIG.HITBOX_REACH
-			if r and r > 0 then
-				local root = rbChar:FindFirstChild("HumanoidRootPart")
-				if root then
-					pcall(function()
-						local sz = root.Size
-						local want = Vector3.new(sz.X + r, sz.Y + r, sz.Z + r)
-						ST.rbWant = want
-						root.Size = want
-					end)
-					if ST.rbWant then
-						log(string.format("[AI-Dive] 🧱 REACH BOOST — root hitbox +%.1f studs every axis (the game catches by overlap — so the SAVE box grows with it)", r))
-					end
-				end
+			if weldHitboxExpansion(rbChar) and not ST.rbLogged then
+				ST.rbLogged = true
+				log(string.format("[AI-Dive] 🧱 HITBOX EXPANDED — %d-stud invisible catch-cube welded to the root", math.min(CONFIG.HITBOX_EXPAND, CONFIG.HITBOX_EXPAND_MAX)))
 			end
-		elseif rbChar and ST.rbWant then
+		elseif rbChar then
 			local rbNow = os.clock()
 			if rbNow - (ST.rbT or 0) >= 4 then
 				ST.rbT = rbNow
 				local root = rbChar:FindFirstChild("HumanoidRootPart")
-				local sz = root and root.Size
-				if sz and (math.abs(sz.X - ST.rbWant.X) > 0.05 or math.abs(sz.Y - ST.rbWant.Y) > 0.05 or math.abs(sz.Z - ST.rbWant.Z) > 0.05) then
-					local want = ST.rbWant
-					pcall(function() root.Size = want end)
-					log("[AI-Dive] 🧱 reach boost re-asserted (the game reset our size)")
+				if root and not root:FindFirstChild("GKHitbox") and (ST.rbLogged or CONFIG.HITBOX_EXPAND > 0) then
+					if weldHitboxExpansion(rbChar) then
+						log("[AI-Dive] 🧱 hitbox cube re-welded (something scrubbed it)")
+					end
 				end
 			end
 		end
