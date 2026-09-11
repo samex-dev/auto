@@ -1,11 +1,22 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.46 "Handler read: the counter follows the ball"
+	⚡ ZERO-LATENCY GK AI — v2.47 "Full-roster counters + the role read never stops"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.47 in one breath: STYLE_COUNTERS covers EVERY style in the classification
+	table — 16 more handler stances derived from each style's own move rows
+	(deceivers get a forced 2-frame read, straight extremes get the quick read
+	opened early, throw-in/getter styles get forecast reach — no invented numbers,
+	because the fandom publishes none). The 2026-09 newcomer Naoya is registered
+	(name, profile, prefix strip, universal forced-read stance). And the WHOLE
+	read — teams, styles (incl. the game's Role/Position fields), possession,
+	handler — is hoisted above the ball-speed interest gates, so it runs every
+	frame: a slow dribble or an at-rest role swap re-arms the counter the next
+	pass instead of leaving the boot-time answer standing (proven by S25).
 
 	v2.46 in one breath: possession now picks the COUNTER, not just the shooter.
 	While an opponent HOLDS the ball (NetworkOwner first, carrier heuristic after)
@@ -38,7 +49,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 24 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 26 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -824,7 +835,8 @@ local function teamKeyOf(plr)
 end
 
 -- ==========================================
--- ⚔️ STYLE AWARENESS (Shidou / Dio / Luffy)
+-- ⚔️ STYLE AWARENESS (whole roster — v2.47; per-style handler stances live in
+-- STYLE_COUNTERS, per-move responses in COUNTER_MODES)
 -- Recognizes which character the opponent is playing and adapts:
 --   SHIDOU — double jump (aerial shots from above), Big Bang Drive,
 --            Demon's Wings -> taller reach + lower bomb threshold
@@ -975,6 +987,15 @@ local CHAR_PROFILES = {
 		aerial = false, bombThreshold = 140, heightBonus = 0,
 		signature = "Malicia · Dharma Chains",
 	},
+	naoya = {
+		label = "NAOYA", danger = "SECRET · NEW (2026-09)",
+		aerial = false, heightBonus = 0,
+		-- Noel Noa kit (the manga's "Perfect Impact" ace; the game files that move
+		-- under Isagi's row until an in-game log proves otherwise). Move list
+		-- UNPUBLISHED — the DescendantAdded console line asks for exact names, and
+		-- STYLE_COUNTERS.naoya arms the universal forced read meanwhile.
+		signature = "Perfect Impact family · move list self-reports in console",
+	},
 }
 
 local CHAR_NAMES = {
@@ -1002,6 +1023,11 @@ local CHAR_NAMES = {
 	kurona = { "kurona" },
 	hiori = { "hiori", "hiorimamoru" },
 	igaguri = { "igaguri" },
+	-- 🆕 2026-09: the "naoya" cash code (50k) follows the KURONA/SHIDOU pattern of
+	-- codes named after styles. The fandom wikis do not list a Naoya style page yet,
+	-- so this is name-registration ONLY (tag + Role read + prefix strip recognize
+	-- him); no move is claimed that the classification table does not already know.
+	naoya = { "naoya" },
 	santaclaus = { "santaclaus", "santa" },
 }
 
@@ -1282,15 +1308,42 @@ local MOVE_INFO = {
 -- animation allows the attacker to wait and finish into the empty side").
 -- bombThreshold/heightBonus for these come from CHAR_PROFILES (profile read
 -- already runs on the handler) — entries here only add the behavioral stance.
+-- 🎭 v2.47: EVERY style the classification table knows has a handler stance now.
+-- The previous table covered 8 stars and left the other 16 handlers riding the
+-- default read. Stances are derived ONLY from each style's own rows below (speed
+-- family / aerial / tricky / barrage) plus the fields the shared activeMode
+-- pipeline already consumes (confirmFrames, cooldownScale, rangeBoost, quickSpeed,
+-- snap, commitBonus, primeSide) — NO invented game numbers, because none are
+-- published: these are read-TIMING choices for the keeper, not claims about the
+-- game. A style we know little about gets the universal safe stance: forced
+-- 2-frame read (never jump on frame one against an unread handler).
 local STYLE_COUNTERS = {
-	rin            = { name = "CURVE HANDLER",    confirmFrames = 2 }, -- any touch can become the left-breaker
-	sae            = { name = "CURVE HANDLER",    confirmFrames = 2 },
-	reo            = { name = "WILDCARD HANDLER", confirmFrames = 2 }, -- his kick is ANYONE's kick: never jump on frame one
-	devilfruituser = { name = "BALLOON WATCH",    confirmFrames = 2 }, -- the ball may sit INSIDE him: read, then explode
-	kaiser         = { name = "IMPACT HANDLER",   cooldownScale = 0.75 }, -- fastest release: re-arm fast
-	isagi          = { name = "VOLLEY HANDLER",   cooldownScale = 0.8  },
-	nagi           = { name = "CARRIER HANDLER",  rangeBoost = 6 },    -- Skull-Rush carriers shoot mid-rush
-	barou          = { name = "POWER HANDLER",    quickSpeed = 95 },   -- straight-line bomb: the quick read opens early
+	rin            = { name = "CURVE HANDLER",     confirmFrames = 2 }, -- any touch can become the left-breaker
+	sae            = { name = "CURVE HANDLER",     confirmFrames = 2 },
+	reo            = { name = "WILDCARD HANDLER",  confirmFrames = 2 }, -- his kick is ANYONE's kick: never jump on frame one
+	devilfruituser = { name = "BALLOON WATCH",     confirmFrames = 2 }, -- the ball may sit INSIDE him: read, then explode
+	kaiser         = { name = "IMPACT HANDLER",    cooldownScale = 0.75 }, -- fastest release: re-arm fast
+	isagi          = { name = "VOLLEY HANDLER",    cooldownScale = 0.8  },
+	nagi           = { name = "CARRIER HANDLER",   rangeBoost = 6 },    -- Skull-Rush carriers shoot mid-rush
+	barou          = { name = "POWER HANDLER",     quickSpeed = 95 },   -- straight-line bomb: the quick read opens early
+	-- ── v2.47: the rest of the roster, derived row-by-row from CLASSIFICATION ──
+	shidou         = { name = "DOUBLE-JUMP WATCH",  confirmFrames = 2, rangeBoost = 8 }, -- a jump means a SECOND action: wait it out; demonrush rows close distance fast (the move-counter does the per-move work)
+	dio            = { name = "TIME-FREEZE HOLD",   confirmFrames = 2, cooldownScale = 0.6 }, -- the shot comes AFTER time resumes: never dive at a frozen pop; barrage re-arm mirrors the timestop COUNTER_MODEs
+	luffy          = { name = "RUBBER ANGLE WATCH", confirmFrames = 2 }, -- freedommovement/gear5: any angle is a real angle, read two frames before committing
+	ichigo         = { name = "BANKAI IMPACT",      quickSpeed = 95, cooldownScale = 0.75 }, -- bankai/finalgetenka/getenka all 'extreme': meet him like a Kaiser bomb
+	bachira        = { name = "WILD DRIBBLE READ",  confirmFrames = 2 }, -- dribble/bee family: the kick lands out of nowhere; scissorkicks is aerial+barrage
+	chigiri        = { name = "FLANK BOMB WATCH",   quickSpeed = 95, rangeBoost = 6 }, -- blast = extreme straight; he ARRIVES at shooting range faster than anyone
+	ronaldo        = { name = "ACRO IMPACT WATCH",  confirmFrames = 2, cooldownScale = 0.75 }, -- cr7kick/siuuu extreme, goatflips trick+aerial: the flip shot is the second move
+	donlorenzo     = { name = "ZOMBIE CONTROL READ", confirmFrames = 2 }, -- zombiedribble/aceeater: a controller, not a shooter — the ball starts moving late
+	kurona         = { name = "HOTLINE BAIT WATCH",  confirmFrames = 2 }, -- baitdribble zigzag + the one-two IS the feint (COUNTER_MODES.onetwo does the exact HOLD)
+	gagamaru       = { name = "LAUNCH WATCH",        confirmFrames = 2 }, -- an opposing keeper with springjump/ballthrow/scorpion: tricky aerials beat the flat dive
+	yukimiya       = { name = "GYRO CURL READ",      confirmFrames = 2 }, -- every row tricky+aerial: the curl breaks late — the rin/sae class
+	otoya          = { name = "NINJA FEINT READ",    confirmFrames = 2 }, -- ninjashot is the listed threat and it is 'tricky'
+	aiku           = { name = "DEFENSIVE HOLD READ", confirmFrames = 2 }, -- field aiku: jumpingdeflect/cobraintercept are trick aerials; his kit is a hold-your-keepers kit
+	igaguri        = { name = "LONG-THROW WATCH",    rangeBoost = 12 }, -- malicia headers arrive from a THROW, not a wind-up: start the shoot-forecast in throw range
+	kunigami       = { name = "BOMB RE-ARM",         quickSpeed = 95, cooldownScale = 0.8 }, -- joker/fallenhero both 'extreme': struck fast, met early, re-arm fast
+	hiori          = { name = "LASER LINE" }, -- one known row (fast, dead straight): awareness label only — no timing claim to make yet
+	naoya          = { name = "PERFECT IMPACT WATCH", confirmFrames = 2 }, -- 2026-09 newcomer: no published move list, so he gets the universal unknown-handler stance
 }
 
 -- 🎮 COUNTER MODES: each known ABILITY gets its OWN keeper response —
@@ -1969,7 +2022,13 @@ local function readPlayerStyle(plr)
 	if not values then return nil, nil end
 
 	local strong, weak = {}, {}
-	local ATTRS = { "Character", "Style", "CharacterName", "StyleName" }
+	-- 🎭 v2.47: "Role"/"Position" are read too — the game keeps SIDE/ROLE data in
+	-- the same Values folder, and before this it was only harvested incidentally
+	-- (a child NAMED Role was visible, an attribute named Role was not). Now the
+	-- read is continuous: every scan pass re-reads every field for every player,
+	-- so a mid-match role or style swap re-arms the counter on the next scan
+	-- instead of trusting whatever was true when the script booted.
+	local ATTRS = { "Character", "Style", "CharacterName", "StyleName", "Role", "Position" }
 
 	local function pushStrong(s)
 		if type(s) == "string" and s ~= "" then strong[#strong + 1] = s end
@@ -2069,7 +2128,7 @@ local MOVE_PREFIXES = {
 	"nelisagi", "isagi", "nelnagi", "nagi", "nelkaiser", "kaiser", "nelrin", "rin",
 	"nelbachira", "bachira", "barou", "chigiri", "gagamaru", "sae", "reo",
 	"ichigo", "ronaldo", "donlorenzo", "aiku", "otoya", "yukimiya", "kunigami",
-	"kurona", "hiori", "igaguri", "devilfruit", "dio", "luffy",
+	"kurona", "hiori", "igaguri", "devilfruit", "dio", "luffy", "naoya",
 }
 
 -- ⚡ v2.44: the in-game effect names are "<Character><Move>" (ShidouDoubleJumpShot),
@@ -3298,17 +3357,12 @@ local function mainStep(deltaTime)
 		end
 	end
 
-	if speed < CONFIG.MIN_INTEREST_SPEED then
-		markIdle()
-		return
-	end
-
-	local distToGoalie = (ballPos - rootPos).Magnitude
-	if distToGoalie > CONFIG.MAX_INTEREST_DISTANCE then
-		markIdle()
-		return
-	end
-
+	-- 🎭 v2.47: the READ (roles, teams, possession, goal geometry, handler) runs
+	-- on EVERY frame now. The two interest gates below used to return first, so
+	-- the armed counter only updated when the ball moved faster than
+	-- MIN_INTEREST_SPEED — a slow dribble, a walk-in, or a role swap at rest left
+	-- it stale (looked like "it checks the player roles once"). The gates stay:
+	-- they skip the PREDICTION for quiet balls, never the read.
 	-- myKey is read AFTER refreshTeams() above, so a team assigned between two
 	-- frames (join, halftime, respawn) is honoured on the very next dive
 	-- decision instead of one frame late.
@@ -3322,86 +3376,6 @@ local function mainStep(deltaTime)
 
 	-- 🥅 goal geometry (throttled inside; hoisted above the idle gates, v2.44)
 	local goal = scanGoal(rootPos)
-
-	-- 🧤 GK MOVE PREDICTION: the keeper is usually MOVING (recovering after
-	-- a dive, sweeping off the line). The save check happens where the
-	-- keeper WILL be, so aim the whole ball prediction at the keeper's
-	-- future position — extrapolated toward the ball's ETA (teleport-guarded).
-	local aimPos = rootPos
-	local gkSlot = sampleSlot(GK.history, 24)
-	gkSlot.pos, gkSlot.t = rootPos, now
-	do
-		local n = #GK.history
-		local j = 1
-		while j < n and (GK.history[n].t - GK.history[j].t) < 0.4 do
-			j = j + 1
-		end
-		local dt = GK.history[n].t - GK.history[j].t
-		local span = (GK.history[n].pos - GK.history[j].pos).Magnitude
-		-- span < dt*80 = normal movement (a respawn teleport is ignored)
-		if dt > 0.08 and span < dt * 80 then
-			local gVel = (GK.history[n].pos - GK.history[j].pos) / dt
-			local estTTI = math.max(0, (distToGoalie - 3) / math.max(speed, 1))
-			local lead = math.min(estTTI, CONFIG.GK_PREDICT_MAX)
-			if lead > 0.05 then
-				aimPos = rootPos + gVel * lead
-			end
-		end
-	end
-
-	-- 🥅 REAL-TIME CONCEDE: a goal is counted only when the ACTUAL ball
-	-- crosses the line through the mouth (never the prediction, and a recent
-	-- save can't double-count as a goal). If WE last shot it, it's OUR GOAL.
-	if goal then
-		local realDepth = (ballPos - goal.linePos):Dot(goal.normal)
-		if realDepth > 2 then
-			ST.lastInFront = now
-		end
-		if prevRealDepth and prevRealDepth > 0 and realDepth <= 0 then
-			local lateralNow = (ballPos - goal.linePos):Dot(goal.axis)
-			local inMouth = (math.abs(lateralNow) <= goal.halfWidth + CONFIG.BALL_RADIUS)
-				and (ballPos.Y <= goal.crossbarY + CONFIG.BALL_RADIUS)
-			-- 🐛 FAKE-GOAL FIX: a goal is the RESULT of a shot — it must
-			-- happen shortly after a credited kick, at shot speed. A carried
-			-- ball walked behind you or a wide crossing is not a goal.
-			local fromShot = (now - ST.lastShotReset) < CONFIG.CONCEDE_SHOT_WINDOW
-			if inMouth and fromShot and speed > CONFIG.CONCEDE_MIN_SPEED
-				and (now - ST.lastConcede) > 3 and (now - ST.lastSaveTime) > 3 then
-				ST.lastConcede = now
-				local ownGoal = (myKey and shooterKey == myKey)
-					and (now - lastShooterTime) < CONFIG.SHOT_OWNER_MEMORY
-				if ownGoal then
-					ST.pendingFlash = { text = "OUR GOAL!!", color = Color3.fromRGB(80, 255, 120), t = now }
-					log("[AI-Dive] ⚽ OUR GOAL!")
-				else
-					matchStats.conceded = matchStats.conceded + 1
-					diveWatch.resolved = true
-					ST.pendingFlash = { text = "GOAL...", color = Color3.fromRGB(255, 60, 60), t = now }
-					log("[AI-Dive] 🥅 CONCEDED")
-				end
-			end
-		end
-		prevRealDepth = realDepth
-	else
-		prevRealDepth = nil
-	end
-
-	-- 📈 SAMPLE SHOT POWER: ~0.25s after a kick, record the shot's peak speed
-	-- for that player. This is how the AI learns a Big Bang Drive sniper from
-	-- a weak long shot.
-	if pendingShotRecord then
-		local age = now - pendingShotRecord.t
-		if age >= 0.25 then
-			local rec, pendingShotRecord = pendingShotRecord, nil
-			if rec.maxSpeed >= 40 and rec.player then
-				local st = playerShotStats[rec.player] or { sum = 0, n = 0 }
-				st.sum, st.n = st.sum + rec.maxSpeed, st.n + 1
-				playerShotStats[rec.player] = st
-			end
-		else
-			pendingShotRecord.maxSpeed = math.max(pendingShotRecord.maxSpeed, speed)
-		end
-	end
 
 	-- 2) DYNAMIC THREAT DETECTION + 🎯 POSSESSION
 	-- 👁 ONE ROSTER PASS (v2.44). Nearest player, opponent carrier, the carry
@@ -3540,6 +3514,99 @@ local function mainStep(deltaTime)
 	elseif ST.hChar and now > ST.hUntil then
 		ST.hChar = nil
 	end
+
+	if speed < CONFIG.MIN_INTEREST_SPEED then
+		markIdle()
+		return
+	end
+
+	local distToGoalie = (ballPos - rootPos).Magnitude
+	if distToGoalie > CONFIG.MAX_INTEREST_DISTANCE then
+		markIdle()
+		return
+	end
+
+
+	-- 🧤 GK MOVE PREDICTION: the keeper is usually MOVING (recovering after
+	-- a dive, sweeping off the line). The save check happens where the
+	-- keeper WILL be, so aim the whole ball prediction at the keeper's
+	-- future position — extrapolated toward the ball's ETA (teleport-guarded).
+	local aimPos = rootPos
+	local gkSlot = sampleSlot(GK.history, 24)
+	gkSlot.pos, gkSlot.t = rootPos, now
+	do
+		local n = #GK.history
+		local j = 1
+		while j < n and (GK.history[n].t - GK.history[j].t) < 0.4 do
+			j = j + 1
+		end
+		local dt = GK.history[n].t - GK.history[j].t
+		local span = (GK.history[n].pos - GK.history[j].pos).Magnitude
+		-- span < dt*80 = normal movement (a respawn teleport is ignored)
+		if dt > 0.08 and span < dt * 80 then
+			local gVel = (GK.history[n].pos - GK.history[j].pos) / dt
+			local estTTI = math.max(0, (distToGoalie - 3) / math.max(speed, 1))
+			local lead = math.min(estTTI, CONFIG.GK_PREDICT_MAX)
+			if lead > 0.05 then
+				aimPos = rootPos + gVel * lead
+			end
+		end
+	end
+
+	-- 🥅 REAL-TIME CONCEDE: a goal is counted only when the ACTUAL ball
+	-- crosses the line through the mouth (never the prediction, and a recent
+	-- save can't double-count as a goal). If WE last shot it, it's OUR GOAL.
+	if goal then
+		local realDepth = (ballPos - goal.linePos):Dot(goal.normal)
+		if realDepth > 2 then
+			ST.lastInFront = now
+		end
+		if prevRealDepth and prevRealDepth > 0 and realDepth <= 0 then
+			local lateralNow = (ballPos - goal.linePos):Dot(goal.axis)
+			local inMouth = (math.abs(lateralNow) <= goal.halfWidth + CONFIG.BALL_RADIUS)
+				and (ballPos.Y <= goal.crossbarY + CONFIG.BALL_RADIUS)
+			-- 🐛 FAKE-GOAL FIX: a goal is the RESULT of a shot — it must
+			-- happen shortly after a credited kick, at shot speed. A carried
+			-- ball walked behind you or a wide crossing is not a goal.
+			local fromShot = (now - ST.lastShotReset) < CONFIG.CONCEDE_SHOT_WINDOW
+			if inMouth and fromShot and speed > CONFIG.CONCEDE_MIN_SPEED
+				and (now - ST.lastConcede) > 3 and (now - ST.lastSaveTime) > 3 then
+				ST.lastConcede = now
+				local ownGoal = (myKey and shooterKey == myKey)
+					and (now - lastShooterTime) < CONFIG.SHOT_OWNER_MEMORY
+				if ownGoal then
+					ST.pendingFlash = { text = "OUR GOAL!!", color = Color3.fromRGB(80, 255, 120), t = now }
+					log("[AI-Dive] ⚽ OUR GOAL!")
+				else
+					matchStats.conceded = matchStats.conceded + 1
+					diveWatch.resolved = true
+					ST.pendingFlash = { text = "GOAL...", color = Color3.fromRGB(255, 60, 60), t = now }
+					log("[AI-Dive] 🥅 CONCEDED")
+				end
+			end
+		end
+		prevRealDepth = realDepth
+	else
+		prevRealDepth = nil
+	end
+
+	-- 📈 SAMPLE SHOT POWER: ~0.25s after a kick, record the shot's peak speed
+	-- for that player. This is how the AI learns a Big Bang Drive sniper from
+	-- a weak long shot.
+	if pendingShotRecord then
+		local age = now - pendingShotRecord.t
+		if age >= 0.25 then
+			local rec, pendingShotRecord = pendingShotRecord, nil
+			if rec.maxSpeed >= 40 and rec.player then
+				local st = playerShotStats[rec.player] or { sum = 0, n = 0 }
+				st.sum, st.n = st.sum + rec.maxSpeed, st.n + 1
+				playerShotStats[rec.player] = st
+			end
+		else
+			pendingShotRecord.maxSpeed = math.max(pendingShotRecord.maxSpeed, speed)
+		end
+	end
+
 
 	-- 🎯 CONTROLLED-BALL GATE (v2.40 — the "dives when they don't shoot" fix):
 	-- a RELEASED shot moves AWAY from its shooter — the ball-to-nearest-
