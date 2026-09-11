@@ -7,6 +7,135 @@ fixed, so they double as the design rationale for the thresholds in `CONFIG`.
 
 ---
 
+## v2.51 — whole-game wiki sync + the reach-boost hitbox (2026-09-11)
+
+- Deep sweep: EVERY character page, the controls/mechanics sources and the GK
+  guide were reconciled against the model line by line (fandom wiki + the two
+  community wikis). Most of it CONFIRMED existing work (Reo's Copy = "his kick
+  is anyone's kick" — exactly why WILDCARD HANDLER never jumps on frame one;
+  Gagamaru's whole kit already registered; Sae's curve "always the left foot"
+  already driving primeSide; the Dio timestop model — shot AFTER the freeze —
+  matches the page verbatim). The gaps that were real:
+- Registered now (fandom-documented, previously missing): Nagi FAKE SHOT (the
+  "feint → you slide → ankle-breaker → +1 of 5 fake volleys" bait; its real
+  strike is the 5-Stage Volley) and TRAP SHOT; Kaiser BEINCHUSS (awakening
+  chilean volley — cutscene wind-up THEN strike); Reo CHAMELEON JUMP (super-jump
+  forward; the wiki's "Chamaleon" misspelling kept as an alias); Dio STAND USER
+  (he steps aside, the GOLDEN COMPANION kicks — the body is the decoy) and the
+  ZAWARUDO shout itself (arms the timestop window); DFU JET variants (Jet Kick /
+  Jet Lighting Trap "jumps more higher" / Jet Lighting Dribble) + GIANT SABLES
+  (tornado knockback, not a shot); Luffy INSTANT CONQUEROR'S HAKI — its counter
+  existed in COUNTER_MODES but had NO classification ROW: it was dead code, now
+  wired live (a lint-worthy find).
+- Ronaldo's awakening, NEAR THE GK, is a whole OTHER thing (the wiki documents a
+  second variant): "the GK launches at the user, the user dodges and grabs him...
+  whoever TAPS or CLICKS MORE gets the goal." So diving/leaping AT awakened
+  Ronaldo IS the trigger. Enforced: ohcristiano/siuuuuuu now carry
+  suppressJump=true + armed=8, and tryAutoJump refuses to hop while
+  ST.noLeap is live — the keeper holds his ground and makes Ronaldo play it.
+- Gomu-Gomu Balloon: "catches the ball in their stomach... AFTER TWO SECONDS it
+  shoots out" — FLOAT CAPTURE becomes BALLOON — 2s IN THE BELLY with armed=4 +
+  forced 2-frame read (stay set through the belly hold; the release is late BY
+  DESIGN, it is not a fake).
+- Chigiri's High-Speed Shot fixed: "dash to the right THEN JUMP UP and perform a
+  powerful shot" — the row was aerial=false; it is an aerial finish now.
+- Aiku confirmed (jumping header can finish — aerial=true already), Barou's
+  double-tap chop stays covered by the POWER HANDLER note, Dio barrage timing
+  unchanged. The Destroyer CUTSCENE is shared by RIN and SHIDOU — the row is
+  flagged cutscene=true, which excludes it from ROLE FORENSICS evidence
+  (a shared name attributes nobody) and it stays awareness-only.
+- 🧱 REACH BOOST (the requested "small hitbox"): the game decides catches by
+  HITBOX OVERLAP, and character parts are client-owned — sizes set from a
+  LocalScript replicate to the server. The keeper's HumanoidRootPart now grows
+  HITBOX_REACH = 1.5 studs on every axis once per CHARACTER, re-asserted every
+  4 s if the game resets it. The save-detector (which measures the live part
+  sizes) follows automatically, so our own catch math and the GAME's agree.
+  0 disables. Sized modest on purpose; if the game locks sizes it no-ops.
+- Scenario S29 (boost applied + dive unaffected). 30/30, lint clean, bench flat
+  (43.8 ms / 23 allocs per frame — the boost tick costs nothing).
+
+---
+
+## v2.50 — Shidou's double jump modeled + the keeper's apex hop (2026-09-11)
+
+- Research (fandom Shidou page, retrieved 2026-09-11): the kit's "double jump" is
+  DEMON RUSH — "medium-length fast dash, short window to press the key again; if
+  pressed the player jumps far in the air (Mario Jump SFX)". Also: Big Bang Drive
+  begins with an airborne hit into a bicycle kick ("propelled incredibly fast");
+  Demon Wings jumps "incredibly high (~1.5x Nagi's Trap Shot)" then FLIES —
+  uncancellable, extended absence; the G cutscene (The Destroyer) is a
+  possession grab ("my ball"), not a shot. Cooldowns: TBA on the wiki — no
+  published numbers, so none were invented.
+- Counters updated to match: COUNTER_MODES.demonrush gains confirmFrames=2 +
+  heightBonus=10 (the dash has a second act from above the flat-dive plane —
+  read through the rush, capture higher on the jump finish); demonswings gets the
+  entry-vs-cruise note (danger is the jump IN; wings cruising is absence);
+  CLASSIFICATION adds thedestroyer (speed=defense: arms awareness, never a bomb
+  read); STYLE_COUNTERS.shidou comment now states the second-press mechanic.
+- NEW KEEPER TOOL — AUTO_DOUBLE_JUMP apex hop: since the game permits mid-air
+  hops, after a top-bin jump whose predicted impact clips the crossbar even
+  jumped (>= DOUBLE_JUMP_HEIGHT_FRACTION of the MEASURED net), one follow-up hop
+  is armed and fires at the apex from the always-on section of mainStep
+  (airborne-only, never from the ground, no-op if the game owns the humanoid —
+  the v2.44 block-warning covers that). CONFIG: AUTO_DOUBLE_JUMP /
+  _DELAY 0.26s / _HEIGHT_FRACTION 0.95, all clamped in CONFIG_RULES.
+- Scenario S28: crossbar-clipper must log the TOP-BIN JUMP and then the
+  "DOUBLE JUMP — apex hop" line. 29/29 pass, lint clean, dives unaffected on
+  every existing scenario.
+
+---
+
+## v2.49 — self-healing dive handle: match resets can't kill it (2026-09-11)
+
+- THE real "it just doesn't work anymore after a new match": OUR bug, and it was
+  the same disease as the game's once-checked roles. `DiveEvent` was resolved
+  ONCE at boot. Roblox match frameworks destroy and rebuild match-scoped objects
+  between matches; a client firing into the destroyed instance gets an error
+  inside fireDive's silent pcall — every gate still decided, every line still
+  logged, the keeper just never dove again. For the rest of the session.
+- The handle now self-heals: ensureDiveRemote() validates `DiveEvent.Parent` at
+  every use; on death it re-searches IMMEDIATELY (a vanished handle is a legit
+  trigger, never gated by the poll timer) and otherwise retries at most every
+  4 s; findDiveRemote(instant) makes the in-game search non-blocking (no 3 s
+  WaitForChild freeze between shots); a failed FireServer also drops the handle
+  so the next decision re-acquires; and games that park the remote under
+  workspace get instant re-grab via the DescendantAdded head of the line.
+  Console now SHOWS the healing: 🔌 vanished (match reset?) — re-searching /
+  🔌 dive remote acquired: Events.GKDive.
+- The boot warn path (no remote found → dives log as NO-DIVE, gates stay live)
+  is unchanged — it simply ends as soon as the remote appears, whenever that is.
+- Scenario S27: dive once, DESTROY the remote (match reset), parent a fresh one,
+  dive again — the second dive can only count through the healed handle. 28/28.
+
+---
+
+## v2.48 — role forensics: labels that follow the truth (2026-09-11)
+
+- THE user-reported screenshot bug: the game checks each player's role/style ONCE
+  (join / match start) and never re-checks, so after "another match happens" its
+  own red role labels go stale — ghost text ("STAND USER") floating over EMPTY
+  GRASS while the players moved on, style names that no longer match anyone.
+- The server's labels can't be rewritten from a client — but its EFFECTS cannot
+  lie. Every resolved `<Char><Move>` effect tag now credits the nearest
+  opponent within 14 studs of its spawn point (roleForensics); TWO same-style
+  castings that contradict a claimed role OVERRIDE the classification — the style
+  tag, the handler read and every STYLE_COUNTER/COUNTER_MODE decision follow the
+  casts, not the stale claim. Keeper-kit effects (gagamaru) are excluded (thrown
+  clears happen near everyone). Log line: 🕵️ ROLE FORENSICS | <name> | ...
+- Self-heal: the override releases the moment the game's own raw Values string
+  changes again (log: "Values changed — trusting the game again"). Forensics
+  state is cleaned on PlayerRemoving like every other per-player store.
+- No ghost tags of OURS: a style tag is only kept while its player has a live
+  character with a root (players in intermission/respawn get their tag torn down
+  by the alive sweep instead of drifting over midfield), and the per-frame anchor
+  loop re-binds on CHARACTER identity change, not just part death — recycled
+  match models can no longer strand a label.
+- Scenario S26: a player whose Values claim "Dio" but who casts two Shidou moves
+  at his feet must be re-labelled SHIDOU — the whole forensics contract, tested.
+  27/27 pass; lint clean; no bench movement.
+
+---
+
 ## v2.47 — full-roster counters + the role read never stops (2026-09-11)
 
 - **THE staleness fix (the user-reported "it checks the player roles once"):**
