@@ -1,11 +1,25 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.50 "Shidou's double jump modeled + the keeper's apex hop"
+	⚡ ZERO-LATENCY GK AI — v2.51 "Whole-game wiki sync + the reach-boost hitbox"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.51 in one breath: the ENTIRE fandom (every character page + mechanics + GK
+	guide) was swept and reconciled against the model, line by line. Gaps closed:
+	Nagi’s FAKE SHOT (5-volley ankle-break bait) and TRAP SHOT, Kaiser’s Beinchuss,
+	Reo’s Chameleon Jump, Dio’s Stand-User kick and the ZAWARUDO shout itself,
+	DFU’s Jet variants + Giant Sables — and Luffy’s instant-Haki counter, which
+	existed but had NO ROW (dead code, now live). Three mechanics got real
+	responses: Ronaldo’s near-GK awakening is a TAP-DUEL a leaping keeper starts
+	(suppressJump now ENFORCES standing your ground); Gomu-Gomu Balloon holds the
+	ball in his belly for TWO SECONDS (armed window); Chigiri’s high-speed shot is
+	a JUMP shot (aerial flag fixed). And the requested REACH BOOST: catches are
+	decided by hitbox overlap, character parts replicate from the client — so the
+	keeper’s root hitbox grows +1.5 studs every axis (HITBOX_REACH; re-asserts
+	itself after resets; 0 disables).
 
 	v2.50 in one breath: the game's double jump is now a modeled threat AND a
 	used tool. The fandom wiki documents Shidou's Demon Rush as "a fast dash with
@@ -81,7 +95,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 29 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 30 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -206,6 +220,13 @@ local CONFIG = {
 	AUTO_DOUBLE_JUMP            = true,
 	AUTO_DOUBLE_JUMP_DELAY      = 0.26,  -- s after the first hop: fire near apex
 	DOUBLE_JUMP_HEIGHT_FRACTION = 0.95,  -- only for impacts ≥ 95% of the net
+	-- 🧱 v2.51 REACH BOOST (the requested “small hitbox”): the game decides
+	-- catches by HITBOX OVERLAP — and a LocalScript resizing its OWN character
+	-- works, because character parts are client-owned and the size REPLICATES
+	-- to the server. Growing our root a little on every axis grows the keeper’s
+	-- catch box in the GAME’S math, not just ours. Modest on purpose; 0 = off;
+	-- no-ops safely if the game ever locks sizes.
+	HITBOX_REACH                = 1.5,       -- studs added to every axis of the root
 	CENTER_TOLERANCE      = 4.5,    -- |horizontal offset| below this = Middle
 	CENTER_ACTION         = "Middle",
 
@@ -527,6 +548,7 @@ local CONFIG_RULES = {
 	{ "AUTO_JUMP_COOLDOWN",         0.0,    5.0,   0.6 },
 	{ "AUTO_DOUBLE_JUMP_DELAY",     0.05,   1.0,   0.26 },
 	{ "DOUBLE_JUMP_HEIGHT_FRACTION",0.5,    2.0,   0.95 },
+	{ "HITBOX_REACH",               0.0,    4.0,   1.5 },
 	{ "CENTER_TOLERANCE",           0.0,    20.0,  4.5 },
 	{ "BALL_RADIUS",                0.1,    5.0,   1.0 },
 	{ "MIN_SHOT_SPEED",             1.0,    400.0, 20 },
@@ -1186,7 +1208,7 @@ local MOVE_INFO = {
 	-- v2.50 (fandom wiki): the G awakening cutscene — "stands over the ball,
 	-- stares forward, says 'my ball'": a POSSESSION grab with a cutscene, not a
 	-- shot. Classified so it never arms a bomb read, only awareness.
-	thedestroyer     = { char = "shidou", speed = "defense", aerial = false, barrage = false },
+	thedestroyer     = { char = "shidou", speed = "defense", aerial = false, barrage = false, cutscene = true }, -- ⚠ RIN shares this cutscene name: awareness only, never forensics evidence
 	unstoppable      = { char = "shidou", speed = "extreme", aerial = false, barrage = false },
 	-- Gagamaru (real Skibidi GK kit, from the wiki)
 	ballthrow        = { char = "gagamaru", speed = "fast",    aerial = true,  barrage = false },
@@ -1266,7 +1288,7 @@ local MOVE_INFO = {
 	-- Chigiri
 	phantersnipe         = { char = "chigiri", speed = "fast",    aerial = false, barrage = false },
 	fourtyfourphantersnipe = { char = "chigiri", speed = "fast",  aerial = false, barrage = false },
-	highspeedshot        = { char = "chigiri", speed = "fast",    aerial = false, barrage = false },
+	highspeedshot        = { char = "chigiri", speed = "fast",    aerial = true,  barrage = false }, -- v2.51 wiki: dash right, JUMP UP, powerful shot
 	pantherrevenge       = { char = "chigiri", speed = "dribble", aerial = false, barrage = false },
 	-- Nagi
 	fivestagevolley      = { char = "nagi", speed = "fast",   aerial = true,  barrage = false },
@@ -1378,6 +1400,19 @@ local MOVE_INFO = {
 	laser            = { char = "hiori", speed = "fast",     aerial = false, barrage = false },
 	malicia          = { char = "igaguri", speed = "fast",   aerial = false, barrage = false },
 	maliciaheader    = { char = "igaguri", speed = "fast",   aerial = true,  barrage = false },
+	-- 📚 v2.51 WIKI-SYNC — gaps the FULL sweep of the fandom character pages
+	-- found (every other documented move was already registered; cooldowns are TBA
+	-- there, so NO numbers are claimed — flags follow written behavior only):
+	fakeshot             = { char = "nagi", speed = "tricky",  aerial = false, barrage = false }, -- the 5-fake-volley baiter (ankle-breaks slides)
+	trapshot             = { char = "nagi", speed = "control", aerial = true,  barrage = false }, -- lofts, runs, JUMPS onto it
+	beinchuss            = { char = "kaiser", speed = "fast",  aerial = true,  barrage = false }, -- awakening chilean volley after a cutscene
+	chamaleonjump        = { char = "reo", speed = "fast",     aerial = true,  barrage = false }, -- super-jump forward (wiki misspelling kept)
+	standuser            = { char = "dio", speed = "fast",     aerial = false, barrage = false }, -- HE steps aside; the COMPANION kicks
+	zawarudo             = { char = "dio", speed = "extreme",  aerial = false, barrage = false }, -- the ZAWARUDO shout
+	jetlightingtrap      = { char = "devilfruituser", speed = "fast",   aerial = true,  barrage = false }, -- jumps HIGHER for the intercept
+	jetlightingdribble   = { char = "devilfruituser", speed = "tricky", aerial = false, barrage = false }, -- longer lightning zigzag
+	gigantsables         = { char = "devilfruituser", speed = "stun",   aerial = false, barrage = false }, -- knockback tornado, not a shot
+	instantconquerorshaki = { char = "luffy", speed = "stun",  aerial = false, barrage = false }, -- counter existed, ROW did not: dead code, now live
 }
 
 -- 🎭 v2.46 HANDLER STANCES: the keeper's posture while an opponent simply HOLDS
@@ -1508,8 +1543,13 @@ local COUNTER_MODES = {
 		bombThreshold = 125, confirmFrames = 1,
 	},
 	gomugomuballoon = {
-		name = "FLOAT CAPTURE",
-		heightBonus = 10,
+		name = "BALLOON — 2s IN THE BELLY",   -- wiki: “catches the ball in their
+		heightBonus = 10, armed = 4,           -- stomach… AFTER TWO SECONDS it
+		confirmFrames = 2,                     -- shoots out”: stay set, stay armed.
+	},
+	jetlightingtrap = {
+		name = "JET TRAP — HIGHER ENTRY",     -- awakening: “jumps more higher”
+		confirmFrames = 2, heightBonus = 10, bombThreshold = 128,
 	},
 	gear5 = {
 		name = "CHAOS READ",           -- Gear 5 is unpredictable: never trust frame one
@@ -1923,6 +1963,26 @@ local COUNTER_MODES = {
 		name = "LIGHTNING TRAP",         -- alt spelling of the same move
 		confirmFrames = 2, heightBonus = 8, bombThreshold = 130,
 	},
+	fakeshot = {
+		name = "FAKE VOLLEY BAIT — HOLD",      -- “feints… when they slide towards
+		confirmFrames = 2,                     -- you, you ankle-break… +5 fake
+	},                                        -- volleys”: NEVER take the bait.
+	beinchuss = {
+		name = "CHILEAN — HOLD SET",           -- cutscene wind-up (“Eat this...
+		bombThreshold = 130, heightBonus = 6,  -- Loser”) THEN the volley.
+	},
+	standuser = {
+		name = "STAND KICK — READ THE BALL",   -- “steps aside and the companion
+		confirmFrames = 2,                     -- kicks”: his BODY is the decoy.
+	},
+	zawarudo = {
+		name = "TIMESTOP ARMED",               -- the shout IS the freeze starting:
+		snap = true, bombThreshold = 115, confirmFrames = 1, cooldownScale = 0.6, armed = 6,  -- same response, two trigger words.
+	},
+	chamaleonjump = { name = "SUPER-JUMP CHARGE", confirmFrames = 2 },
+	chameleonjump = { name = "SUPER-JUMP CHARGE", confirmFrames = 2 },
+	jetlightingdribble = { name = "JET ZIGZAG — LONGER", confirmFrames = 2 },
+	gigantsables = { name = "SABLES TORNADO — SHIELD IT", confirmFrames = 2 },
 	-- LUFFY (GEAR 5)
 	rocgunshot = {
 		name = "ROC GUN READ",           -- scorpion kick off the big leg shot
@@ -1944,10 +2004,12 @@ local COUNTER_MODES = {
 		snap = true, bombThreshold = 115, confirmFrames = 1,
 	},
 	ohcristiano = {
-		name = "UNSAVEABLE — HOLD",      -- autogoal awakening (near-GK = mash)
-	},
-	siuuuuuu = {
-		name = "UNSAVEABLE — HOLD",
+		name = "UNSAVEABLE — STAND GROUND",  -- NEAR THE GK the wiki documents a
+		suppressJump = true, armed = 8,      -- SECOND variant: “the GK launches at
+	},                                      -- the user… whoever TAPS MORE gets the
+	siuuuuuu = {                            -- goal” — diving AT him IS the trigger.
+		name = "UNSAVEABLE — STAND GROUND",
+		suppressJump = true, armed = 8,
 	},
 	-- REO
 	copy = {
@@ -2202,10 +2264,12 @@ local liveRoleEvidence = {} -- [Player] = { char, n, t }
 local roleOverride     = {} -- [Player] = the corrected char key
 local lastRawStyle     = {} -- [Player] = last raw Values string (self-heal detect)
 local ROLE_FORENSIC_RADIUS = 14 -- studs: an effect spawns AT its caster
-local function roleForensics(charKey, inst)
-	-- keeper-kit effects get thrown/cleared all over the box around OTHER players
-	-- — field styles are the trustworthy casting evidence
-	if not charKey or charKey == "gagamaru" then return end
+local function roleForensics(info, inst)
+	-- keeper-kit effects get thrown all over the box around OTHER players, and
+	-- SHARED-NAME CUTSCENES (The Destroyer is BOTH Rin’s and Shidou’s awakening,
+	-- v2.51 wiki) attribute NOBODY — only real field-style casts are evidence.
+	local charKey = info and info.char
+	if not charKey or charKey == "gagamaru" or info.cutscene then return end
 	local ok, pos = pcall(function() return inst.Position end)
 	if not (ok and pos) then return end
 	local now = os.clock()
@@ -2371,7 +2435,7 @@ workspace.DescendantAdded:Connect(function(inst)
 	local info = MOVE_EXACT_INFO[lower]
 	if info then
 		armAbility(info, MOVE_EXACT_KEY[lower], name)
-		roleForensics(info.char, inst)
+		roleForensics(info, inst)
 		return
 	end
 	if not lower:find("[^%a%d]") and lower:sub(1, 6) ~= "ichigo" then
@@ -2383,7 +2447,7 @@ workspace.DescendantAdded:Connect(function(inst)
 	info, moveKey = lookupMove(key)
 	if info and moveKey then
 		armAbility(info, moveKey, name)
-		roleForensics(info.char, inst)
+		roleForensics(info, inst)
 	else
 		-- 🥅 ICHIGO GENERIC CATCH-ALL (v2.40): his in-game move names are
 		-- unpublished, so ANY effect named "Ichigo<Move>" arms the ICHIGO
@@ -3256,6 +3320,10 @@ local function tryAutoJump(impactHeightAboveRoot, goalHeightAboveRoot)
 	if not topBin then return false end
 	local now = os.clock()
 	if now - lastAutoJump < CONFIG.AUTO_JUMP_COOLDOWN then return false end
+	-- 🧱 v2.51: an awakened RONALDO near the goal turns a LEAPING keeper into a
+	-- TAP-DUEL cutscene (“whoever taps more gets the goal” — fandom). Feet on the
+	-- ground never start that fight: standing ground IS the counter.
+	if ST.noLeap and now < ST.noLeap then return false end
 	local character = LocalPlayer.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if not humanoid then return false end
@@ -3500,6 +3568,44 @@ local function mainStep(deltaTime)
 					pcall(function() djHum:ChangeState(Enum.HumanoidStateType.Jumping) end)
 					pcall(function() djHum:Jump() end)
 					log("[AI-Dive] 🦘 DOUBLE JUMP — apex hop for the crossbar ball")
+				end
+			end
+		end
+	end
+
+	-- 🧱 v2.51 REACH BOOST: apply once per CHARACTER (respawn/new match hands us
+	-- a fresh root), re-assert at most every 4 s if the game resets the size. No
+	-- stacking: the resize reads the CURRENT size only when a new character appears.
+	do
+		local rbChar = LocalPlayer.Character
+		if rbChar and rbChar ~= ST.rbChar then
+			ST.rbChar = rbChar
+			ST.rbWant = nil
+			local r = CONFIG.HITBOX_REACH
+			if r and r > 0 then
+				local root = rbChar:FindFirstChild("HumanoidRootPart")
+				if root then
+					pcall(function()
+						local sz = root.Size
+						local want = Vector3.new(sz.X + r, sz.Y + r, sz.Z + r)
+						ST.rbWant = want
+						root.Size = want
+					end)
+					if ST.rbWant then
+						log(string.format("[AI-Dive] 🧱 REACH BOOST — root hitbox +%.1f studs every axis (the game catches by overlap — so the SAVE box grows with it)", r))
+					end
+				end
+			end
+		elseif rbChar and ST.rbWant then
+			local rbNow = os.clock()
+			if rbNow - (ST.rbT or 0) >= 4 then
+				ST.rbT = rbNow
+				local root = rbChar:FindFirstChild("HumanoidRootPart")
+				local sz = root and root.Size
+				if sz and (math.abs(sz.X - ST.rbWant.X) > 0.05 or math.abs(sz.Y - ST.rbWant.Y) > 0.05 or math.abs(sz.Z - ST.rbWant.Z) > 0.05) then
+					local want = ST.rbWant
+					pcall(function() root.Size = want end)
+					log("[AI-Dive] 🧱 reach boost re-asserted (the game reset our size)")
 				end
 			end
 		end
@@ -3989,6 +4095,9 @@ local function mainStep(deltaTime)
 			activeMode = cm
 			effBombSpeed = math.min(effBombSpeed, cm.bombThreshold or 999)
 			effHeightMax = math.max(effHeightMax, CONFIG.REACH_HEIGHT_MAX + (cm.heightBonus or 0))
+			if cm.suppressJump then
+				ST.noLeap = now + (cm.armed or 4)
+			end
 			if cm.cooldownScale then
 				effCooldown = math.min(effCooldown, CONFIG.COOLDOWN_TIME * cm.cooldownScale)
 			end
