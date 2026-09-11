@@ -1,457 +1,39 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.43 "Fake Killer + Weak-Center Catch"
+	⚡ ZERO-LATENCY GK AI — v2.44 "Correctness pass + hot-loop rewrite"
 
-	v2.43 (the two in-game misses, fixed):
-	•  🎭 FAKE KILLER (Barou's fake still got you) — the v2.32 bleed-hold
-	  only covered pops peaking 40-69; an in-game chop that pops at 75-95
-	  sailed past the window and got a frame-zero dive. Now two layers cover
-	  the whole pop range:
-	   (1) FRESH-POP CONFIRM — the first 0.10s of a sub-110 pop is unproven
-	  (a real strike sustains, a fake dies): no full dive in that window. A
-	  110+ pop is real shot speed and dives on frame one. Known curve moves
-	  (Rin/Sae) are exempt — they're researched real shots, not fakes.
-	   (2) BLEED HOLD (widened 40-69 → 30-110, drop 15→12, window→1.0s) +
-	  a TRAVEL test: the ball must still be within 14 studs of the kick spot
-	  to be held — a fake DIED at the feet, a real shot (even a bouncing one)
-	  is already 14+ studs out and escapes the hold. Self-releasing.
-	•  🎯 WEAK-CENTER CATCH (the slow shot that got you: "it dove left or
-	  right, not forward") — a weak shot (under 85) within 7 studs of center
-	  is now a FORWARD catch, not a committed side dive. A side dive on a
-	  central weak ball leaves the middle open — exactly how it went in.
-	  Off-center weak balls (beyond 7 studs) keep their side dive; fast balls
-	  (85+) commit as before.
-	•  ✅ 26-scenario simulation passes with zero loop errors (new S25:
-	  fast fake = no dive; S26: weak central shot = forward catch).
+	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
+	the BALL, not the animations — a real trajectory integrator (gravity, pitch
+	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
+	gates that prediction through possession / carry / fake / receiver checks, and
+	fires the game's dive remote the frame a shot becomes saveable and reachable.
 
-	v2.42 (pass vs. shot — the last "dives when they don't shoot" case):
-	•  📥 RECEIVER GATE — a ball heading straight at an opponent who ISN'T
-	  the one who kicked it is a PASS to a receiver, not a shot — the
-	  receiver collects it before the line. Previously a pass at shot speed
-	  that the simulator predicted crossing the goal mouth read "on target"
-	  and got a full dive. Now: a non-shooter opponent within RECEIVER_RADIUS
-	  (5 studs) of the ball's PREDICTED PATH (next 1.2s) who stands AHEAD of
-	  the ball (the ball is heading to them — the kicker stands BEHIND it and
-	  is excluded by that direction test, no launch-window gap) = "RECEIVER
-	  IN PATH — WATCH" (no shot dive). Path proximity is self-correcting:
-	  once the ball has passed the receiver, they're behind the ball and the
-	  gate releases, so a ball that reaches your feet is always met live.
-	  If the receiver taps it in, that tap is a FRESH shot (new shooter
-	  credit) and
-	  the keeper dives at the tap. A real shot's path has no opponent on it,
-	  so honest saves are untouched. Gates the main dive, the slow-save, and
-	  the loft catch. NOT applied to the GK tackle (an intentional steal of a
-	  carrier at your feet) or the punch-out (a contested dead ball at your
-	  toes).
-	•  ✅ 24-scenario simulation passes with zero loop errors (new S24:
-	  hard pass to a receiver = no shot dive, receiver picks it up and
-	  carries in, tap-in = dive).
+	v2.44 in one breath: own-team kicks are no longer dived (team + goal lookups were
+	stuck behind the loop's idle early-returns), the loft catch respects the honest
+	wide/over ruling, the top-bin jump actually falls back to Jump() and says so when
+	the game blocks both, a nil camera can no longer blind the keeper permanently, the
+	receiver gate is opponents-only, one monotonic clock, a missing dive remote warns
+	instead of hanging, and the trajectory loop was rewritten in scalars
+	(475 -> 23 Vector3 allocations per frame, ~4x less Lua CPU per frame).
+	Full notes for this and every earlier version: CHANGELOG.md.
 
-	v2.41 (four in-game fixes):
-	•  🐛 ROLLING-BALL PREDICTION BUG (the REAL root cause of the false
-	  dives) — the trajectory simulator "bounced" a ball resting on the
-	  ground EVERY step (gravity makes vy negative each step while the ball
-	  sits exactly at ground level), so BOUNCE_FRICTION (x0.75) hit vx/vz
-	  EVERY STEP — the predicted ball stopped dead a few studs away. Rolling
-	  balls (slow shots, deflections, wide passes) then never produced a
-	  line crossing, the honest wide ruling was blind to them, and the
-	  keeper dove at balls going wide. A bounce now only fires on a real
-	  FALL (vy below one step of gravity); resting balls roll with vy=0 and
-	  per-second friction only. Also: a ball that has ALREADY crossed the
-	  goal line is now ruled a miss — the keeper no longer chases a ball
-	  50 studs behind the goal.
-	•  🦘 JUMP NOW JUDGES THE LINE HEIGHT — the auto-jump test used
-	  max(crossing, impact, BALL'S CURRENT HEIGHT). A stand user's shot
-	  (Dio timestop) is launched FROZEN HIGH in the air, then released
-	  low — the frozen height made the keeper jump for a LOW ball. Now the
-	  jump is judged at the PREDICTED LINE CROSSING (where the ball
-	  actually hits the net): arcing-over-then-dropping-low = no jump;
-	  true top-bin = jump. Fallback (no goal detected) = impact/ball height.
-	•   HONEST WIDE RULING (dives when they don't shoot, fast version) —
-	  SAVE_EVERYTHING used to override the can't-score ruling with a huge
-	  margin: a ball crossing 12 studs WIDE of the post still read "on
-	  target" → the keeper dove at wide passes. Now a crossing > 3.5 studs
-	  outside the post or > 4 studs over the bar = guaranteed miss = stay
-	  on feet. Saves on true corner balls are untouched.
-	•  📏 HONEST FORWARD REACH (forward saves from far away) — the slow-
-	  shot / slow-forward step-save reaches were 30-34 studs (a hopeless
-	  lunge that wasted the cooldown), the loft lunge 30, and the aerial
-	  bias had no range cap. Now: step-saves 14 studs, loft lunge 20,
-	  aerial bias ≤ 35. The "SLOW SHOT INCOMING — MOVE!" warning still
-	  fires at ANY range (position early, commit close).
-	•  ✅ 23-scenario simulation passes with zero loop errors (rebuilt
-	  S10 to a saveable far-post shot, new S23: wide fast pass = no dive).
+	🎛 TUNING — everything lives in CONFIG below. The knobs that change how the
+	keeper PLAYS: SAVE_EVERYTHING (true = dive at anything scorable, false = patient
+	"Prime Neuer"), COOLDOWN_TIME, MIN_DIVE_SPEED, COMMIT_BASE_DIST / COMMIT_MAX_DIST,
+	FAKE_* (feint hold), WEAK_* (central weak balls = catch), USE_RECEIVER_GATE,
+	USE_GK_TACKLE, USE_SLOW_FORWARD_SAVE, AUTO_JUMP_TOP_BIN, VERBOSE, PAUSE_KEY.
+	If your game names things differently: BALL_NAMES, GOAL_*_NAMES,
+	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
-	v2.40 (GK tackle, false-dive killer, Ichigo detection):
-	•  🤾 GK TACKLE — researched mechanic (fan wiki GK guide + the game's
-	  hitbox saves): a keeper's FORWARD save on the ball CARRIER steals
-	  the ball — "as GK you can tackle your enemy by forward-saving them."
-	  Now: an opponent CONTROLLING the ball (carry / dribble-in) within
-	  TACKLE_RANGE (9 studs) of the keeper is met with a Forward (tackle),
-	  cooldown-gated (0.9s, no spam). It only fires while the ball is
-	  CONTROLLED — a live shot always takes the normal dive path.
-	•  🚫 FALSE-DIVE KILLER ("it dives when they don't shoot"): an
-	  opponent WALKING IN with the ball (hand-carry / slow dribble) used to
-	  read as a "SLOW SHOT" and trigger Forward dives. New CONTROLLED-BALL
-	  GATE (separation test, no velocity needed): a RELEASED shot moves
-	  AWAY from its shooter — the ball-to-nearest-opponent gap grows at
-	  shot speed (block clears in ~3 frames). A CARRIED ball keeps a
-	  ~constant gap = CONTROLLED — the slow-shot detector, slow forward
-	  save, and punch-out all refuse to fire on it. A >80 studs/s gap jump
-	  (save/re-carry/respawn) restarts the baseline conservatively. Plus:
-	  a slow "shot" must now head AT the goal line (dot ≥ 0.35) — slow
-	  flank passes near the keeper no longer read as shots.
-	•  🥅 ICHIGO DETECTION — he's the new "Shidou & Ichigo Update"
-	  crossover (Bankai-themed kit, high mobility) and the fandom still
-	  publishes no in-game move names. Added: bankai kit aliases (Final
-	  Getenka / Getenka / Shunpo) + a GENERIC CATCH-ALL: ANY effect named
-	  "Ichigo<Move>" arms the ICHIGO WALL counter (frame-zero) and prints
-	  the raw name — send me the exact console name and it becomes a
-	  dedicated counter in one line.
-	•  ✅ 22-scenario simulation passes with zero loop errors (new S20
-	  tackle, S21 no-false-dive, S22 Ichigo detection).
+	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
+		python3 tools/run_sim.py      # 24 scenarios against a mock Roblox runtime
+		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
+	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
+	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
+	ST / CHARGE / MOVE / GK instead (lint.py fails the build if you forget).
 
-	v2.39 (net measured from YOUR in-game screenshot):
-	•  📸 NET MEASURED — the fandom wiki still publishes no dimensions,
-	  but your in-game screenshot gave the real net: measured pixel-for-
-	  pixel against the 2-stud ball (perspective-corrected), the goal is
-	  ≈ 8 studs tall × ≈ 16 studs wide — a clean 8×16 Roblox goal.
-	  Those exact values are now hardcoded as the FALLBACK net
-	  (NET_CROSSBAR_STUDS / NET_WIDTH_STUDS): when the live post scan
-	  misses, the top-bin test uses 0.7 × (8 - 3) = 3.5 studs above your
-	  root instead of the old blind 4-stud guess. When the live scan
-	  DOES find the posts, the real measured net always wins.
-	•  🦘 JUMP REACH ANSWER: a Roblox jump lifts your root ~7 studs
-	  (hands then reach ~12 studs off the ground), so jump + dive
-	  comfortably covers the full 8-stud net — the top bin (above
-	  ~5.6 studs) is well inside jump reach.
-	•  ⚖️ TOP_BIN_JUMP_HEIGHT removed: the screenshot net replaced the
-	  blind fallback (see tryAutoJump).
-
-	v2.38 (top-bin jump now driven by the REAL measured goal):
-	•  📏 MEASURED-NET TOP-BIN JUMP — searched the Blue Lock Skibidi
-	  fandom thoroughly for goal/net dimensions and GK jump-reach numbers:
-	  it PUBLISHES NEITHER. Searched the wiki for "goal net size", "studs
-	  size dimensions net goal height", "goalkeeper dive jump height reach"
-	  — no dimension results; the wiki only describes moves in words (e.g.
-	  Gagamaru's Leap/Perfect Save as "dives to catch the ball"), no studs.
-	  So the script MEASURES the real in-game goal at runtime instead (it
-	  already reads the actual goalposts' width + crossbar height in
-	  scanGoal). The top-bin jump is now data-driven off that REAL measured
-	  net: jump when the predicted impact reaches TOP_BIN_JUMP_FRACTION
-	  (0.7) of the measured goal height — the top 30% of the real net (the
-	  top bin, where a flat dive can't reach). Falls back to the fixed
-	  TOP_BIN_JUMP_HEIGHT (4 studs) if the goal isn't detected. Tune
-	  TOP_BIN_JUMP_FRACTION: 0.8 = top corner only, 0.5 = jump more often.
-	•  🎯 This is the concrete answer to "how big is the net": the AI
-	  reads the actual in-game net and jumps for balls heading to the top
-	  of that actual net, instead of a hardcoded stud guess.
-
-	v2.37 (top bins: jump + dive reach):
-	•  🎯 TOP-BIN JUGGLE FIX — top-bin shots RISE during their initial
-	  flight (you must kick up to aim at the top corner), and the old
-	  "any rise > 2 studs/s = juggle" rule misread them as juggles, so the
-	  keeper stood still ("JUGGLE — SAFE") and the ball went into the top
-	  bin. A real juggle is a controlled ball and never reaches shot speed,
-	  so a rising ball at shot speed (≥ MIN_DIVE_SPEED) is now a SHOT.
-	•  🦘 TOP-BIN AUTO-JUMP — researched mechanic (community observation;
-	  the fandom GK guides publish no reach numbers, this is how keepers
-	  save top corners in-game): a keeper who JUMPS and then DIVES reaches
-	  HIGHER than a flat dive. The AI now fires a local jump RIGHT BEFORE
-	  the dive whenever the predicted impact is ≥ TOP_BIN_JUMP_HEIGHT
-	  (4 studs) above the keeper's root. Works at all four dive sites
-	  (loft catch, punch out, slow save, main dive) with one shared rule.
-	•  Safety: both local jump methods (ChangeState(Jumping) = the
-	  standard LocalScript trick, Jump() = server API many games allow
-	  from clients) are pcall-wrapped — if the game restricts both, it's
-	  a clean no-op and the dive fires exactly as before. 0.6s cooldown
-	  so it never jump-spams; low balls never jump.
-	•  Config: AUTO_JUMP_TOP_BIN (master switch — turn off if the game's
-	  dive animation already hops), TOP_BIN_JUMP_HEIGHT, AUTO_JUMP_COOLDOWN.
-	•  Console prints "🦘 TOP-BIN JUMP (impact N studs up)" when it fires.
-
-	v2.36 "Full Roster Intel"
-
-	v2.36 (every in-game style researched + verified detected):
-	•  📋 FULL ROSTER VERIFIED — all 18 in-game styles (Isagi, Gagamaru,
-	  Reo, Chigiri, Bachira, Nagi, Sae, Aiku, Barou, Yukimiya, Rin, Don
-	  Lorenzo, Kaiser, Shidou, Luffy, Ronaldo, Dio, Ichigo) now have a
-	  CHAR_PROFILE (how they threaten: aerial flag, bomb threshold, height
-	  bonus, signature) + detectable moves + counters. Simulation S17
-	  spawns one move per character and verifies ALL 18 are detected.
-	•  🔎 RESEARCH UPDATES (Blue Lock Skibidi fandom + fan wikis):
-	  - BACHIRA is IN GAME now (10%) — profile updated from "UPCOMING";
-	    Schizophrenic Shot BENDS MID-AIR (forced read), Flour Ginga
-	    ignores hitboxes, Little Bee = 10s speed boost.
-	  - YUKIMIYA's Gyro Shot is a HIGH shot with a violent late curve —
-	    profile now aerial + 6 studs height bonus.
-	  - CHIGIRI's 44° Red Panther Sniper is a TOP-CORNER placement shot
-	    (low power + curve, 19m left flank) — snipe counters now reach 6
-	    studs higher.
-	  - RIN = "highest accuracy in-game, timing-charged" (Puppeteer =
-	    forced read, already armed); NAGI Black Hole Trap = instant
-	    control from any pass; DIO Time Stop = 3s (shot comes after);
-	    LUFFY quest-unlock kit (Roc Gun / Red Hawk autogoal); GAGAMARU
-	    Spring Jump; ISAGI Meta-Vision + Perfect Impact timing.
-	•  ⚠️ HONEST LIMIT: the fandom does not publish Ichigo's in-game move
-	  names (new character, no wiki page). His "bankai" entry stays; if a
-	  move effect you see in the console is never detected, send the exact
-	  effect name and it's a one-line add.
-
-	v2.35 "Sae / Chigiri / Bachira Detection"
-
-	v2.35 (Sae + Chigiri + Bachira detection widened):
-	•  🔍 NAME ALIAS NET — the detector matches on the in-game effect
-	  name, and those names can vary by spelling. Every plausible variant
-	  for the three styles now resolves to the same counter:
-	  - SAE: Curve / SignatureCurve / Perfection / YoullNeverSurpassMe /
-	    Elastico / Heel / Celestial / PerfectPass / Turn
-	  - CHIGIRI: PhantomSnipe / Phantom / 44Snipe / FortyFourSnipe /
-	    HighSpeed / SpeedShot / Accel / SpeedBoost / Panther
-	  - BACHIRA: Ginga / Schizophrenic / ScissorKick (singular!) /
-	    Scissors / BeeShot / LittleBeeShot / Monster / Bee
-	  - "44Snipe" and friends survive the digit-prefixed name too.
-	•  🎯 COUNTERS for the last meaningful reads: SAE magicturn/turn
-	  (MAGIC TURN FEINT — he's changing angle, don't trust the turn frame),
-	  CHIGIRI speedster (WING RUSH READ — flank threat, faster tier) and
-	  pantherrevenge/panther (PANTHER PICKUP — the ball's path is NOT a
-	  normal pass), BACHIRA monsterdribble (MONSTER DRIBBLE READ — his
-	  dribble ignores hitboxes, don't over-commit to the early angle).
-	•  ✅ 16-scenario simulation passes with zero loop errors, including
-	  a new S16 that spawns SaeCurveShot / ChigiriPhantomSnipe /
-	  BachiraFlourGinga and asserts each arms its counter.
-
-	v2.34 "Ownership / Full Roster / Curve Hold"
-
-	v2.34 (network ownership + full-roster detection + Rin curve hold):
-	•  📡 NETWORK OWNERSHIP POSSESSION — the authoritative signal: when
-	  the server gives a player CONTROL of the ball, that player's root
-	  becomes the ball's NetworkOwner (replicated, readable). Teammate
-	  owns it => NEVER dive (no more diving while our guy has it);
-	  opponent owns it => full threat even if a teammate is standing next
-	  to the ball (the old nearest-player heuristic used to flip on that).
-	  If the game leaves NetworkOwner nil, the distance heuristics take
-	  over exactly as before. Also used for shooter credit (who kicked).
-	•  🌀 RIN CURVE HOLD (why it STILL slipped in): the old abandon rule
-	  dropped the curve prime after just 3 frames (50ms) on the other
-	  side — but a curve shot's FEINT spends 0.15-0.3s on the wrong side
-	  BEFORE it bends, so the prime died mid-feint, the read re-formed
-	  post-break, and the dive arrived late. The prime now lasts the whole
-	  move alert and is abandoned only when the ball PROVES straight:
-	  20+ frames (≈0.33s) clearly ≥20 studs on the other side at shot
-	  speed. CURVE_COMMIT_LEAD 0.20→0.30 (the dive animation needs more
-	  lead on a late break).
-	•  📋 FULL-ROSTER SHOT COUNTERS — every style's shots now have a
-	  counter: Isagi directshot, Sae celestialdestruction/offbalance,
-	  Yukimiya gyro alias, Luffy rockets (wild-path read), Gagamaru
-	  scorpion, Chigiri highspeedshot (was undetectable — it had a counter
-	  but no detection entry!). All 25 styles keep their CHAR_PROFILES.
-	•  ✅ FULL SCRIPT CHECK — static audit: 0 forward references, 0
-	  duplicate declarations, 0 missing CONFIG keys, all shot moves have
-	  counters; 15-scenario simulation passes with zero loop errors.
-
-	v2.33 "Yukimiya Gyro Detection"
-
-	v2.33 (Yukimiya shots):
-	•  🌀 GYRO SHOT DETECTION — "YukimiyaGyroShot" / "GyroShot" now arms
-	  "GYRO LATE BREAK": researched signature = a HIGH shot with incredible
-	  spin that "at first looks like a miss-kick but curves at a VERY SUDDEN
-	  moment", bend side depends on which side of the field he's on.
-	  Counter: forced 2-frame read (never trust the opening direction) +
-	  commit 6 studs earlier (the late break needs the dive already moving)
-	  + extra height (it's a high shot that bends).
-	•  ⚔️ SWORD SCREW — "YukimiyaSwordScrew": vertical rotation — the ball
-	  DROPS hard then rockets into the top corner. "DIP-RISE WALL": forced
-	  read + reach 10 studs higher + bomb threshold 125 for the launch.
-	•  SAVE_EVERYTHING was ALREADY true in this file — if your Roblox copy
-	  shows it false (and dives/trajectory feel dead), you're running an
-	  OLDER paste: re-paste this file.
-
-	v2.32 "Curve Commit / Fake Hold / Fast Hands":
-	•  📐 CURVE COMMIT — a primed curve shot (Rin Killer / Sae Curve)
-	  commits the keeper to the prime side 0.2s BEFORE the normal window
-	  (the dive takes ~0.4s; the break lands at 0.5-1.0s of flight — a late
-	  commit to the true side always arrived after the ball). Abandoned
-	  only if the ball persistently goes the other way (3 frames ≥ 18 studs
-	  opposite), then the normal read resumes.
-	•  🎭 FAKE HOLD — a fake is a tap whose pop stays under 70 and then
-	  bleeds >15 studs/s; a real strike always peaks at release speed even
-	  when it bounces. "FAKE — HOLD" = no dive while the bleed is live;
-	  real shots cost zero reaction time.
-	•  🖐️ FASTER HANDS — BASE_DIVE_TIME 0.40→0.32, COMMIT_SPEED_FACTOR
-	  0.12→0.16, QUICK_READ_FRAMES 2→1, COOLDOWN_TIME 0.7→0.5.
-
-	v2.31 (Rin's Killer Shot slipping in + every style now detected):
-	•  🧵 RIN KILLER SHOT FIXED — the move the game actually spawns
-	  ("RinKillerShot") was NOT in the detection table (only old community
-	  names crashshot/kill were), so it got NO counter: no left prime, no
-	  forced read — a generic read against a STRONG curve, and it bent
-	  past the keeper sometimes. Now: "RIN CURVE WALL" = prime LEFT (it is
-	  Sae's curve but STRONGER — same left bias, harder break) + forced
-	  2-frame read + height bonus + lower bomb threshold.
-	•  📋 EVERY SKIBIDI STYLE'S MOVES DETECTED (from the Skibidi wiki kits):
-	  Rin full kit (Killer Shot, Inhumane Off The Ball, Godspeed Kill Shot,
-	  Quiet Down), Chigiri (44° Phanter Snipe, High-Speed Shot), Nagi (5
-	  Stage Volley, Jumping Turn, Skull Rush), Sae (Never Surpass Me, Half
-	  Baked), Barou (Shadow Dribbling, Black Flash, King's Return), Kaiser
-	  (Get On Your Knees, Pass Me, Dash), Don Lorenzo (Yo Michael,
-	  Unmatched Agility...), Aiku (all 5 — none existed before), Devil
-	  Fruit User (Jet Kick, Lighting Trap; Gomu-Gomu family re-attributed
-	  from Luffy — his kit is Gear 5), Luffy (Roc Gun, Red Hawk...),
-	  Ronaldo (CR7 Kick, autogoal = UNSAVEABLE-HOLD), Reo (Copy =
-	  WILDCARD READ). Each has its own counter: curve primes, forced reads,
-	  jump walls, steal alerts, stun-holds, unsaveable-holds.
-	•  🐛 PREMATURE-FORWARD FIX (the other half of the Rin miss): the
-	  SLOW-BALL branch judged speed by the smoothed EMA, which lags ~4-6
-	  frames after a release — a FAST point-blank shot (Rin's range!)
-	  read as "slow" for its first frames, fired a premature Forward
-	  dive, and its 0.7s cooldown blinded the keeper to the real side
-	  dive. The SLOW branch now requires the RAW speed to be slow too.
-	•  The HUD already shows who it's reading (⚔️ style) and which counter
-	  is armed (⚙️ counter name); the console logs each detection.
-
-	v2.30 (team tag colors + dive improvement):
-
-	v2.30 (team tag colors + dive improvement):
-	•  🎨 TEAM TAG COLORS RESTORED (green = your team, red = enemy,
-	  gray = unknown side) — the team-tracker section had been pasted
-	  TWICE; the name-tag code read the FIRST copy's table while the live
-	  refreshTeams updated the SECOND copy's table, so tags could never
-	  see a team and stayed gray. The duplicate section is gone; every-
-	  thing now reads/writes the ONE live table. No other logic touched.
-	•  📏 NEAR-POST DIVE BIAS (researched GK guide: "Move toward the
-	  near post when the attacker approaches from a wide position"): a
-	  wide striker shoots ACROSS to the near post far more often than at
-	  the far corner. While the threat is ≥ WIDE_STRIKER_LAT (18 studs)
-	  wide, the FAR side of the read costs ONE extra confirm frame. It is
-	  a timing nudge only — the read can still flip either way, so a true
-	  far-post shot is met one frame later (≈17ms), never blocked.
-	•  Config: WIDE_STRIKER_LAT.
-
-	v2.29 (slow shots going in unchallenged):
-
-	v2.29 (slow shots going in unchallenged):
-	•  🐌 SLOW SHOT DETECTOR — a released shot slower than the full
-	  side-dive tier (20-59 studs/s) is now DETECTED the frame it's read:
-	  on target + coming at us + not carried/dribbled/juggled/own-team.
-	  - Early HUD warning: "SLOW SHOT INCOMING — MOVE!" while it's still
-	    out of range, so the keeper steps up instead of watching.
-	  - Forward save from a WIDER window (34 studs / 18 lateral / 20 height
-	    vs the old 30/14/15) — a slow ball gives time to move, so the
-	    tolerances are bigger.
-	  - Fires the existing Forward dive (FireServer "Forward") with the
-	    normal cooldown; un-arms itself if the ball speeds up into
-	    full-dive territory or stops being a threat.
-	•  Config: SLOW_SHOT_REACH / SLOW_SHOT_LATERAL / SLOW_SHOT_HEIGHT.
-	•  🐛 GRAVITY SIGN FIX (the REAL reason slow shots went in): the
-	  trajectory simulator read workspace.Gravity RAW. Roblox's value is a
-	  POSITIVE magnitude (196.2) that the engine applies downward — the
-	  simulator integrates it straight into +Y-up velocity, so long flights
-	  were predicted FLYING UP. Fast shots crossed the line before the fake
-	  climb got high (saved fine); slow shots flew 100-400 studs "above the
-	  bar" in the prediction and were ruled WIDE — the keeper stood still
-	  and the slow shot rolled in. Now: gravity = -math.abs(g).
-	•  🐛 MYTEAMLABEL FUNCTION SHADOW FIXED: a pasted
-	  `local function myTeamLabel()` accessor shadowed the real string
-	  variable and returned the function itself, so stateInfo.team held a
-	  FUNCTION and updateHud's string.format("%s", ...) crashed with
-	  "bad argument #2 to 'format' (string expected, got function)" every
-	  frame while tracking. The accessor is deleted; the name resolves back
-	  to the live string.
-	•  🐛 PLAYER-LEAVE CRASH FIXED: the PlayerRemoving handler referenced
-	  playerVelStore / playerShotStats before their `local` declarations
-	  (nil globals) — the first disconnect crashed the cleanup. Both
-	  declarations moved above the handler (no logic change).
-
-	v2.27 (Shidou backheel + Dio/Stand research):
-	•  BACKHEEL COUNTER — a backheel shot is a FEINT: the animation faces
-	  one way, the ball pops out the other with a LATE curve. Fixes for
-	  "misses backheel shots":
-	  - Late-break curve tail: Magnus force holds full strength for the
-	    first 0.5s, then decays SLOWLY (0.22/s) so the late break at
-	    1-1.5s stays in the prediction (old 0.45/s decay killed it).
-	  - CURVE_CAP 220 -> 260 for late backheel breaks.
-	  - Backheel counter = forced 2-frame read: wait for the release, then
-	    commit to the ball's TRUE direction (never the animation direction).
-	•  STAND USER (DIO) RESEARCH — Timestop lasts 3s and the shot comes
-	  AFTER it ends: timestop/barrage counters now arm the AI for 6s (not
-	  4s), and the late-spike detector catches the frozen->released speed
-	  explosion when time resumes. Stand Shot / Remote Volley armed 6s.
-	• Shidou style data: explosive close-range striker — Backheel Shot
-	  (feint), Demon Rush, I'LL BEAT YOU UP (steal), Big Bang Drive
-	  (awakening bicycle kick), Demon's Wings (awakening double jump).
-
-	v2.26: RELEASE GATE — wait for the ball's release, not the opening
-	      animation (the official GK guide's core rule; kills feint dives)
-
-	v2.25 (SKIBIDI-specific data — v2.24 had accidentally used Blue Lock
-	Rivals research; re-tuned to the actual Skibidi wikis):
-	• Speed classes re-tuned to Skibidi's real roster data: Ronaldo 115
-	  (S-tier), Kaiser 125 (World Class PRECISION/quick-release), Rin 125
-	  (S+ meta, timing-charged precision), Isagi 135 (Common starter,
-	  Perfect Impact timing), Shidou 130 (close-range pressure, not the
-	  long-range sniper), Barou 125, Ichigo 128.
-	• Skibidi-specific moves added: Isagi Directed Back Heel + Luck Shot
-	  (signature power shot → LUCK WALL snap), Rin Puppeteer Control
-	  (chargeable → forced read), Bachira Flour Ginga ("ignores all
-	  hitboxes") + Little Bee (10s speed boost → wing anticipation).
-
-	v2.24 (trajectory rebuild + speed research):
-	• 📐 TRAJECTORY SYSTEM REBUILT:
-	  - ADAPTIVE TIMESTEP — the physics step shrinks as the ball speeds up
-	    (200 studs/s bombs integrate ~3x finer than slow passes), so goal-line
-	    crossing and impact interpolation are much sharper on fast shots.
-	  - MAGNUS CURVE MODEL — a real curve holds full sideways force for the
-	    first second of flight, then decays (physically how Magnus force
-	    works) instead of fading from the start.
-	  - ROLLING FRICTION — a ball on the pitch decelerates after bounces, so
-	    post-deflection predictions stop "skating forever".
-	  - PATH DOTS now extend 0.5s PAST the impact so you can see where the
-	    ball is going after it gets past you.
-	• 📊 SPEED RESEARCH — every style's bomb threshold re-tuned from the
-	  community speed data: Kaiser Impact = fastest shot in the game
-	  (keeper left "completely stunned"; best momentum retention) → 118 +
-	  SNAP; Final Shot / Direct Shot top speed tier → SNAP; longest-range
-	  tier (Big Bang Drive, Joker, aerial I am Nagi, Final Shot) lowered;
-	  Shidou 125 (Demon Wings flow increases shot speed), Dio 115 (time
-	  stop), Luffy 125, Chigiri 128, Kurona 125, Ichigo 122, Kunigami 122,
-	  Bachira 130, Isagi 128, Nagi 125, Otoya 135.
-
-	v2.23 (style sync fix):
-	• 🐛 NAME TAGS NOW LIVE — the tag renderer runs from the main loop
-	  (self-throttled to 0.5s). New players get their style tag on join,
-	  and style changes (yours or anyone's) update within ~1.5s. Previously
-	  tags were drawn only once at boot, so new joiners had no tag and style
-	  changes kept showing the OLD style.
-	• 🧹 PlayerRemoving cleanup — leaving players clear their style,
-	  velocity, and shot-power data.
-
-	v2.22 (full line-by-line audit + deep GK-guide research):
-	• 🐛 FAKE GOAL FIX — a "concede" now requires a CREDITED SHOT within the
-	  last 2.5s AND the ball crossing at speed. Post-save rebounds, wide
-	  balls crossing outside the posts, and carried balls no longer count
-	  as goals/our goals.
-	• 🐛 DIVES BEFORE THE SHOT FIX — new CARRY CORRELATION: when the ball is
-	  close to a player AND moving WITH them (any speed), it's carried/
-	  dribbled, not shot — no dive. This also kills shot FEINTS (animation
-	  without a release: the ball stays glued to the fake's feet).
-	• 🐛 SILENT BUG — refreshTeams referenced an undefined "character"
-	  (TeamColor source was dead); fixed.
-	• 🎈 AERIAL BIAS (researched GK guide: "if shoots comes from air just
-	  jump... don't do left or right dive, try front dive") — a high,
-	  descending ball arriving near center is now met with a Forward save.
-	• 📚 MORE RESEARCHED COUNTERS — Sae Curve Shot ("always goes left" → the
-	  read is PRIMED left before release), Nagi Heavy (chargeable: forced
-	  read), Barou Long Shot/Devour, Rin Crash Shot/Kill (close = high: jump
-	  wall), Bachira Bon.
-
-	v2.21: CRITICAL FIX — tNow forward-reference crash (the LOOP ERROR spam)
-	v2.20: hitbox-aware saves, GK move prediction (aim at where you'll be)
-	v2.19: striker move prediction  •  v2.18: charge read (juggle tell)
-	v2.17: true trajectory physics (gravity + bounce), LOFT CATCH
-	v2.16: Stand OP, extreme speed, 84-move detection, full roster
-	v2.13: punch out  •  v2.12: juggle/rainbow detection
-	v2.10: BOMB/QUICK urgency tiers  •  v2.9: in-hand saves, shoot forecast
-	v2.8: team/possession  •  HOTFIX 2.16.2: the commitBonus nil-add crash
+	History of in-game misses (why each threshold is what it is) is in CHANGELOG.md —
+	each version was written against a goal that should have been saved or a dive
+	that should not have happened. Read it before changing a number.
 ]]
 -- ==========================================
 -- SERVICES
@@ -462,9 +44,62 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Stats             = game:GetService("Stats")
 
 local LocalPlayer = Players.LocalPlayer
-local DiveEvent   = ReplicatedStorage:WaitForChild("Events"):WaitForChild("GKDive")
 local Camera      = workspace.CurrentCamera
 local UP          = Vector3.new(0, 1, 0)
+-- the trajectory integrator runs hundreds of steps a frame: hoist the two math
+-- functions it leans on out of the global table (an upvalue read beats a global
+-- lookup + table index, and this is the innermost loop in the script)
+local sqrt, abs = math.sqrt, math.abs
+
+-- ==========================================
+-- 🎯 DIVE REMOTE — resolved defensively, never a hard dependency (v2.44)
+-- The old boot line was
+--   ReplicatedStorage:WaitForChild("Events"):WaitForChild("GKDive")
+-- which YIELDS FOREVER when the game does not have exactly that remote: no
+-- HUD, no prediction, no error — a silently dead script (very easy to mistake
+-- for "the AI doesn't work"). Now: a bounded search over the usual names, and
+-- if nothing is found the AI still runs every gate (so you can watch it decide)
+-- and each dive becomes a logged no-op that names the remote it wanted.
+-- ==========================================
+local DIVE_EVENT_PARENTS = { "Events", "GKEvents", "Remotes" }
+local DIVE_EVENT_NAMES   = { "GKDive", "GK Dive", "Dive", "KeeperDive", "GoalkeeperDive" }
+
+local function findDiveRemote()
+	local parents = {}
+	parents[#parents + 1] = ReplicatedStorage
+	for _, folderName in ipairs(DIVE_EVENT_PARENTS) do
+		local f = ReplicatedStorage:FindFirstChild(folderName)
+		if not f then
+			-- the game may still be streaming it in: bounded wait, never forever
+			local ok, inst = pcall(function() return ReplicatedStorage:WaitForChild(folderName, 3) end)
+			if ok then f = inst end
+		end
+		if f then parents[#parents + 1] = f end
+	end
+	for _, container in ipairs(parents) do
+		for _, name in ipairs(DIVE_EVENT_NAMES) do
+			local inst = container:FindFirstChild(name)
+			if inst and inst:IsA("RemoteEvent") then return inst, container.Name .. "." .. name end
+		end
+		local ok, first = pcall(function()
+			for _, child in ipairs(container:GetChildren()) do
+				if child:IsA("RemoteEvent")
+					and string.lower(child.Name):find("dive", 1, true) then
+					return child
+				end
+			end
+		end)
+		if ok and first then return first, container.Name .. "." .. first.Name end
+	end
+	return nil
+end
+
+local DiveEvent, diveEventPath = findDiveRemote()
+if not DiveEvent then
+	warn("[Auto-Dive] ⚠️ no dive RemoteEvent found (looked for: "
+		.. table.concat(DIVE_EVENT_NAMES, ", ") .. ") — prediction + HUD stay live, "
+		.. "dives will be logged as NO-DIVE. Set DIVE_EVENT_NAMES to your game's remote name.")
+end
 
 -- ==========================================
 -- 🧠 CONFIG (all tunables, one place)
@@ -646,6 +281,14 @@ local CONFIG = {
 	-- 🧤 GK MOVE PREDICTION (aim at where the keeper WILL be when the ball arrives)
 	GK_PREDICT_MAX        = 0.5,    -- max lead time (s) to extrapolate the keeper
 
+	-- 📏 HONEST WIDE MARGINS (the v2.41 wide/over ruling, now configurable)
+	-- A predicted crossing further than this outside the post, or above the bar,
+	-- CANNOT score — the keeper stays on its feet instead of diving at a pass
+	-- that is sailing past the goal. Raise them to be lazier, lower to dive at
+	-- more corner balls.
+	WIDE_POST_MARGIN      = 3.5,    -- studs beyond the post = guaranteed miss
+	BAR_OVER_MARGIN       = 4,      -- studs above the bar = guaranteed miss
+
 	-- 🎯 HITBOX-AWARE CATCH (the game decides saves by hitbox overlap)
 	HITBOX_EXTRA          = 0.5,    -- extra overlap margin beyond the ball radius (studs)
 
@@ -681,7 +324,9 @@ local CONFIG = {
 	-- Slow-ball handling: a keeper saves a slow on-target shot by STEPPING
 	-- FORWARD to it (catch/push), not a side dive. A "smother" is a smother
 	-- at the feet; a "slow forward" is a step up to a slow on-target shot.
-	USE_SWEEPER_SMOOTHER  = true,
+	-- v2.44: this used to be USE_SWEEPER_SMOOTHER — declared and never read, so
+	-- switching it off did nothing at all. It is now wired to the step-up save.
+	USE_SLOW_FORWARD_SAVE = true,   -- false = never step off the line for a slow ball (stay set)
 	SMOOTHER_MAX_SPEED    = 60,     -- slow enough to be a "step/save" not a "dive"
 	SMOOTHER_MAX_DIST     = 10,     -- this close to the keeper = a "smother" (at the feet)
 	SLOW_FORWARD_REACH    = 14,     -- v2.41: step-forward reach for a slow on-target shot (was 30)
@@ -697,6 +342,7 @@ local CONFIG = {
 
 	-- 🥅 GOAL DETECTION (finds the real goal for perfect on-target logic)
 	USE_GOAL_DETECTION    = true,
+	GOAL_SCAN_CAP         = 20000, -- instances a single goal lookup may visit (bounds the worst case on a huge map)
 	BALL_RADIUS           = 1.0,    -- ball radius, for on-target margins
 
 	-- 📡 STUDS DETECTION & HUD
@@ -704,13 +350,14 @@ local CONFIG = {
 	SHOW_BILLBOARD        = true,   -- floating studs label above the keeper
 	SHOW_ZONE             = true,   -- reach-zone disc on the ground under the keeper
 
-	--  STUDS HUD (the "how close is the ball" readout)
-	SHOW_STUDS_HUD        = true,   -- top-center "how close is the ball" readout
-
-	-- 🧤 GK MOVE PREDICTION (predict where YOUR dive carries you, then pick
-	-- the dive direction that best intercepts the ball's predicted position)
-	DIVE_REACH            = 10,     -- how far your dive carries you (studs)
-	DIVE_REFINE_MARGIN    = 2.0,    -- switch dive direction only if another reaches this much closer
+	-- 🧤 GK MOVE PREDICTION (v2.44): the keeper is usually MOVING when the shot
+	-- arrives, so the whole prediction is aimed at where the keeper WILL be
+	-- (extrapolated toward the ball's ETA — see aimPos in the loop). The old
+	-- "predict the dive end position and re-pick the side" helper was dead code,
+	-- and measured A/B in the sim it made things WORSE (it flipped 6 of 8 test
+	-- dives to Middle, because a straight-line reach model has no concept of the
+	-- dive hitbox or of jumping). Removed rather than wired; the extrapolation
+	-- below is what actually predicts keeper movement.
 
 	-- Prediction
 	SIM_HORIZON           = 3.5,    -- seconds of future to simulate
@@ -732,7 +379,107 @@ local CONFIG = {
 
 	-- Visuals
 	SHOW_VISUALS          = true,   -- impact point + trajectory dots
+
+	-- ⏸ HOTKEY
+	-- An executed script cannot be un-run, so the AI ships with a toggle: press it
+	-- and the keeper stops diving, the visuals go away and the HUD says PAUSED;
+	-- press it again and everything re-arms (style tags rebuild themselves).
+	-- Set to nil (or a name you prefer) if the binding is in your way — a game
+	-- that already owns the key simply means no hotkey, never an error.
+	PAUSE_KEY             = "F6",
+
+	-- 📝 CONSOLE
+	-- The AI narrates every dive, held fake, watched receiver and concede — great
+	-- while tuning, noisy while playing. VERBOSE=false mutes all of it except the
+	-- boot banner and real errors (those always print).
+	VERBOSE               = true,
 }
+
+-- ==========================================
+-- 📝 LOGGING — one gate so VERBOSE=false is genuinely quiet
+-- ==========================================
+local function log(...)
+	if CONFIG.VERBOSE then print(...) end
+end
+
+-- ==========================================
+-- ⚙️ CONFIG SANITY (v2.44)
+-- Every value above is meant to be hand-edited, and some typos are not just
+-- wrong, they are engine-breaking in a way that never mentions CONFIG:
+-- SIM_STEP_MIN = 0 makes the path array size (HORIZON / STEP_MIN) divide by
+-- zero; HISTORY_LENGTH < 4 silences the velocity sensor forever; a negative
+-- cooldown fires a dive every single frame. So clamp the structural numbers at
+-- boot and print exactly what was changed — a bad edit becomes one obvious line
+-- instead of an AI that silently stops saving.
+-- ==========================================
+local CONFIG_RULES = {
+	-- { key,                       min,    max,   fallback }
+	{ "SIM_STEP_MIN",               0.002,  0.20,  0.008 },  -- 0 = divide by zero in MAX_STEPS
+	{ "SIM_STEP_MAX",               0.003,  0.50,  0.025 },
+	{ "SIM_HORIZON",                0.25,   8.0,   3.5 },
+	{ "CURVE_DECAY",                0.0,    2.0,   0.22 },
+	{ "CURVE_FULL_TIME",            0.05,   3.0,   0.6 },
+	{ "HISTORY_LENGTH",             4,      64,    12 },      -- estimateMotion needs 4 samples
+	{ "COOLDOWN_TIME",              0.0,    5.0,   0.5 },     -- negative = dive every frame
+	{ "TACKLE_COOLDOWN",            0.0,    5.0,   0.9 },
+	{ "AUTO_JUMP_COOLDOWN",         0.0,    5.0,   0.6 },
+	{ "CENTER_TOLERANCE",           0.0,    20.0,  4.5 },
+	{ "BALL_RADIUS",                0.1,    5.0,   1.0 },
+	{ "MIN_SHOT_SPEED",             1.0,    400.0, 20 },
+	{ "MIN_DIVE_SPEED",             5.0,    500.0, 60 },
+	{ "NET_CROSSBAR_STUDS",         3.0,    30.0,  8 },
+	{ "NET_WIDTH_STUDS",            4.0,    60.0,  16 },
+	{ "TOP_BIN_JUMP_FRACTION",      0.2,    1.0,   0.7 },
+	{ "COMMIT_BASE_DIST",           3.0,    120.0, 25 },
+	{ "COMMIT_MAX_DIST",            5.0,    200.0, 48 },
+	{ "BASE_DIVE_TIME",             0.0,    2.0,   0.32 },
+	{ "PING_COMPENSATION",          0.0,    3.0,   1.0 },
+	{ "GOAL_SCAN_CAP",              2000,   2000000, 20000 },
+	{ "MAX_INTEREST_DISTANCE",      30.0,   600.0, 200 },
+	{ "MAX_IMPACT_DISTANCE",        10.0,   400.0, 120 },
+}
+
+local function validateConfig()
+	local fixes = {}
+	for _, rule in ipairs(CONFIG_RULES) do
+		local key, lo, hi, fallback = rule[1], rule[2], rule[3], rule[4]
+		local v = CONFIG[key]
+		if type(v) ~= "number" or v ~= v or v < lo or v > hi then
+			CONFIG[key] = fallback
+			fixes[#fixes + 1] = string.format("%s -> %s (was %s)", key, tostring(fallback), tostring(v))
+		end
+	end
+	-- relationships between keys a range check cannot see
+	if CONFIG.SIM_STEP_MAX < CONFIG.SIM_STEP_MIN then
+		CONFIG.SIM_STEP_MAX = CONFIG.SIM_STEP_MIN
+		fixes[#fixes + 1] = "SIM_STEP_MAX raised to SIM_STEP_MIN"
+	end
+	if CONFIG.COMMIT_MAX_DIST < CONFIG.COMMIT_BASE_DIST then
+		CONFIG.COMMIT_MAX_DIST = CONFIG.COMMIT_BASE_DIST
+		fixes[#fixes + 1] = "COMMIT_MAX_DIST raised to COMMIT_BASE_DIST"
+	end
+	if CONFIG.MIN_DIVE_SPEED < CONFIG.MIN_SHOT_SPEED then
+		CONFIG.MIN_SHOT_SPEED = CONFIG.MIN_DIVE_SPEED
+		fixes[#fixes + 1] = "MIN_SHOT_SPEED clamped to MIN_DIVE_SPEED (a slow tier below the dive tier is a contradiction)"
+	end
+	local ballNameCount = 0
+	for _ in pairs(CONFIG.BALL_NAMES) do ballNameCount = ballNameCount + 1 end
+	-- (pairs, not # : BALL_NAMES is a SET keyed by name, so # is always 0)
+	if ballNameCount == 0 then
+		CONFIG.BALL_NAMES = { ball = true, football = true, soccerball = true,
+			ballpart = true, gkball = true, matchball = true, theball = true,
+			mainball = true, gameball = true, ballmodel = true, ballhitbox = true }
+		fixes[#fixes + 1] = "BALL_NAMES was empty, restored the defaults (the tracker cannot run without it)"
+	end
+	return fixes
+end
+
+-- ⚙️ Run it RIGHT HERE, before anything derives from CONFIG: MAX_STEPS is
+-- math.ceil(SIM_HORIZON / SIM_STEP_MIN), so a 0 or nil step size must already be
+-- repaired by the time that line runs (validating at boot instead — as an earlier
+-- revision of this release did — lets the path array allocate from the broken
+-- value first; it pre-allocates MAX_STEPS rows, so an infinite one is a hang).
+local configFixes = validateConfig()
 
 -- Goal part names — edit here if your game names them differently.
 local GOAL_LEFT_NAMES  = { leftpost = true, postleft = true, leftgoalpost = true, ["left goalpost"] = true }
@@ -748,6 +495,12 @@ local function distBand(d)
 	if d <= CONFIG.BAND_LONG       then return "LONG" end
 	return "ULTRA"
 end
+
+-- ⏸ Set by the CONFIG.PAUSE_KEY hotkey. Declared at the top because the tag /
+-- HUD updaters AND the loop all read it: declaring it next to its setter (much
+-- later in the file) would silently turn those readers into nil GLOBAL lookups —
+-- which reads as "tags never appear", not as an error.
+local aiEnabled = true
 
 -- Shared per-frame state (written by the main loop, read by the HUD updaters).
 -- MUST be declared before any function that references it.
@@ -826,9 +579,24 @@ end
 local cachedBall   = nil
 local lastBallScan = 0
 
+-- Every built-in ball name contains "ball" (Ball, GK_Ball, soccer-ball,
+-- matchball…), so the DescendantAdded firehose can reject almost every name
+-- with ONE plain substring test instead of lower+gsub-ing it. If you add a
+-- BALL_NAMES key that does not contain "ball", the fast path turns itself off.
+local BALL_FILTER = "ball"
+for configured in pairs(CONFIG.BALL_NAMES) do
+	if not string.lower(configured):find("ball", 1, true) then
+		BALL_FILTER = nil
+		break
+	end
+end
+
 local function ballNameMatch(name)
-	local n = string.lower(name or ""):gsub("[^%a%d]", "")
-	return CONFIG.BALL_NAMES[n]
+	local lower = string.lower(name or "")
+	if BALL_FILTER and not lower:find(BALL_FILTER, 1, true) then
+		return nil
+	end
+	return CONFIG.BALL_NAMES[lower:gsub("[^%a%d]", "")]
 end
 
 local function resolveBallPart(inst)
@@ -871,16 +639,6 @@ local function scanBall()
 	cachedBall = findBall()
 	lastBallScan = os.clock()
 end
-
-workspace.DescendantAdded:Connect(function(inst)
-	if (not cachedBall or not cachedBall.Parent) and ballNameMatch(inst.Name) then
-		local part = resolveBallPart(inst)
-		if part then
-			cachedBall = part
-			lastBallScan = os.clock()
-		end
-	end
-end)
 
 -- ==========================================
 -- 🏟️ TEAM TRACKER (home vs away — teammates are never threats)
@@ -2257,6 +2015,24 @@ local MOVE_PREFIXES = {
 	"kurona", "hiori", "igaguri", "devilfruit", "dio", "luffy",
 }
 
+-- ⚡ v2.44: the in-game effect names are "<Character><Move>" (ShidouDoubleJumpShot),
+-- so the whole cross product of prefix x move can be precomputed ONCE at load.
+-- DescendantAdded then costs a single hash lookup for the 99.99% of instances
+-- that are particles and attachments — the old handler lower+gsub-normalised
+-- EVERY name and then tried 33 prefix strips against ~150 moves.
+local MOVE_EXACT_INFO, MOVE_EXACT_KEY = {}, {}
+for key, info in pairs(MOVE_INFO) do
+	MOVE_EXACT_INFO[key] = info
+	MOVE_EXACT_KEY[key]  = key
+end
+for _, prefix in ipairs(MOVE_PREFIXES) do
+	for key, info in pairs(MOVE_INFO) do
+		local full = prefix .. key
+		MOVE_EXACT_INFO[full] = info
+		MOVE_EXACT_KEY[full]  = key
+	end
+end
+
 local function lookupMove(key)
 	if MOVE_INFO[key] then
 		return MOVE_INFO[key], key
@@ -2270,46 +2046,71 @@ local function lookupMove(key)
 	return nil, nil
 end
 
--- Move-effect detection: when a named move spawns in workspace, the opponent
--- just pressed that ability -> ability alert for 4s + counter mode switch.
+-- 🎯 ONE workspace watcher (v2.44). The ball tracker and the move-effect
+-- detector used to be two separate DescendantAdded connections, each doing
+-- string work on every instance the game ever spawns. They are one dispatch now,
+-- with cheap rejects first: length, then the exact-name hash, and only then the
+-- normalise-and-strip path for odd spellings.
+local function armAbility(info, moveKey, rawName, counterKey)
+	-- Alias keys (e.g. "phantomsnipe") point at their primary counter via
+	-- counterKey, so one counter serves every name spelling.
+	local cm = COUNTER_MODES[counterKey or (info and info.counterKey) or moveKey]
+	-- Timestop moves arm longer: the 3s stop ends, THEN the shot comes.
+	local armed = (cm and cm.armed) or 4
+	local t = os.clock()
+	abilityAlert = {
+		char = info and info.char,
+		speed = info and info.speed,
+		aerial = info and info.aerial,
+		barrage = info and info.barrage,
+		move = rawName,
+		moveKey = moveKey,
+		counterKey = info and info.counterKey,
+		t = t,
+		expiresAt = t + armed,
+	}
+	log(string.format("[AI-Dive] 🎯 %s detected — counter: %s", rawName, cm and cm.name or "standard"))
+end
+
 workspace.DescendantAdded:Connect(function(inst)
-	local key = normName(inst.Name)
-	local info, moveKey = lookupMove(key)
+	local name = inst.Name
+	if not name or #name < 4 then return end
+
+	-- 1) the ball (only while we do not have one — the common case costs nothing)
+	if (not cachedBall or not cachedBall.Parent) and ballNameMatch(name) then
+		local part = resolveBallPart(inst)
+		if part then
+			cachedBall = part
+			lastBallScan = os.clock()
+		end
+	end
+
+	-- 2) move effects: exact hit first (the shape the game actually uses)
+	local lower = string.lower(name)
+	local info = MOVE_EXACT_INFO[lower]
+	if info then
+		armAbility(info, MOVE_EXACT_KEY[lower], name)
+		return
+	end
+	if not lower:find("[^%a%d]") and lower:sub(1, 6) ~= "ichigo" then
+		return -- plain alphanumeric name that is not a known effect: nothing to do
+	end
+
+	local key = normName(name)
+	local moveKey
+	info, moveKey = lookupMove(key)
 	if info and moveKey then
-		-- Alias keys (e.g. "phantomsnipe") point at their primary counter
-		-- via counterKey, so one counter serves every name spelling.
-		local cm = COUNTER_MODES[info.counterKey or moveKey]
-		-- Timestop moves arm longer: the 3s stop ends, THEN the shot comes.
-		local armed = (cm and cm.armed) or 4
-		abilityAlert = {
-			char = info.char,
-			speed = info.speed,
-			aerial = info.aerial,
-			barrage = info.barrage,
-			move = inst.Name,
-			moveKey = moveKey,
-			counterKey = info.counterKey,
-			t = os.clock(),
-			expiresAt = os.clock() + armed,
-		}
-		print(string.format("[AI-Dive] 🎯 %s detected — counter: %s",
-			inst.Name, cm and cm.name or "standard"))
+		armAbility(info, moveKey, name)
 	else
 		-- 🥅 ICHIGO GENERIC CATCH-ALL (v2.40): his in-game move names are
 		-- unpublished, so ANY effect named "Ichigo<Move>" arms the ICHIGO
 		-- WALL. A plain character model named "Ichigo" (no move part) is
 		-- ignored — there must be a real move suffix after the prefix.
-		local n = normName(inst.Name)
-		local rest = (n:sub(1, 6) == "ichigo") and n:sub(7) or nil
+		local rest = (key:sub(1, 6) == "ichigo") and key:sub(7) or nil
 		if rest and #rest >= 4 then
-			abilityAlert = {
-				char = "ichigo", speed = "fast", aerial = false, barrage = false,
-				move = inst.Name, moveKey = nil, counterKey = "ichigomove",
-				t = os.clock(),
-				expiresAt = os.clock() + 4,
-			}
-			print(string.format("[AI-Dive] 🎯 %s detected — counter: ICHIGO WALL (unpublished move — send me the exact console name for a dedicated counter)",
-				inst.Name))
+			armAbility({ char = "ichigo", speed = "fast", aerial = false, barrage = false },
+				nil, name, "ichigomove")
+			log("[AI-Dive] 🎯 " .. name .. " — send me the exact console name for a dedicated Ichigo counter")
 		end
 	end
 end)
@@ -2338,7 +2139,7 @@ local function tagColorFor(plr)
 end
 
 local function updateStyleTags()
-	if not CONFIG.SHOW_STYLE_TAGS then return end
+	if not CONFIG.SHOW_STYLE_TAGS or not aiEnabled then return end
 	local now = os.clock()
 	if now - lastTagScan < 0.5 then return end
 	lastTagScan = now
@@ -2382,9 +2183,12 @@ local function updateStyleTags()
 			label.Text = "..."
 			label.Parent = bb
 
-			tag = { anchor = anchor, label = label }
+			tag = { anchor = anchor, label = label, root = nil }
 			styleTags[plr] = tag
-			tagAnchors[#tagAnchors + 1] = { player = plr, anchor = anchor }
+			tagAnchors[#tagAnchors + 1] = {
+				player = plr, anchor = anchor,
+				root = plr.Character and plr.Character:FindFirstChild("HumanoidRootPart"),
+			}
 		end
 
 		local name = styleNameByPlayer[plr] or plr.Name
@@ -2417,14 +2221,24 @@ local function updateStyleTags()
 	end
 end
 
--- Keep the tags glued above each player's head, every frame.
+-- 🏷️ Keep the tags glued above each player's head, every frame. v2.44: the root part is found ONCE and
+-- re-found only when it dies (respawn) — this ran a FindFirstChild per player
+-- per FRAME before, for a lookup that changes maybe twice a match.
 RunService.Heartbeat:Connect(function()
-	if #tagAnchors == 0 then return end
-	for _, t in ipairs(tagAnchors) do
-		local char = t.player.Character
-		local root = char and char:FindFirstChild("HumanoidRootPart")
+	local n = #tagAnchors
+	if n == 0 or not CONFIG.SHOW_STYLE_TAGS then return end
+	local lift = CONFIG.TAG_HEIGHT
+	for i = 1, n do
+		local t = tagAnchors[i]
+		local root = t.root
+		if not root or not root.Parent then
+			local char = t.player.Character
+			root = char and char:FindFirstChild("HumanoidRootPart")
+			t.root = root
+		end
 		if root then
-			t.anchor.CFrame = CFrame.new(root.Position + Vector3.new(0, CONFIG.TAG_HEIGHT, 0))
+			local rp = root.Position
+			t.anchor.CFrame = CFrame.new(rp.X, rp.Y + lift, rp.Z)
 		end
 	end
 end)
@@ -2444,6 +2258,15 @@ Players.PlayerRemoving:Connect(function(plr)
 	styleNameByPlayer[plr] = nil
 	playerVelStore[plr] = nil
 	playerShotStats[plr] = nil
+	-- v2.44: the other per-player stores too — a Player table that no longer
+	-- exists is still a live table key, so these grew for the whole session
+	-- (every join/leave in a lobby-hopping server).
+	teamCache[plr] = nil
+	lbSideByName[string.lower(plr.Name)] = nil
+	if styleTags[plr] then
+		styleTags[plr].anchor:Destroy()
+		styleTags[plr] = nil
+	end
 end)
 
 -- ==========================================
@@ -2457,60 +2280,88 @@ end)
 -- ==========================================
 local goalInfo     = nil
 local lastGoalScan = 0
+-- 🧱 v2.44: the goal is found ONCE and then remembered. The old scan walked
+-- workspace:GetDescendants() — every instance in the game, tens of thousands on
+-- a busy server — once a second, forever, purely to re-discover the same three
+-- parts. Now the parts themselves are cached: the geometry is re-measured from
+-- them (O(1) property reads), and a full tree walk only runs when a cached part
+-- disappears (goal rebuilt / removed) or something is added or removed in
+-- workspace. The walk is also capped, so one scan can never stall a frame.
+local goalParts = { left = nil, right = nil, bar = nil, model = nil }
+local goalDirty = true
+local GOAL_MEASURE_EVERY = 2  -- seconds between re-measures from the cached parts
 
-local function scanGoal(keeperPos)
-	local now = os.clock()
-	if goalInfo and (now - lastGoalScan) < 2 then
-		return goalInfo
-	end
-	if not CONFIG.USE_GOAL_DETECTION or (now - lastGoalScan) < 1 then
-		return goalInfo
-	end
-	lastGoalScan = now
+local function goalPartsAlive()
+	return (goalParts.left ~= nil and goalParts.left.Parent ~= nil)
+		and (goalParts.right ~= nil and goalParts.right.Parent ~= nil)
+end
 
-	goalInfo = nil
-
-	local leftTop, leftBase, rightTop, rightBase, crossbarY, goalModel
+local function goalFindParts()
+	local left, right, bar, model
+	local visited = 0
 	for _, obj in ipairs(workspace:GetDescendants()) do
-		local n = string.lower(obj.Name)
+		visited = visited + 1
+		-- class check FIRST: most instances in a live match are decals,
+		-- attachments, sounds and folders, and none of them need a name lowered
 		if obj:IsA("BasePart") then
-			if GOAL_LEFT_NAMES[n] then
-				leftTop  = obj.Position + Vector3.new(0, obj.Size.Y / 2, 0)
-				leftBase = obj.Position - Vector3.new(0, obj.Size.Y / 2, 0)
-			elseif GOAL_RIGHT_NAMES[n] then
-				rightTop  = obj.Position + Vector3.new(0, obj.Size.Y / 2, 0)
-				rightBase = obj.Position - Vector3.new(0, obj.Size.Y / 2, 0)
-			elseif n == "crossbar" then
-				crossbarY = obj.Position.Y + obj.Size.Y / 2
+			local n = string.lower(obj.Name)
+			if GOAL_LEFT_NAMES[n] and not left then
+				left = obj
+			elseif GOAL_RIGHT_NAMES[n] and not right then
+				right = obj
+			elseif n == "crossbar" and not bar then
+				bar = obj
 			end
-		elseif GOAL_MODEL_NAMES[n] and obj:IsA("Model") and obj.PrimaryPart and not goalModel then
-			goalModel = obj
+		elseif obj:IsA("Model") and not model and obj.PrimaryPart then
+			if GOAL_MODEL_NAMES[string.lower(obj.Name)] then model = obj end
 		end
+		if left and right and bar then break end
+		if visited >= CONFIG.GOAL_SCAN_CAP then break end
 	end
+	goalParts.left, goalParts.right, goalParts.bar, goalParts.model = left, right, bar, model
+end
 
-	-- Case A: explicit posts
-	if leftTop and rightTop and leftBase and rightBase then
-		local width     = (rightTop - leftTop).Magnitude
-		local halfWidth = width / 2
-		local linePos   = (leftBase + rightBase) / 2
-		local axis      = (rightTop - leftTop).Unit
-		local n1        = axis:Cross(UP)
-		-- The goal mouth faces the field = the side the keeper stands on.
-		local normal = (keeperPos - linePos):Dot(n1) >= 0 and n1 or -n1
-		local bar = crossbarY or math.min(leftTop.Y, rightTop.Y)
-		local barHeight = bar - math.min(leftBase.Y, rightBase.Y)
+local function goalMeasure(keeperPos)
+	local left, right, bar, goalModel = goalParts.left, goalParts.right, goalParts.bar, goalParts.model
+	local info = nil
 
-		-- Sanity: reasonable size, keeper actually in front of this goal.
-		if halfWidth >= 3 and halfWidth <= 30
-			and barHeight >= 3 and barHeight <= 20
-			and (keeperPos - linePos).Magnitude < 60
-			and (keeperPos - linePos):Dot(normal) > 2 then
-			goalInfo = { linePos = linePos, axis = axis, normal = normal, halfWidth = halfWidth, crossbarY = bar }
+	-- Case A: explicit posts (the cheap, exact path)
+	if left and right then
+		local halfY = left.Size.Y / 2
+		local leftTopY  = left.Position.Y + halfY
+		local leftBaseY = left.Position.Y - halfY
+		local rHalfY    = right.Size.Y / 2
+		local rightTopY = right.Position.Y + rHalfY
+		local barY = bar and (bar.Position.Y + bar.Size.Y / 2) or math.min(leftTopY, rightTopY)
+
+		local dx = right.Position.X - left.Position.X
+		local dy = rightTopY - leftTopY
+		local dz = right.Position.Z - left.Position.Z
+		local width = sqrt(dx * dx + dy * dy + dz * dz)
+		if width > 0 then
+			local halfWidth = width / 2
+			local linePos = Vector3.new(
+				(left.Position.X + right.Position.X) / 2,
+				(leftBaseY + (right.Position.Y - rHalfY)) / 2,
+				(left.Position.Z + right.Position.Z) / 2)
+			local axis = Vector3.new(dx / width, dy / width, dz / width)
+			local n1 = axis:Cross(UP)
+			-- The goal mouth faces the field = the side the keeper stands on.
+			local normal = (keeperPos - linePos):Dot(n1) >= 0 and n1 or -n1
+			local barHeight = barY - math.min(leftBaseY, right.Position.Y - rHalfY)
+
+			-- Sanity: reasonable size, keeper actually in front of this goal.
+			if halfWidth >= 3 and halfWidth <= 30
+				and barHeight >= 3 and barHeight <= 20
+				and (keeperPos - linePos).Magnitude < 60
+				and (keeperPos - linePos):Dot(normal) > 2 then
+				info = { linePos = linePos, axis = axis, normal = normal, halfWidth = halfWidth, crossbarY = barY }
+			end
 		end
 	end
 
 	-- Case B: a goal model (bbox: the mouth is the side facing the keeper)
-	if not goalInfo and goalModel then
+	if not info and goalModel and goalModel.Parent then
 		local minV, maxV = goalModel:GetBoundingBox()
 		local size   = maxV - minV
 		local center = (minV + maxV) / 2
@@ -2530,53 +2381,74 @@ local function scanGoal(keeperPos)
 			and (bar - minV.Y) >= 3 and (bar - minV.Y) <= 20
 			and (keeperPos - center).Magnitude < 60
 			and (keeperPos - center):Dot(normal) > 2 then
-			goalInfo = { linePos = linePos, axis = axis, normal = normal, halfWidth = halfWidth, crossbarY = bar }
+			info = { linePos = linePos, axis = axis, normal = normal, halfWidth = halfWidth, crossbarY = bar }
 		end
 	end
 
+	if info then
+		-- reuse the table the whole script already holds a reference to
+		if goalInfo then
+			goalInfo.linePos, goalInfo.axis, goalInfo.normal = info.linePos, info.axis, info.normal
+			goalInfo.halfWidth, goalInfo.crossbarY = info.halfWidth, info.crossbarY
+		else
+			goalInfo = info
+		end
+	else
+		goalInfo = nil
+	end
 	return goalInfo
 end
 
-
--- ==========================================
--- 🧤 GK MOVE PREDICTION (dive-intercept prediction)
--- Predict where YOUR dive will carry you (dive-end position) for each dive
--- direction, and pick the direction that best intercepts the ball's
--- predicted position. This is the "GK move prediction" — predicting where
--- your dive will carry you and choosing the direction that intercepts.
--- ==========================================
-local function diveEndPos(dir, keeperPos, camRight, camForward)
-	local reach = CONFIG.DIVE_REACH
-	if dir == "Left" then
-		return keeperPos - camRight * reach
-	elseif dir == "Right" then
-		return keeperPos + camRight * reach
-	elseif dir == "Forward" then
-		return keeperPos + camForward * reach
+local function scanGoal(keeperPos)
+	if not CONFIG.USE_GOAL_DETECTION then
+		goalInfo = nil
+		return nil
 	end
-	return keeperPos + Vector3.new(0, reach * 0.5, 0) -- Middle = stay / jump
+	local now = os.clock()
+	local haveParts = goalPartsAlive()
+	if goalInfo and haveParts and not goalDirty and (now - lastGoalScan) < GOAL_MEASURE_EVERY then
+		return goalInfo
+	end
+	-- a full tree walk is the expensive part: at most one per second, and only
+	-- when the cached parts are gone or the world changed
+	if (not haveParts or goalDirty) then
+		if (now - lastGoalScan) < 1 and goalInfo then return goalInfo end
+		goalDirty = false
+		goalFindParts()
+	end
+	lastGoalScan = now
+	return goalMeasure(keeperPos)
 end
 
--- Pick the dive direction whose dive-end position best intercepts the
--- ball's predicted position. Only switch if another direction is clearly
--- closer (by DIVE_REFINE_MARGIN), so a good camera-based read is kept.
-local function refineDiveDirection(direction, keeperPos, targetPos, camRight, camForward)
-	local bestDir, bestDist = direction,
-		(diveEndPos(direction, keeperPos, camRight, camForward) - targetPos).Magnitude
-	for _, dir in ipairs({ "Left", "Right", "Forward", "Middle" }) do
-		if dir ~= direction then
-			local d = (diveEndPos(dir, keeperPos, camRight, camForward) - targetPos).Magnitude
-			if d < bestDist - CONFIG.DIVE_REFINE_MARGIN then
-				bestDir, bestDist = dir, d
-			end
-		end
+-- 🧹 If parts vanish (goal rebuilt, map streamed out) the next scan must look
+-- again instead of waiting for the refresh interval.
+workspace.DescendantRemoving:Connect(function(inst)
+	if inst == goalParts.left or inst == goalParts.right or inst == goalParts.bar or inst == goalParts.model then
+		goalDirty = true
 	end
-	return bestDir
-end
+end)
 
 -- ==========================================
 -- SENSORS
 -- ==========================================
+-- 🗂️ ONE SAMPLE RING, ZERO PER-FRAME ALLOCATION.
+-- Four histories (ball positions, keeper positions, striker positions, speeds)
+-- used to build a fresh table every frame — ~240 tables/second of garbage, and
+-- a Lua 5.1 GC step landing inside a dive window is exactly the frame hiccup the
+-- loop then has to guard against. Callers fill a reused slot instead.
+local function sampleSlot(list, limit)
+	local n = #list + 1
+	if n > limit then
+		table.remove(list, 1)
+		n = #list + 1
+	end
+	local slot = list[n]
+	if not slot then
+		slot = {}
+		list[n] = slot
+	end
+	return slot
+end
 local posHistory = {} -- { {p = Vector3, t = number}, ... } oldest -> newest
 
 local function addHistorySample(pos, t)
@@ -2584,10 +2456,8 @@ local function addHistorySample(pos, t)
 	if last and ((t - last.t) > 0.5 or (pos - last.p).Magnitude > 100) then
 		posHistory = {} -- teleport / frozen frame: stale data, reset
 	end
-	posHistory[#posHistory + 1] = { p = pos, t = t }
-	while #posHistory > CONFIG.HISTORY_LENGTH do
-		table.remove(posHistory, 1)
-	end
+	local slot = sampleSlot(posHistory, CONFIG.HISTORY_LENGTH)
+	slot.p, slot.t = pos, t
 end
 
 -- Two-window estimator with a FAST warmup:
@@ -2632,11 +2502,19 @@ local function estimateMotion()
 	return vRecent, accel
 end
 
+local pingCache, pingCacheAt = nil, 0
 local function getNetworkPing()
+	-- v2.44: cached for 0.5s. The old version built a closure + pcall and walked
+	-- Stats.Network on EVERY call — and the loft-catch gate calls it every frame a
+	-- lofted ball is in range, the HUD ~10x a second. Ping does not move that fast.
+	local t = os.clock()
+	if pingCache and (t - pingCacheAt) < 0.5 then return pingCache end
 	local ok, ping = pcall(function()
 		return Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
 	end)
-	return (ok and ping / 1000) or 0.05
+	pingCache = (ok and (ping / 1000)) or 0.05
+	pingCacheAt = t
+	return pingCache
 end
 
 -- Cached other-player roots (refreshed at most twice a second).
@@ -2682,39 +2560,33 @@ local function refreshPlayerRoots()
 	return playerRoots
 end
 
-local function anyRootNear(roots, pos, r)
-	for _, root in ipairs(roots) do
-		if (pos - root.Position).Magnitude <= r then
-			return true
-		end
-	end
-	return false
-end
-
-local function minRootDist(roots, pos)
-	local best = math.huge
-	for _, root in ipairs(roots) do
-		local d = (pos - root.Position).Magnitude
-		if d < best then best = d end
-	end
-	return best
-end
-
 -- 🎯 HITBOX-AWARE CATCH: the game decides a save by HITBOX OVERLAP — the
 -- ball touching the keeper's parts during the dive (see
 -- ReplicatedStorage.Modules.MuchachoHitbox). We mirror that exact check so
 -- the save counter matches what the game itself counts.
+local hitboxCache = { char = nil, parts = nil, t = 0 }
 local function ballOverlapsKeeper(character, ballPos)
 	if not character then return false end
 	local pad = CONFIG.BALL_RADIUS + CONFIG.HITBOX_EXTRA
-	for _, p in ipairs(character:GetDescendants()) do
-		if p:IsA("BasePart") then
-			local c, s = p.Position, p.Size
-			if math.abs(ballPos.X - c.X) <= s.X / 2 + pad
-				and math.abs(ballPos.Y - c.Y) <= s.Y / 2 + pad
-				and math.abs(ballPos.Z - c.Z) <= s.Z / 2 + pad then
-				return true
-			end
+	-- v2.44: the PART LIST is cached for 0.5s (a full character:GetDescendants()
+	-- walk per frame, for up to 1.5s while a dive is unresolved, was the priciest
+	-- thing in the save check). Positions are still read live, so a moving
+	-- hitbox is judged exactly as before.
+	local t = os.clock()
+	local parts = hitboxCache.parts
+	if hitboxCache.char ~= character or not parts or (t - hitboxCache.t) >= 0.5 then
+		parts = {}
+		for _, p in ipairs(character:GetDescendants()) do
+			if p:IsA("BasePart") then parts[#parts + 1] = p end
+		end
+		hitboxCache.char, hitboxCache.parts, hitboxCache.t = character, parts, t
+	end
+	for _, p in ipairs(parts) do
+		local c, sz = p.Position, p.Size
+		if math.abs(ballPos.X - c.X) <= sz.X / 2 + pad
+			and math.abs(ballPos.Y - c.Y) <= sz.Y / 2 + pad
+			and math.abs(ballPos.Z - c.Z) <= sz.Z / 2 + pad then
+			return true
 		end
 	end
 	return false
@@ -2726,27 +2598,32 @@ end
 local matchStats   = { saves = 0, conceded = 0 }
 local diveWatch    = { time = 0, speed = 0, approach = 0, resolved = true }
 
--- 📦 ALL loose per-frame scalars live in ONE table (ST) so the main loop
--- stays under the VM's 60-upvalue limit (Lua 5.1-based executors).
-	local ST = {
-		cooldownUntil = 0,   -- until when the keeper is still re-arming
-		tackleUntil = 0,     -- until when the GK tackle is on cooldown (v2.40)
-		ctrlD = nil,         -- ball-to-nearest-opponent gap (controlled-ball gate)
-		ctrlT = 0,           -- when that gap sample was taken
-		stillFrames = 0,     -- frames the ball has been (nearly) motionless
-		smoothedSpeed = 0,   -- short EMA of ball speed (classification only)
-	commitDir = nil,     -- side the read has been seeing (commit discipline)
-	commitFrames = 0,    -- consecutive frames on that side
-	lastInFront = 0,     -- last time the ball was in front of the keeper
-	lastSaveTime = 0,    -- last registered save (no double-count with a goal)
-	lastConcede = 0,     -- last counted concede (dedupe)
-	lastShotReset = 0,   -- when the ball last left a still spell (spike exclusion)
-		lastWidePrint = 0,   -- last time we logged a WIDE/MISS ruling
-		lastReceiverPrint = 0, -- last time we logged a RECEIVER IN PATH block
-	pendingFlash = nil,  -- { text, color, t } big HUD flash
-	curveOtherFrames = 0, -- consecutive frames the ball PERSISTENTLY went the
-	                      -- non-prime side (abandons the curve commit at 3)
-	peakSinceShot = 0,    -- max speed since the last shot credit (fake test)
+-- 📦 ALL loose per-frame scalars live in ONE table (ST) so the main loop stays
+-- under the VM's 60-upvalue limit (Lua 5.1 executors) — adding a `local` here is
+-- free, adding one at file scope is not.
+local ST = {
+	cooldownUntil   = 0,     -- until when the keeper is still re-arming
+	tackleUntil     = 0,     -- until when the GK tackle is on cooldown (v2.40)
+	ctrlD           = nil,   -- ball-to-nearest-opponent gap (controlled-ball gate)
+	ctrlT           = 0,     -- when that gap sample was taken
+	stillFrames     = 0,     -- frames the ball has been (nearly) motionless
+	smoothedSpeed   = 0,     -- short EMA of ball speed (classification only)
+	commitDir       = nil,   -- side the read has been seeing (commit discipline)
+	commitFrames    = 0,     -- consecutive frames on that side
+	lastInFront     = 0,     -- last time the ball was in front of the keeper
+	lastSaveTime    = 0,     -- last registered save (no double-count with a goal)
+	lastConcede     = 0,     -- last counted concede (dedupe)
+	lastShotReset   = 0,     -- when the ball last left a still spell (spike exclusion)
+	lastWidePrint   = 0,     -- last time we logged a WIDE/MISS ruling
+	lastReceiverPrint = 0,   -- last time we logged a RECEIVER IN PATH block
+	pendingFlash    = nil,   -- { text, color, t } big HUD flash
+	curveOtherFrames = 0,    -- consecutive frames the ball PERSISTENTLY went the
+	                         -- non-prime side (abandons the curve commit at 20)
+	peakSinceShot   = 0,     -- max speed since the last shot credit (fake test)
+	groundY         = nil,   -- pitch level (lowest recent ball Y), refreshed 4Hz
+	groundT         = 0,     -- when that was last recomputed
+	jumpBlockedWarned = false, -- the "game owns the humanoid states" notice, once
+	pausedParked      = false,   -- the paused frame already parked the visuals/HUD
 }
 
 local function statsRateStr()
@@ -3002,6 +2879,8 @@ local function updateZone()
 end
 
 local function markIdle()
+	hideVisuals() -- v2.44: folded in. Every caller did this first and one of them
+	              -- forgetting it leaves the impact marker stuck on screen.
 	if stateInfo.active then
 		stateInfo.active = false
 		stateInfo.zoneOn = false
@@ -3051,6 +2930,7 @@ end
 -- the keeper's own in-game screenshot (≈ 8 studs tall). A standing keeper's
 -- root sits ~3 studs off the ground, so the net ABOVE the root ≈
 -- crossbar - 3 = 5 studs; the top bin is the top 30% of THAT.
+-- ==========================================
 local function fallbackGoalHeightAboveRoot()
 	return math.max(2, CONFIG.NET_CROSSBAR_STUDS - 3)
 end
@@ -3077,22 +2957,39 @@ local function tryAutoJump(impactHeightAboveRoot, goalHeightAboveRoot)
 	local ok1 = pcall(function()
 		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
 	end)
+	-- v2.44: ok1 only means "the call did not throw". Games that own the humanoid
+	-- state machine IGNORE ChangeState silently, so the documented "both local
+	-- jump methods are tried" fallback never ran (it was gated on the call
+	-- ERRORING). Ask whether the state really moved, and reach for Jump() when it
+	-- did not — Jump() is itself a no-op while airborne, so the pair can never
+	-- double-jump.
+	local moved = false
+	if ok1 then
+		local okState, st = pcall(function() return humanoid:GetState() end)
+		moved = okState and (st == Enum.HumanoidStateType.Jumping or st == Enum.HumanoidStateType.Falling)
+	end
 	local ok2 = false
-	if not ok1 then
+	if not moved then
 		ok2 = pcall(function() humanoid:Jump() end)
 	end
-	if ok1 or ok2 then
+	if (ok1 and moved) or ok2 then
 		lastAutoJump = now
-		print("[AI-Dive] 🦘 TOP-BIN JUMP (impact " .. string.format("%.1f", impactHeightAboveRoot)
+		log("[AI-Dive] 🦘 TOP-BIN JUMP (impact " .. string.format("%.1f", impactHeightAboveRoot)
 			.. " studs up" .. (goalHeightAboveRoot and string.format(" / net %.1f", goalHeightAboveRoot) or "") .. ")")
 		return true
+	elseif ok1 or ok2 then
+		-- The calls were accepted but the humanoid never left the ground: this game
+		-- owns its humanoid states. Say so ONCE — otherwise "no jump" is invisible
+		-- and the top bin quietly stays unsavable.
+		lastAutoJump = now
+		if not ST.jumpBlockedWarned then
+			ST.jumpBlockedWarned = true
+			warn("[Auto-Dive] ⚠️ top-bin jump blocked by the game (the humanoid never enters"
+				.. " Jumping) — dives still fire, just flat. AUTO_JUMP_TOP_BIN=false hides this.")
+		end
 	end
 	return false
 end
-
--- ==========================================
--- 🧠 MAIN AI PREDICTION LOOP 🧠
--- ==========================================
 
 local prevRealDepth = nil -- ball depth vs goal line, previous frame (real-time crossing)
 local lastShooterKey  = nil -- team key of whoever last kicked the ball
@@ -3129,12 +3026,99 @@ local GK = {
 	history = {},   -- { pos, t } the keeper's recent positions
 }
 
--- Pre-allocated prediction path (avoids per-frame table allocation)
-local MAX_STEPS = math.ceil(CONFIG.SIM_HORIZON / CONFIG.SIM_STEP_MIN) + 2
-local pathPos   = table.create(MAX_STEPS)
+-- 🧮 Pre-allocated prediction path. v2.44: the rows are REUSED every frame and
+-- hold plain x/y/z numbers — the integrator used to build a fresh Vector3 per
+-- step (up to ~440 steps a frame) for an array that is only ever read as
+-- numbers anyway.
+-- (the math.min is belt-and-braces: CONFIG is validated, but an array sized by a
+-- user-tunable division should never be able to blow up the load)
+local MAX_STEPS = math.min(2000, math.ceil(CONFIG.SIM_HORIZON / CONFIG.SIM_STEP_MIN) + 2)
+local pathPos   = {}
+for i = 1, MAX_STEPS do
+	pathPos[i] = { x = 0, y = 0, z = 0 }
+end
 local pathCount = 0
 
+-- 🧤 ONE DIVE PATH (v2.44). The five dive sites each repeated the same six steps
+-- (re-arm cooldown, recover stamp, save watch, impact tint, auto-jump, fire) —
+-- and they did NOT repeat them identically: the GK-tackle branch never tinted the
+-- impact marker, and every site built its own pcall closure per dive. One helper
+-- owns the sequence now, so a dive can never half-register.
+local diveBlockedWarned = false
+local function fireDive(direction, tFrame, ballSpeed, approach, cooldown, jumpImpact, jumpGoal)
+	ST.cooldownUntil = tFrame + cooldown
+	CHARGE.lastDive  = tFrame
+	diveWatch = { time = tFrame, speed = ballSpeed, approach = approach, resolved = false }
+	if impactPart then impactPart.Color = Color3.fromRGB(255, 60, 60) end
+	tryAutoJump(jumpImpact, jumpGoal)
+	if DiveEvent then
+		pcall(function() DiveEvent:FireServer(direction) end)
+	elseif not diveBlockedWarned then
+		diveBlockedWarned = true
+		warn("[Auto-Dive] ⚠️ a dive was decided (" .. tostring(direction)
+			.. ") but there is no dive RemoteEvent to fire — see DIVE_EVENT_NAMES at the top.")
+	end
+end
+
+-- ==========================================
+-- ⏸ PAUSE / RE-ARM (CONFIG.PAUSE_KEY)
+-- ==========================================
+local function setAIEnabled(on)
+	if aiEnabled == on then return end
+	aiEnabled = on
+	ST.pausedParked = false -- the loop re-parks itself on the next paused frame
+	if on then
+		if hudRefs then
+			hudRefs.line1.TextColor3 = Color3.fromRGB(225, 228, 235)
+		end
+		log("[Auto-Dive] ▶️ AI ARMED — the keeper dives again")
+	else
+		-- park everything: the loop is gated, the impact marker/dots go through
+		-- markIdle (which hides them), and the scouting tags are torn down
+		for _, tag in pairs(styleTags) do
+			tag.anchor:Destroy()
+		end
+		styleTags = {}
+		tagAnchors = {}
+		if hudRefs then
+			hudRefs.line1.Text = "⏸ PAUSED — press " .. tostring(CONFIG.PAUSE_KEY) .. " to re-arm the keeper"
+			hudRefs.line1.TextColor3 = Color3.fromRGB(255, 200, 60)
+		end
+		log("[Auto-Dive] ⏸ AI PAUSED — no dives, no saves, no tags")
+	end
+end
+
+local okInput, UserInputService = pcall(function()
+	return game:GetService("UserInputService")
+end)
+if okInput and UserInputService and CONFIG.PAUSE_KEY then
+	local okBind = pcall(function()
+		UserInputService.InputBegan:Connect(function(input, processed)
+			if processed then return end
+			if input.KeyCode == Enum.KeyCode[CONFIG.PAUSE_KEY] then
+				setAIEnabled(not aiEnabled)
+			end
+		end)
+	end)
+	if not okBind then
+		warn("[Auto-Dive] could not bind the pause key — set CONFIG.PAUSE_KEY = nil to silence this")
+	end
+end
+
+-- ==========================================
+-- 🧠 MAIN AI PREDICTION LOOP 🧠
+-- ==========================================
 local function mainStep(deltaTime)
+	-- ⏸ 0a) PAUSED: keep the loop alive (so re-arming is instant) but park
+	-- everything exactly once — running the idle path every frame would mean
+	-- ~9 property writes per frame for a keeper that is deliberately doing nothing.
+	if not aiEnabled then
+		if not ST.pausedParked then
+			ST.pausedParked = true
+			markIdle()
+		end
+		return
+	end
 	-- 0) LIVENESS GATES
 	Camera = workspace.CurrentCamera or Camera -- the game can recreate it mid-match
 	local character = LocalPlayer.Character
@@ -3146,28 +3130,58 @@ local function mainStep(deltaTime)
 		GK.history = {}
 		ST.commitDir, ST.commitFrames = nil, 0
 		prevRealDepth = nil
-		hideVisuals()
 		markIdle()
 		return
 	end
 
 	local ballPart = refreshBall()
 	if not ballPart then
-		hideVisuals()
 		markIdle()
 		return
 	end
 
+	-- ⏱ ONE CLOCK (v2.44): this used to be tick(), the deprecated epoch
+	-- wall-clock — ~0.015s steps and it JUMPS when the client clock is corrected,
+	-- mixed with os.clock() everywhere else. The controlled-ball gate divides a
+	-- gap delta by a dt taken from it, so that coarse step fed straight into the
+	-- released/controlled decision. One monotonic source now, read ONCE a frame.
 	local ballPos = ballPart.Position
-	local now     = tick()
+	local rootPos = rootPart.Position
+	local now     = os.clock()
+
+	-- 🧹 HOUSEKEEPING FIRST (v2.44). Teams, character styles, style tags and the
+	-- goal geometry are all throttled internally (0.5-2s) and they used to sit
+	-- BELOW the "ball is idle / far away" early-returns — so while the ball was
+	-- resting (every kickoff, every restart, the whole time between plays)
+	-- NOTHING refreshed. Concretely: on the exact frame the ball left a
+	-- teammate's foot the team cache could still be empty, the shot was credited
+	-- to "opp", and the keeper dove at our own kick with the middle of the net
+	-- empty. Refresh first, then judge possession.
+	refreshTeams()
+	scanCharacters()
+	updateStyleTags()
+
+	-- 🎥 CAMERA BASIS, resolved once per frame (v2.44). Every "which side is the
+	-- ball on" read used to index Camera.CFrame directly: when
+	-- workspace.CurrentCamera is nil (a tick after a respawn, or a script that
+	-- booted before the camera existed) the loop threw on the SAME line forever —
+	-- and the pcall guard throttles error printing to 1 line / 5s, so a
+	-- permanently blind keeper was easy to miss. Fall back to the keeper's own
+	-- facing, which is what a dive direction means anyway.
+	local camCF      = (Camera and Camera.CFrame) or rootPart.CFrame
+	local camRight   = camCF.RightVector
+	local camForward = camCF.LookVector
 
 	-- 1) SENSOR MEMORY (noise filtering + hiccup/teleport guards)
 	if deltaTime > 0.35 then
 		return -- frame hiccup: skip so we don't poison the history
 	end
 	addHistorySample(ballPos, now)
-	yHistory[#yHistory + 1] = ballPos.Y
-	if #yHistory > 300 then table.remove(yHistory, 1) end
+	-- 🧮 pitch level bookkeeping (v2.44): a fixed 300-slot ring of ball heights,
+	-- refreshed in place. The old version also re-scanned all 300 entries EVERY
+	-- frame (and paid an O(n) table.remove shift) to produce one number.
+	local ySlot = sampleSlot(yHistory, 300)
+	ySlot[1] = ballPos.Y
 
 	local velocity, accel
 	if CONFIG.USE_ASSEMBLY_VELOCITY then
@@ -3178,7 +3192,6 @@ local function mainStep(deltaTime)
 	end
 
 	if not velocity then
-		hideVisuals()
 		markIdle()
 		return
 	end
@@ -3213,41 +3226,47 @@ local function mainStep(deltaTime)
 			local who = netShooter or shooterPlayer
 			lastShooterKey    = who and teamKeyOf(who) or nil
 			lastShooterPlayer = who or shooterPlayer
-			lastShooterTime   = os.clock()
-			ST.lastShotReset     = os.clock()
+			lastShooterTime   = now
+			ST.lastShotReset     = now
 			ST.peakSinceShot     = 0 -- fresh credit: the fake test starts clean
-			pendingShotRecord = { player = lastShooterPlayer, t = os.clock(), maxSpeed = 0 }
+			pendingShotRecord = { player = lastShooterPlayer, t = now, maxSpeed = 0 }
 		else
 			lastShooterKey, lastShooterPlayer = nil, nil -- nobody at the ball: clear
 		end
 	end
 
 	if speed < CONFIG.MIN_INTEREST_SPEED then
-		hideVisuals()
 		markIdle()
 		return
 	end
 
-	local rootPos      = rootPart.Position
 	local distToGoalie = (ballPos - rootPos).Magnitude
 	if distToGoalie > CONFIG.MAX_INTEREST_DISTANCE then
-		hideVisuals()
 		markIdle()
 		return
 	end
 
-	-- ⏱ tNow/myKey are declared HERE (before the GK prediction block) —
-	-- everything below the ball-distance gate depends on them.
-	local tNow  = os.clock()
+	-- myKey is read AFTER refreshTeams() above, so a team assigned between two
+	-- frames (join, halftime, respawn) is honoured on the very next dive
+	-- decision instead of one frame late.
 	local myKey = teamKeyOf(LocalPlayer)
+
+	-- 🩹 The shooter's team, re-resolved every frame from the player object
+	-- instead of trusting the strike-frame snapshot (v2.44): a teammate's kick
+	-- can no longer be mis-read as an opponent's shot because the team cache
+	-- updated a frame too late, and a mid-flight team change self-heals.
+	local shooterKey = (lastShooterPlayer and teamKeyOf(lastShooterPlayer)) or lastShooterKey
+
+	-- 🥅 goal geometry (throttled inside; hoisted above the idle gates, v2.44)
+	local goal = scanGoal(rootPos)
 
 	-- 🧤 GK MOVE PREDICTION: the keeper is usually MOVING (recovering after
 	-- a dive, sweeping off the line). The save check happens where the
 	-- keeper WILL be, so aim the whole ball prediction at the keeper's
 	-- future position — extrapolated toward the ball's ETA (teleport-guarded).
 	local aimPos = rootPos
-	GK.history[#GK.history + 1] = { pos = rootPos, t = tNow }
-	if #GK.history > 24 then table.remove(GK.history, 1) end
+	local gkSlot = sampleSlot(GK.history, 24)
+	gkSlot.pos, gkSlot.t = rootPos, now
 	do
 		local n = #GK.history
 		local j = 1
@@ -3267,16 +3286,13 @@ local function mainStep(deltaTime)
 		end
 	end
 
-	local goal  = scanGoal(rootPos)
-	refreshTeams()
-
 	-- 🥅 REAL-TIME CONCEDE: a goal is counted only when the ACTUAL ball
 	-- crosses the line through the mouth (never the prediction, and a recent
 	-- save can't double-count as a goal). If WE last shot it, it's OUR GOAL.
 	if goal then
 		local realDepth = (ballPos - goal.linePos):Dot(goal.normal)
 		if realDepth > 2 then
-			ST.lastInFront = tNow
+			ST.lastInFront = now
 		end
 		if prevRealDepth and prevRealDepth > 0 and realDepth <= 0 then
 			local lateralNow = (ballPos - goal.linePos):Dot(goal.axis)
@@ -3285,20 +3301,20 @@ local function mainStep(deltaTime)
 			-- 🐛 FAKE-GOAL FIX: a goal is the RESULT of a shot — it must
 			-- happen shortly after a credited kick, at shot speed. A carried
 			-- ball walked behind you or a wide crossing is not a goal.
-			local fromShot = (tNow - ST.lastShotReset) < CONFIG.CONCEDE_SHOT_WINDOW
+			local fromShot = (now - ST.lastShotReset) < CONFIG.CONCEDE_SHOT_WINDOW
 			if inMouth and fromShot and speed > CONFIG.CONCEDE_MIN_SPEED
-				and (tNow - ST.lastConcede) > 3 and (tNow - ST.lastSaveTime) > 3 then
-				ST.lastConcede = tNow
-				local ownGoal = (myKey and lastShooterKey == myKey)
-					and (tNow - lastShooterTime) < CONFIG.SHOT_OWNER_MEMORY
+				and (now - ST.lastConcede) > 3 and (now - ST.lastSaveTime) > 3 then
+				ST.lastConcede = now
+				local ownGoal = (myKey and shooterKey == myKey)
+					and (now - lastShooterTime) < CONFIG.SHOT_OWNER_MEMORY
 				if ownGoal then
-					ST.pendingFlash = { text = "OUR GOAL!!", color = Color3.fromRGB(80, 255, 120), t = tNow }
-					print("[AI-Dive] ⚽ OUR GOAL!")
+					ST.pendingFlash = { text = "OUR GOAL!!", color = Color3.fromRGB(80, 255, 120), t = now }
+					log("[AI-Dive] ⚽ OUR GOAL!")
 				else
 					matchStats.conceded = matchStats.conceded + 1
 					diveWatch.resolved = true
-					ST.pendingFlash = { text = "GOAL...", color = Color3.fromRGB(255, 60, 60), t = tNow }
-					print("[AI-Dive] 🥅 CONCEDED")
+					ST.pendingFlash = { text = "GOAL...", color = Color3.fromRGB(255, 60, 60), t = now }
+					log("[AI-Dive] 🥅 CONCEDED")
 				end
 			end
 		end
@@ -3311,7 +3327,7 @@ local function mainStep(deltaTime)
 	-- for that player. This is how the AI learns a Big Bang Drive sniper from
 	-- a weak long shot.
 	if pendingShotRecord then
-		local age = tNow - pendingShotRecord.t
+		local age = now - pendingShotRecord.t
 		if age >= 0.25 then
 			local rec, pendingShotRecord = pendingShotRecord, nil
 			if rec.maxSpeed >= 40 and rec.player then
@@ -3325,47 +3341,65 @@ local function mainStep(deltaTime)
 	end
 
 	-- 2) DYNAMIC THREAT DETECTION + 🎯 POSSESSION
-	local oppRoots      = {}
+	-- 👁 ONE ROSTER PASS (v2.44). Nearest player, opponent carrier, the carry
+	-- correlation, the controlled-ball gap, the nearest-opponent distance and the
+	-- "is a player under the ball" juggle test were SIX separate loops over the
+	-- same refreshPlayerRoots() list — each recomputing the same distance and the
+	-- same team lookup (and one allocating an oppRoots table every frame). With
+	-- 20 players that was ~120 distance solves per frame for six numbers.
 	local carrierKey    = nil
 	local carrierPlayer = nil
 	local carrierPos    = nil
 	local carrierDist   = math.huge
 	local nearDist      = math.huge
 	local nearPlayer    = nil
+	local isCarried     = false
+	local carryPlayer   = nil
+	local bestD         = nil      -- nearest opponent gap (controlled-ball gate)
+	local oppNear       = math.huge -- nearest OPPONENT distance (dribble / tap / striker)
+	local playerUnderBall = false
+	local carryRel2   = CONFIG.CARRY_REL_SPEED * CONFIG.CARRY_REL_SPEED
+	local carrierR    = CONFIG.BALL_CARRIER_RADIUS
+	local carryR     = CONFIG.CARRY_RADIUS
+	local controlledR = CONFIG.CONTROLLED_RADIUS
+	local underR2     = CONFIG.JUGGLE_OVERHEAD_DIST * CONFIG.JUGGLE_OVERHEAD_DIST
 	for _, e in ipairs(refreshPlayerRoots()) do
+		local ePos = e.root.Position
+		local dx, dy, dz = ballPos.X - ePos.X, ballPos.Y - ePos.Y, ballPos.Z - ePos.Z
+		local d = sqrt(dx * dx + dy * dy + dz * dz)
 		local k = teamKeyOf(e.player)
-		if not (myKey and k == myKey) then
-			oppRoots[#oppRoots + 1] = e.root
-		end
-		local d = (ballPos - e.root.Position).Magnitude
+		local teammate = (myKey ~= nil and k == myKey)
+
 		if d < nearDist then
 			nearDist, nearPlayer = d, e.player
 		end
-		-- Carrier = the closest player at a (slow) ball
-		if speed < CONFIG.DRIBBLE_MAX_SPEED and d < carrierDist
-			and d <= CONFIG.BALL_CARRIER_RADIUS then
-			carrierDist, carrierKey, carrierPlayer, carrierPos = d, k, e.player, e.root.Position
+		-- juggle drop: a player directly under an elevated ball
+		if not playerUnderBall
+			and (dx * dx + dz * dz) <= underR2 and (ballPos.Y - ePos.Y) > 2 then
+			playerUnderBall = true
 		end
-	end
-
-	-- 🤲 CARRY CORRELATION: the ball is CARRIED (hand-carry or feet-dribble,
-	-- ANY speed) when it's close to a player AND moving WITH them. A carried
-	-- ball is not a shot — no dive. This also kills shot FEINTS: the attacker
-	-- plays the shot animation without releasing, and the ball stays glued to
-	-- their feet.
-	local isCarried   = false
-	local carryPlayer = nil
-	for _, e in ipairs(refreshPlayerRoots()) do
-		if not (myKey and teamKeyOf(e.player) == myKey) then
-			local d = (ballPos - e.root.Position).Magnitude
-			if d <= CONFIG.CARRY_RADIUS and e.vel then
-				local rel = velocity - e.vel
-				if rel.Magnitude < CONFIG.CARRY_REL_SPEED then
-					isCarried = true
-					carryPlayer = e.player
-					break
+		if not teammate then
+			if d < oppNear then oppNear = d end
+			-- 🤲 CARRY CORRELATION: the ball is CARRIED (hand-carry or feet
+			-- dribble, ANY speed) when it is close to an opponent AND moving WITH
+			-- them. A carried ball is not a shot — no dive. This is also what kills
+			-- shot FEINTS: the attacker plays the shot animation without releasing
+			-- and the ball stays glued to their feet.
+			if not isCarried and d <= carryR and e.vel then
+				local rvx, rvy, rvz = velocity.X - e.vel.X, velocity.Y - e.vel.Y, velocity.Z - e.vel.Z
+				if (rvx * rvx + rvy * rvy + rvz * rvz) < carryRel2 then
+					isCarried, carryPlayer = true, e.player
 				end
 			end
+			-- controlled-ball gate input: nearest opponent gap
+			if d <= controlledR and (not bestD or d < bestD) then
+				bestD = d
+			end
+		end
+		-- Carrier = the closest player at a (slow) ball
+		if speed < CONFIG.DRIBBLE_MAX_SPEED and d < carrierDist
+			and d <= carrierR then
+			carrierDist, carrierKey, carrierPlayer, carrierPos = d, k, e.player, ePos
 		end
 	end
 
@@ -3388,8 +3422,8 @@ local function mainStep(deltaTime)
 	elseif carrierKey or carryPlayer then
 		local cKey = carrierKey or teamKeyOf(carryPlayer)
 		poss = (myKey and cKey == myKey) and "own" or "opp"
-	elseif lastShooterKey and (tNow - lastShooterTime) < CONFIG.SHOT_OWNER_MEMORY then
-		poss = (myKey and lastShooterKey == myKey) and "own" or "opp"
+	elseif shooterKey and (now - lastShooterTime) < CONFIG.SHOT_OWNER_MEMORY then
+		poss = (myKey and shooterKey == myKey) and "own" or "opp"
 	end
 
 	-- 🎯 CONTROLLED-BALL GATE (v2.40 — the "dives when they don't shoot" fix):
@@ -3403,16 +3437,8 @@ local function mainStep(deltaTime)
 	-- opponent is conservatively "controlled" — a real slow shot proves its
 	-- separation within ~3 frames (~50ms), which costs nothing because a
 	-- slow shot is exactly the ball that gives time.
+	-- (bestD comes from the single roster pass above)
 	local ballControlled = false
-	local bestD = nil
-	for _, e in ipairs(refreshPlayerRoots()) do
-		if not (myKey and teamKeyOf(e.player) == myKey) then
-			local d = (ballPos - e.root.Position).Magnitude
-			if d <= CONFIG.CONTROLLED_RADIUS and (not bestD or d < bestD) then
-				bestD = d
-			end
-		end
-	end
 	if bestD and speed <= CONFIG.DRIBBLE_MAX_SPEED then
 		local dtC = ST.ctrlT and (now - ST.ctrlT) or 0
 		local sep = 0
@@ -3440,21 +3466,21 @@ local function mainStep(deltaTime)
 	if vySign == 1 and CHARGE.lastVySign == -1 then
 		-- the ball just rose off a player's feet (a juggle touch)
 		if nearPlayer and nearDist <= CONFIG.CHARGE_JUGGLE_RADIUS
-			and (tNow - CHARGE.windowStart) <= 3 then
-			if CHARGE.cycles == 0 then CHARGE.windowStart = tNow end
+			and (now - CHARGE.windowStart) <= 3 then
+			if CHARGE.cycles == 0 then CHARGE.windowStart = now end
 			CHARGE.cycles = CHARGE.cycles + 1
 			local isEnemyCarrier = not (myKey and teamKeyOf(nearPlayer) == myKey)
 			if CHARGE.cycles >= 2 and isEnemyCarrier and distToGoalie < CONFIG.CHARGE_RANGE then
-				CHARGE.armedUntil = tNow + CONFIG.CHARGE_ALERT_TIME
+				CHARGE.armedUntil = now + CONFIG.CHARGE_ALERT_TIME
 				CHARGE.style = styleNameByPlayer[nearPlayer] or nearPlayer.Name
 				CHARGE.cycles = 0
-				print("[AI-Dive] 🎪 CHARGED SHOT — " .. CHARGE.style
+				log("[AI-Dive] 🎪 CHARGED SHOT — " .. CHARGE.style
 					.. " is juggling in front of the goal! Staying armed.")
 			end
 		end
 	end
 	CHARGE.lastVySign = vySign
-	if (tNow - CHARGE.windowStart) > 3 then
+	if (now - CHARGE.windowStart) > 3 then
 		CHARGE.cycles = 0
 	end
 
@@ -3480,8 +3506,8 @@ local function mainStep(deltaTime)
 			end
 		end
 		if sPos then
-			MOVE.history[#MOVE.history + 1] = { pos = sPos, t = tNow }
-			if #MOVE.history > 20 then table.remove(MOVE.history, 1) end
+			local mSlot = sampleSlot(MOVE.history, 20)
+			mSlot.pos, mSlot.t = sPos, now
 			-- velocity over the last ~PREDICT_TIME of movement
 			local n = #MOVE.history
 			local j = 1
@@ -3493,7 +3519,7 @@ local function mainStep(deltaTime)
 				local sVel = (MOVE.history[n].pos - MOVE.history[j].pos) / dt
 				if sVel.Magnitude > CONFIG.PREDICT_MIN_SPEED then
 					MOVE.pos = MOVE.history[n].pos + sVel * CONFIG.PREDICT_TIME
-					local sLat = (MOVE.pos - rootPos):Dot(Camera.CFrame.RightVector)
+					local sLat = (MOVE.pos - rootPos):Dot(camRight)
 					if sLat > 3 then
 						MOVE.side = "Right"
 					elseif sLat < -3 then
@@ -3515,10 +3541,9 @@ local function mainStep(deltaTime)
 
 	-- ⚔️ STYLE AWARENESS: who is attacking? Adapt the keeper's thresholds.
 	-- A fresh move-effect alert (last ~2.5s) overrides the character guess.
-	scanCharacters()
 	local attackerPlayer = (poss == "opp") and (carrierPlayer or lastShooterPlayer) or nil
 	local attackerChar, profile
-	if abilityAlert and (tNow - abilityAlert.t) < 2.5 then
+	if abilityAlert and (now - abilityAlert.t) < 2.5 then
 		attackerChar = abilityAlert.char
 		profile = CHAR_PROFILES[attackerChar]
 	elseif attackerPlayer then
@@ -3537,7 +3562,7 @@ local function mainStep(deltaTime)
 		end
 	end
 	-- Ability alert (move just fired): even more aggressive for 4 seconds.
-	if abilityAlert and abilityAlert.expiresAt > tNow then
+	if abilityAlert and abilityAlert.expiresAt > now then
 		if abilityAlert.aerial then
 			effHeightMax = math.max(effHeightMax, CONFIG.REACH_HEIGHT_MAX + 10)
 		end
@@ -3552,7 +3577,7 @@ local function mainStep(deltaTime)
 	-- 🎮 COUNTER MODE: a specific move just fired -> switch to that move's
 	-- DEDICATED counter (every ability has its own response, see COUNTER_MODES).
 	local activeMode = nil
-	if abilityAlert and abilityAlert.expiresAt > tNow then
+	if abilityAlert and abilityAlert.expiresAt > now then
 		local cm = COUNTER_MODES[abilityAlert.counterKey or abilityAlert.moveKey]
 		if cm then
 			activeMode = cm
@@ -3580,7 +3605,7 @@ local function mainStep(deltaTime)
 	-- the keeper goes FULL OP: 150-stud reach, bomb threshold 110, re-arm in
 	-- 0.35s, and anything moving is met at full speed.
 	local standOp = false
-	if abilityAlert and abilityAlert.expiresAt > tNow then
+	if abilityAlert and abilityAlert.expiresAt > now then
 		local ap = CHAR_PROFILES[abilityAlert.char]
 		if ap and ap.stand then standOp = true end
 	end
@@ -3595,7 +3620,7 @@ local function mainStep(deltaTime)
 
 	-- 🎪 CHARGED SHOT (juggle tell still live): the next shot is an explosive
 	-- aerial — meet it like a bomb, from higher up.
-	local charged = (tNow < CHARGE.armedUntil)
+	local charged = (now < CHARGE.armedUntil)
 	if charged then
 		effBombSpeed = math.min(effBombSpeed, 120)
 		effHeightMax = math.max(effHeightMax, CONFIG.REACH_HEIGHT_MAX + 8)
@@ -3604,10 +3629,11 @@ local function mainStep(deltaTime)
 	-- 🚀 LATE-SPIKE DETECTOR (Perfect Impact & friends): a shot that suddenly
 	-- explodes in speed mid-flight is met instantly, whatever else it is.
 	local speedSpike = false
-	speedHistory[#speedHistory + 1] = { t = tNow, s = speed }
-	while #speedHistory > 0 and (tNow - speedHistory[1].t) > 0.4 do
+	while #speedHistory > 0 and (now - speedHistory[1].t) > 0.4 do
 		table.remove(speedHistory, 1)
 	end
+	local sSlot = sampleSlot(speedHistory, 45)   -- 45 frames ≈ 0.75s, generous vs the 0.4s window
+	sSlot.t, sSlot.s = now, speed
 	do
 		-- Ignore the strike's own launch (first 0.12s after a reset)
 		local windowStart = ST.lastShotReset + 0.12
@@ -3641,7 +3667,7 @@ local function mainStep(deltaTime)
 	local fakeHold = false
 	local freshPopConfirm = false
 	do
-		local sinceShot = tNow - ST.lastShotReset
+		local sinceShot = now - ST.lastShotReset
 		if speed > 5 then
 			if sinceShot < 1.5 and speed > ST.peakSinceShot then
 				ST.peakSinceShot = speed
@@ -3693,7 +3719,7 @@ local function mainStep(deltaTime)
 		if sd <= shootRange then
 			shootChance = math.max(5, math.floor((1 - sd / shootRange) * 100))
 			-- Side forecast: strikers usually shoot from the side they're driving to
-			local lat = (fPos - rootPos):Dot(Camera.CFrame.RightVector)
+			local lat = (fPos - rootPos):Dot(camRight)
 			local nearChance = math.floor((0.55 + 0.25 * math.clamp(math.abs(lat) / 25, 0, 1)) * 100)
 			if lat >= 0 then
 				sideR, sideL = nearChance, 100 - nearChance
@@ -3724,8 +3750,11 @@ local function mainStep(deltaTime)
 	-- Dribble = CARRY (any speed) OR an OPPONENT at a slow ball. A real
 	-- struck ball clears both checks on the same frame, so point-blank
 	-- volleys are never misread as a dribble.
+	-- oppNear (nearest opponent, from the same pass) replaces the three helper
+	-- scans it used to need: anyRootNear x2 + minRootDist, each of them another
+	-- loop over the roster every single frame.
 	local isDribbling = isCarried
-		or ((speed < CONFIG.DRIBBLE_MAX_SPEED) and anyRootNear(oppRoots, ballPos, CONFIG.DRIBBLE_IGNORE_RADIUS))
+		or ((speed < CONFIG.DRIBBLE_MAX_SPEED) and (oppNear <= CONFIG.DRIBBLE_IGNORE_RADIUS))
 
 	-- 📸 RELEASE GATE (the official GK guide: "react to the ball's RELEASE,
 	-- not the opening animation — diving during a dribble animation lets
@@ -3734,13 +3763,13 @@ local function mainStep(deltaTime)
 	-- it's a dribble tap, a carry, or a shot ANIMATION (a feint). The keeper
 	-- waits for the release; the dive fires the frame the ball leaves the
 	-- feet at shot speed.
-	local isDribbleTap = anyRootNear(oppRoots, ballPos, CONFIG.RELEASE_FEET_RADIUS)
+	local isDribbleTap = (oppNear <= CONFIG.RELEASE_FEET_RADIUS)
 		and (speed < CONFIG.SHOT_RELEASE_SPEED)
 	if isDribbleTap then
 		isDribbling = true
 	end
 	local isHyperShot = ST.smoothedSpeed >= CONFIG.HYPER_SHOT_SPEED
-	local strikerDist = minRootDist(oppRoots, ballPos)
+	local strikerDist = oppNear -- nearest opponent at the ball (HUD + commit maths)
 
 	-- Projection of ball velocity onto the "toward the keeper" axis.
 	-- Positive = coming at us. Clearly negative = going away (pass/clear).
@@ -3753,18 +3782,9 @@ local function mainStep(deltaTime)
 	--   (c) It's falling almost straight down with a player under it — a
 	--       juggle drop (the carrier radius can't see the ball overhead).
 	if velocity.Y > 3 then
-		lastRiseTime = tNow
+		lastRiseTime = now
 	end
-	local playerUnderBall = false
-	for _, e in ipairs(refreshPlayerRoots()) do
-		local dx = ballPos.X - e.root.Position.X
-		local dz = ballPos.Z - e.root.Position.Z
-		if dx * dx + dz * dz <= CONFIG.JUGGLE_OVERHEAD_DIST * CONFIG.JUGGLE_OVERHEAD_DIST
-			and (ballPos.Y - e.root.Position.Y) > 2 then
-			playerUnderBall = true
-			break
-		end
-	end
+	-- (playerUnderBall comes from the single roster pass above)
 	local isJuggle = false
 	-- 🎯 TOP-BIN FIX (v2.37): a ball at SHOT SPEED is a shot, not a juggle —
 	-- even when it's RISING. Top-bin shots rise during their initial flight
@@ -3776,7 +3796,7 @@ local function mainStep(deltaTime)
 		isJuggle = true
 	else
 		local hSpeed = math.sqrt(velocity.X * velocity.X + velocity.Z * velocity.Z)
-		local recentlyRose = (tNow - lastRiseTime) < 0.7
+		local recentlyRose = (now - lastRiseTime) < 0.7
 		-- A ball skimming along the ground is NOT a juggle — the ball must be
 		-- actually elevated for the drift case to apply.
 		local ballAboveFeet = (ballPos.Y - rootPos.Y) > 1
@@ -3791,14 +3811,23 @@ local function mainStep(deltaTime)
 	-- and bounces at the line are predicted as real arcs — the path dots show
 	-- the arc too.
 	local minDistance  = math.huge
-	local impactPos    = ballPos
+	local impactX, impactY, impactZ = ballPos.X, ballPos.Y, ballPos.Z
 	local timeToImpact = 0
+	local crossY, crossLateral, crossWide = nil, nil, nil
 
-	-- Ground level = the lowest the ball has been recently (its contact height)
-	local groundY = ballPos.Y
-	for _, y in ipairs(yHistory) do
-		if y < groundY then groundY = y end
+	-- Ground level = the lowest the ball has been recently (its contact height).
+	-- v2.44: the minimum is recomputed at 4Hz (and instantly when the ball beats
+	-- it), not by a 300-entry scan on every single frame. The bounce/roll logic
+	-- only needs the level to be right to within a frame or two.
+	if (not ST.groundY) or ballPos.Y < ST.groundY or (now - (ST.groundT or 0)) > 0.25 then
+		local minY = ballPos.Y
+		for i = 1, #yHistory do
+			local row = yHistory[i]
+			if row and row[1] < minY then minY = row[1] end
+		end
+		ST.groundY, ST.groundT = minY, now
 	end
+	local groundY = ST.groundY
 	local gravity = -196.2
 	do
 		local ok, g = pcall(function() return workspace.Gravity end)
@@ -3810,10 +3839,6 @@ local function mainStep(deltaTime)
 		if ok and type(g) == "number" and g ~= 0 then gravity = -math.abs(g) end
 	end
 
-	local simPos = ballPos
-	local simVel = velocity
-	pathCount  = 0
-
 	-- Adaptive step: the step shrinks as the ball goes faster, so a 200 studs/s
 	-- bomb is integrated ~3x finer than a 60 studs/s pass — crossing and
 	-- impact interpolation get much sharper on exactly the shots that matter.
@@ -3822,83 +3847,121 @@ local function mainStep(deltaTime)
 	local crossPos = nil        -- where the trajectory crosses the line (prediction)
 	local crossOnTarget = nil   -- true = through the mouth, false = wide/over
 
-	local prevDepth  = goal and ((ballPos - goal.linePos):Dot(goal.normal)) or nil
-	local prevSimPos = ballPos
+	-- ⚙️ SCALAR INTEGRATOR (v2.44): the loop works in x/y/z numbers instead of
+	-- Vector3 objects. Per step it used to allocate one Vector3 for the velocity
+	-- update, one for the position update and up to two more for the bounce/roll
+	-- branches — over a thousand throwaway tables a second, to fill a path array
+	-- that is only ever read as numbers. The goal vectors are unpacked to
+	-- components once a frame instead of being dotted twice per step.
+	local gx, gy, gz = 0, 0, 0
+	local lgx, lgy, lgz = 0, 0, 0
+	local lax, laz = 0, 0
+	local gHalfWidth, gCrossbarY
+	local krx, krz = 0, 0
+	if goal then
+		gx, gy, gz = goal.normal.X, goal.normal.Y, goal.normal.Z
+		lgx, lgy, lgz = goal.linePos.X, goal.linePos.Y, goal.linePos.Z
+		lax, laz = goal.axis.X, goal.axis.Z
+		gHalfWidth, gCrossbarY = goal.halfWidth, goal.crossbarY
+		-- which side of the goal the KEEPER calls right (normal x UP) — the same
+		-- basis the dive direction uses, unpacked once a frame
+		local kr = goal.normal:Cross(UP)
+		krx, krz = kr.X, kr.Z
+	end
+	local bounceFriction, bounceRest = CONFIG.BOUNCE_FRICTION, CONFIG.BOUNCE_RESTITUTION
+	local rollKeep = math.max(0, 1 - CONFIG.ROLL_FRICTION * simStep)
+	local targetX, targetY, targetZ = aimPos.X, aimPos.Y, aimPos.Z
+	local curveFullTime, curveDecay = CONFIG.CURVE_FULL_TIME, CONFIG.CURVE_DECAY
+	local ballMargin = CONFIG.BALL_RADIUS * 0.5
+
+	local sx, sy, sz = ballPos.X, ballPos.Y, ballPos.Z
+	local vx, vy, vz = velocity.X, velocity.Y, velocity.Z
+	local acx, acy, acz = accel.X, accel.Y, accel.Z
+	pathCount = 0
+
+	local prevDepth = goal and ((sx - lgx) * gx + (sy - lgy) * gy + (sz - lgz) * gz) or nil
+	local psx, psy, psz = sx, sy, sz
 
 	local t = 0
 	while t < CONFIG.SIM_HORIZON and pathCount < MAX_STEPS - 1 do
 		-- Magnus physics: a real curve holds (almost) full sideways force
 		-- early in the flight, then decays — full curve for the first
 		-- CURVE_FULL_TIME, then decay (stops over-curving on noisy estimates).
-		local curveDampener = (t < CONFIG.CURVE_FULL_TIME)
+		local curveDampener = (t < curveFullTime)
 			and 1.0
-			or math.max(0, 1 - (t - CONFIG.CURVE_FULL_TIME) * CONFIG.CURVE_DECAY)
+			or math.max(0, 1 - (t - curveFullTime) * curveDecay)
 		-- Vertical: if the estimator measured free fall (accel.Y < -50) trust
 		-- THAT (the game may run custom gravity); otherwise use world gravity.
-		local gY = (accel.Y < -50) and accel.Y or gravity
-		simVel = simVel + Vector3.new(accel.X * curveDampener, gY, accel.Z * curveDampener) * simStep
-		simPos = simPos + (simVel * simStep)
-		-- Pitch bounce. v2.41 BUG FIX: a ball RESTING on the ground was
-		-- "bouncing" every step — gravity makes vy negative each step while
-		-- simPos sits exactly at groundY — so BOUNCE_FRICTION (x0.75) hit
-		-- vx/vz EVERY STEP and the predicted ball stopped dead a few studs
-		-- away. Rolling balls (slow shots, deflections, wide passes) then
-		-- never produced a line crossing, blinding the honest wide ruling
-		-- and causing false dives at balls going wide. Now a bounce only
-		-- happens when the ball is actually FALLING (vy below one step of
-		-- gravity); a resting ball rolls with vy=0 and only the per-second
-		-- rolling friction applies.
-		if simPos.Y <= groundY then
-			simPos = Vector3.new(simPos.X, groundY, simPos.Z)
-			local restThreshold = math.abs(gY) * simStep * 1.5
-			if simVel.Y < -restThreshold then
-				simVel = Vector3.new(
-					simVel.X * CONFIG.BOUNCE_FRICTION,
-					-simVel.Y * CONFIG.BOUNCE_RESTITUTION,
-					simVel.Z * CONFIG.BOUNCE_FRICTION)
-			elseif simVel.Y < 0 then
-				simVel = Vector3.new(simVel.X, 0, simVel.Z) -- resting: kill the gravity drip
+		local gY = (acy < -50) and acy or gravity
+		vx = vx + acx * curveDampener * simStep
+		vy = vy + gY * simStep
+		vz = vz + acz * curveDampener * simStep
+		sx, sy, sz = sx + vx * simStep, sy + vy * simStep, sz + vz * simStep
+		-- Pitch bounce. v2.41 BUG FIX: a ball RESTING on the ground used to
+		-- "bounce" every step (gravity makes vy negative each step while the ball
+		-- sits exactly at groundY), so BOUNCE_FRICTION hit vx/vz EVERY STEP and
+		-- the predicted ball stopped dead a few studs away — rolling balls then
+		-- never produced a line crossing, blinding the honest wide ruling and
+		-- causing false dives at balls going wide. A bounce only fires on a real
+		-- fall; a resting ball rolls with vy = 0 and only the roll friction.
+		if sy <= groundY then
+			sy = groundY
+			local restThreshold = abs(gY) * simStep * 1.5
+			if vy < -restThreshold then
+				vx, vy, vz = vx * bounceFriction, -vy * bounceRest, vz * bounceFriction
+			elseif vy < 0 then
+				vy = 0 -- resting: kill the gravity drip
 			end
 		end
 		-- Rolling friction: a ball on the pitch decelerates (post-bounce
 		-- deflections slow down instead of skating forever).
-		if simPos.Y <= groundY + 0.05 then
-			local roll = math.max(0, 1 - CONFIG.ROLL_FRICTION * simStep)
-			simVel = Vector3.new(simVel.X * roll, simVel.Y, simVel.Z * roll)
+		if sy <= groundY + 0.05 then
+			vx, vz = vx * rollKeep, vz * rollKeep
 		end
 
 		-- Closest approach is measured against where the keeper WILL BE
 		-- (aimPos), not where they are — a keeper mid-recover is moving.
-		local d = (simPos - aimPos).Magnitude
+		local ddx, ddy, ddz = sx - targetX, sy - targetY, sz - targetZ
+		local d = sqrt(ddx * ddx + ddy * ddy + ddz * ddz)
 		if d < minDistance then
 			minDistance  = d
-			impactPos    = simPos
+			impactX, impactY, impactZ = sx, sy, sz
 			timeToImpact = t
 		end
 
 		pathCount = pathCount + 1
-		pathPos[pathCount] = simPos
+		local row = pathPos[pathCount]
+		row.x, row.y, row.z = sx, sy, sz
 
 		-- 🥅 GOAL LINE CROSSING: first +depth -> -depth transition,
 		-- interpolated to the exact crossing point.
 		if goal and not crossPos and prevDepth then
-			local depth = (simPos - goal.linePos):Dot(goal.normal)
+			local depth = (sx - lgx) * gx + (sy - lgy) * gy + (sz - lgz) * gz
 			if prevDepth > 0 and depth <= 0 then
 				local f = prevDepth / (prevDepth - depth)
-				local cp = prevSimPos + (simPos - prevSimPos) * f
-				local lateral = (cp - goal.linePos):Dot(goal.axis)
-				crossPos = cp
-				crossOnTarget = (math.abs(lateral) <= goal.halfWidth + CONFIG.BALL_RADIUS * 0.5)
-					and (cp.Y <= goal.crossbarY + CONFIG.BALL_RADIUS * 0.5)
+				local cpx = psx + (sx - psx) * f
+				local cpY = psy + (sy - psy) * f
+				local cpz = psz + (sz - psz) * f
+				local dlx, dlz = cpx - lgx, cpz - lgz
+				-- axis-lateral decides on/off the mouth; the keeper-right lateral
+				-- decides which way to dive (identical to the old Cross+Dot)
+				local latAxis = dlx * lax + dlz * laz
+				crossPos = Vector3.new(cpx, cpY, cpz)
+				crossY = cpY
+				crossWide = abs(latAxis)
+				crossLateral = dlx * krx + dlz * krz
+				crossOnTarget = (crossWide <= gHalfWidth + ballMargin)
+					and (cpY <= gCrossbarY + ballMargin)
 			end
 			prevDepth = depth
 		end
-		prevSimPos = simPos
+		psx, psy, psz = sx, sy, sz
 		t = t + simStep
 	end
 
+	local impactPos = Vector3.new(impactX, impactY, impactZ)
+
 	if minDistance > CONFIG.MAX_IMPACT_DISTANCE then
-		hideVisuals()
 		markIdle()
 		return
 	end
@@ -3921,7 +3984,12 @@ local function mainStep(deltaTime)
 	if CONFIG.USE_RECEIVER_GATE then
 		local maxSteps = math.min(pathCount, math.ceil(1.2 / simStep))
 		for _, e in ipairs(refreshPlayerRoots()) do
-			if e.player ~= lastShooterPlayer then
+			-- v2.44: opponents only, exactly as the gate is documented. Our own
+			-- defender standing in the lane suppressed the dive too, and defenders
+			-- routinely let a ball go through them — that read as "receiver in
+			-- path" and left the net empty for an honest shot.
+			local rk = teamKeyOf(e.player)
+			if e.player ~= lastShooterPlayer and not (myKey and rk == myKey) then
 				local ePos = e.root.Position
 				-- A RECEIVER is in FRONT of the ball (the ball is heading to
 				-- them); the KICKER is behind it (the ball left them). This
@@ -3939,9 +4007,9 @@ local function mainStep(deltaTime)
 						local r2 = CONFIG.RECEIVER_RADIUS * CONFIG.RECEIVER_RADIUS
 						for i = 1, maxSteps do
 							local p = pathPos[i]
-							local dx = p.X - ePos.X
-							local dy = p.Y - ePos.Y
-							local dz = p.Z - ePos.Z
+							local dx = p.x - ePos.X
+							local dy = p.y - ePos.Y
+							local dz = p.z - ePos.Z
 							if dx*dx + dy*dy + dz*dz <= r2 then
 								receiverInPath = true
 								break
@@ -3964,17 +4032,17 @@ local function mainStep(deltaTime)
 		-- don't chase it into the net. (Once past the line, crossPos
 		-- disappears, which used to flip onTarget back to true and send the
 		-- keeper diving at a ball 50 studs behind the goal.)
-		definitelyMiss = ((ballPos - goal.linePos):Dot(goal.normal) < 0)
-		if crossPos then
-			local crossLateral = (crossPos - goal.linePos):Dot(goal.axis)
+		definitelyMiss = ((ballPos.X - lgx) * gx + (ballPos.Y - lgy) * gy + (ballPos.Z - lgz) * gz) < 0
+		if crossWide then
+			-- crossWide is the |axis-lateral| computed once inside the integrator
 			-- v2.41 honest wide ruling: a ball crossing 3.5 studs outside
 			-- the post (ball radius + prediction tolerance) or 4 studs over
 			-- the bar CANNOT score — the keeper stays on its feet. This is
 			-- what stopped the "he passed it wide, why did you dive" false
 			-- dives. True corner balls (crossing at the post) are untouched.
 			definitelyMiss = definitelyMiss
-				or (math.abs(crossLateral) > goal.halfWidth + 3.5)
-				or (crossPos.Y > goal.crossbarY + 4)
+				or (crossWide > goal.halfWidth + CONFIG.WIDE_POST_MARGIN)
+				or (crossY > goal.crossbarY + CONFIG.BAR_OVER_MARGIN)
 		end
 	end
 
@@ -4022,7 +4090,7 @@ local function mainStep(deltaTime)
 	-- PREDICTED keeper position (aimPos) — the side you dive to should match
 	-- where you'll be when the ball gets there.
 	local impactOffset   = impactPos - aimPos
-	local horizontalDist = impactOffset:Dot(Camera.CFrame.RightVector)
+	local horizontalDist = impactOffset:Dot(camRight)
 	local verticalDist   = impactPos.Y - aimPos.Y
 
 	local direction = CONFIG.CENTER_ACTION
@@ -4034,11 +4102,12 @@ local function mainStep(deltaTime)
 
 	-- 🥅 If the ball crosses the line, the crossing side is the truth —
 	-- immune to camera rotation and keeper-position jitter.
-	if goal and crossPos then
-		local keeperRight = goal.normal:Cross(UP)
-		local lateral2 = (crossPos - goal.linePos):Dot(keeperRight)
-		if math.abs(lateral2) > CONFIG.CENTER_TOLERANCE then
-			direction = lateral2 > 0 and "Right" or "Left"
+	if crossLateral then
+		-- the crossing side is the truth (immune to camera rotation and keeper
+		-- jitter); v2.44 measures it on the keeper-right basis inside the
+		-- integrator, so there is no Cross + Dot left in the per-frame path
+		if abs(crossLateral) > CONFIG.CENTER_TOLERANCE then
+			direction = crossLateral > 0 and "Right" or "Left"
 		end
 	end
 
@@ -4114,7 +4183,8 @@ local function mainStep(deltaTime)
 		for i, dot in ipairs(pathDots) do
 			local tDot = dotEnd * (i / (#pathDots + 1))
 			local idx  = math.clamp(math.floor(tDot / simStep) + 1, 1, pathCount)
-			dot.CFrame       = CFrame.new(pathPos[idx])
+			local rowP = pathPos[idx]
+			dot.CFrame       = CFrame.new(rowP.x, rowP.y, rowP.z)
 			dot.Color        = threatColor
 			dot.Transparency = 0.1 + 0.55 * (i / #pathDots) -- older dots fade out
 		end
@@ -4122,6 +4192,13 @@ local function mainStep(deltaTime)
 
 	-- 6) ⚡ ZERO-LATENCY DIVE EXECUTION ⚡
 	local hudLabel, hudColor
+
+	-- 🦘 The top-bin jump test is identical at every dive site — solved once here.
+	-- Judged at the PREDICTED LINE CROSSING (where the ball meets the net), never
+	-- the ball's current height: an arc that peaks high then drops low must not
+	-- make the keeper jump for a low ball (v2.41 rule, now shared by all sites).
+	local jumpImpact = (crossY or math.max(impactY, ballPos.Y)) - rootPos.Y
+	local jumpGoal   = goal and (goal.crossbarY - rootPos.Y) or nil
 
 	-- 6t) 🤾 GK TACKLE (v2.40 — fan wiki mechanic): a FORWARD save on the
 	-- ball CARRIER steals the ball — "as GK you can tackle your enemy by
@@ -4131,18 +4208,15 @@ local function mainStep(deltaTime)
 	local tackleFired = false
 	if CONFIG.USE_GK_TACKLE and poss == "opp" and ballControlled
 		and (speed < CONFIG.DRIBBLE_MAX_SPEED)
-		and (os.clock() >= ST.tackleUntil)
-		and (os.clock() >= ST.cooldownUntil)
+		and (now >= ST.tackleUntil)
+		and (now >= ST.cooldownUntil)
 		and (distToGoalie <= CONFIG.TACKLE_RANGE) then
 		tackleFired = true
 		direction = "Forward"
 		hudLabel, hudColor = "GK TACKLE!", Color3.fromRGB(255, 60, 60)
-		ST.tackleUntil = os.clock() + CONFIG.TACKLE_COOLDOWN
-		ST.cooldownUntil = tNow + effCooldown
-		CHARGE.lastDive = tNow
-		diveWatch = { time = tNow, speed = speed, approach = approachSpeed, resolved = false }
-		print(string.format("[AI-Dive] 🤾 GK TACKLE | forward save steal | @%.1f studs", distToGoalie))
-		pcall(function() DiveEvent:FireServer("Forward") end)
+		ST.tackleUntil = now + CONFIG.TACKLE_COOLDOWN
+		log(string.format("[AI-Dive] 🤾 GK TACKLE | forward save steal | @%.1f studs", distToGoalie))
+		fireDive("Forward", now, speed, approachSpeed, effCooldown, jumpImpact, jumpGoal)
 	end
 
 	-- 6a) 🎈 LOFT CATCH (deep-researched: the GK guide says never dive before
@@ -4155,9 +4229,15 @@ local function mainStep(deltaTime)
 	if speed >= CONFIG.MIN_SHOT_SPEED
 		and not isDribbling and not isCarried and poss ~= "own" and not isJuggle and not movingAway
 		and not receiverInPath -- v2.42: a lobbed pass to a receiver, not a shot
-		and (os.clock() >= ST.cooldownUntil)
+		and not definitelyMiss -- v2.44: a ball over the bar, or already past the
+		                     -- line, is NOT catchable — the lunge only burned the
+		                     -- dive cooldown and left the rebound unclaimed
+		and (now >= ST.cooldownUntil)
 		and velocity.Y < -10 and verticalDist > 5 and distToGoalie < CONFIG.LOFT_MAX_DIST then
-		local gY = (accel.Y < -50) and accel.Y or -196.2
+		-- v2.44: same gravity the trajectory simulator resolved. The game may run
+		-- workspace.Gravity != 196.2; a hard-coded constant solved the catch time
+		-- for a different world than the one being predicted.
+		local gY = (accel.Y < -50) and accel.Y or gravity
 		local y0, vy = ballPos.Y, velocity.Y
 		local catchY = aimPos.Y + 1.5 -- hand height at the predicted position
 		if y0 > catchY then
@@ -4166,7 +4246,7 @@ local function mainStep(deltaTime)
 				local tCatch = (-vy - math.sqrt(D)) / gY -- descending root
 				if tCatch > 0 and tCatch <= (CONFIG.LOFT_CATCH_WINDOW + getNetworkPing()) then
 					local catchPos = ballPos + Vector3.new(velocity.X, 0, velocity.Z) * tCatch
-					local catchLat = (catchPos - aimPos):Dot(Camera.CFrame.RightVector)
+					local catchLat = (catchPos - aimPos):Dot(camRight)
 					if math.abs(catchLat) <= CONFIG.LOFT_CATCH_REACH then
 						loftFired = true
 						direction = "Forward"
@@ -4181,15 +4261,9 @@ local function mainStep(deltaTime)
 		ST.commitDir, ST.commitFrames = nil, 0
 	elseif loftFired then
 		hudLabel, hudColor = "LOFT CATCH!", Color3.fromRGB(255, 60, 60)
-		if impactPart then impactPart.Color = Color3.fromRGB(255, 60, 60) end
-		ST.cooldownUntil = tNow + effCooldown
-		CHARGE.lastDive = tNow
-		diveWatch = { time = tNow, speed = speed, approach = approachSpeed, resolved = false }
-		print(string.format("[AI-Dive] 🎈 LOFT CATCH | @%.1f studs | vy %.0f",
+		log(string.format("[AI-Dive] 🎈 LOFT CATCH | @%.1f studs | vy %.0f",
 			distToGoalie, velocity.Y))
-		tryAutoJump(((crossPos and crossPos.Y) or math.max(impactPos.Y, ballPos.Y)) - rootPos.Y,
-			goal and (goal.crossbarY - rootPos.Y) or nil) -- 🦘 jump for the LINE height
-		pcall(function() DiveEvent:FireServer("Forward") end)
+		fireDive("Forward", now, speed, approachSpeed, effCooldown, jumpImpact, jumpGoal)
 
 	-- NOTE: the MIN_SHOT_SPEED gate uses RAW speed (not the smoothed EMA) so
 	-- a fresh strike is judged on the first frame, not 4 frames later.
@@ -4204,22 +4278,16 @@ local function mainStep(deltaTime)
 		local punchOut = (speed < CONFIG.MIN_SHOT_SPEED)
 			and (not isDribbling) and (not isCarried) and (poss ~= "own")
 			and (not isJuggle) and (not movingAway) and (not ballControlled)
-			and (os.clock() >= ST.cooldownUntil)
+			and (now >= ST.cooldownUntil)
 			and (distToGoalie <= CONFIG.PUNCHOUT_MAX_DIST)
 			and (verticalDist >= CONFIG.REACH_HEIGHT_MIN)
 			and (verticalDist <= CONFIG.PUNCHOUT_HEIGHT_MAX)
 		if punchOut then
 			direction = "Forward"
 			hudLabel, hudColor = "PUNCH OUT!", Color3.fromRGB(255, 60, 60)
-			if impactPart then impactPart.Color = Color3.fromRGB(255, 60, 60) end
-			ST.cooldownUntil = tNow + effCooldown
-			CHARGE.lastDive = tNow
-			diveWatch = { time = tNow, speed = speed, approach = approachSpeed, resolved = false }
-			print(string.format("[AI-Dive] 🧤 PUNCH OUT | Speed: %d | @%.1f studs",
+			log(string.format("[AI-Dive] 🧤 PUNCH OUT | Speed: %d | @%.1f studs",
 				math.floor(speed), distToGoalie))
-			tryAutoJump(((crossPos and crossPos.Y) or math.max(impactPos.Y, ballPos.Y)) - rootPos.Y,
-				goal and (goal.crossbarY - rootPos.Y) or nil) -- 🦘 (rare: punch-out balls are low)
-			pcall(function() DiveEvent:FireServer("Forward") end)
+			fireDive("Forward", now, speed, approachSpeed, effCooldown, jumpImpact, jumpGoal)
 		else
 			-- No dive, but keep the HUD live (studs/speed still useful).
 			if isCarried then
@@ -4243,7 +4311,7 @@ local function mainStep(deltaTime)
 	elseif not onTarget then
 		hudLabel, hudColor = "WIDE — STAYING ON FEET", Color3.fromRGB(120, 120, 120)
 		ST.commitDir, ST.commitFrames = nil, 0 -- wide of the goal: no read in progress
-	elseif os.clock() < ST.cooldownUntil then
+	elseif now < ST.cooldownUntil then
 		hudLabel, hudColor = "COOLDOWN", Color3.fromRGB(255, 200, 60)
 	elseif ST.smoothedSpeed < CONFIG.MIN_DIVE_SPEED and speed < CONFIG.MIN_DIVE_SPEED then
 		-- 🐢 SLOW BALL: never a full side dive. A keeper saves a slow
@@ -4269,7 +4337,8 @@ local function mainStep(deltaTime)
 			wReach, wLateral, wHeight = CONFIG.SLOW_FORWARD_REACH, CONFIG.SLOW_FORWARD_OFFSET, CONFIG.SLOW_FORWARD_HEIGHT
 			label = (distToGoalie <= CONFIG.SMOOTHER_MAX_DIST) and "SMOOTHER!" or "SLOW FORWARD!"
 		end
-		local slowSaveOK = (not fakeHold)
+		local slowSaveOK = CONFIG.USE_SLOW_FORWARD_SAVE
+			and (not fakeHold)
 			and (not freshPopConfirm) -- v2.43: no step-dive on an unproven pop
 			and (not ballControlled) -- v2.40: never step-dive at a controlled ball
 			and (not receiverInPath) -- v2.42: a pass to a receiver, not a shot
@@ -4282,15 +4351,9 @@ local function mainStep(deltaTime)
 		if slowSaveOK then
 			direction = "Forward"
 			hudLabel, hudColor = label, Color3.fromRGB(255, 60, 60)
-			if impactPart then impactPart.Color = Color3.fromRGB(255, 60, 60) end
-			ST.cooldownUntil = tNow + effCooldown
-			CHARGE.lastDive = tNow
-			diveWatch = { time = tNow, speed = speed, approach = approachSpeed, resolved = false }
-			print(string.format("[AI-Dive] 🐌 %s | Dir: Forward | Speed: %d | @%.1f studs",
+			log(string.format("[AI-Dive] 🐌 %s | Dir: Forward | Speed: %d | @%.1f studs",
 				label, math.floor(speed), distToGoalie))
-			tryAutoJump(((crossPos and crossPos.Y) or math.max(impactPos.Y, ballPos.Y)) - rootPos.Y,
-				goal and (goal.crossbarY - rootPos.Y) or nil) -- 🦘 (rare: slow saves are low balls)
-			pcall(function() DiveEvent:FireServer("Forward") end)
+			fireDive("Forward", now, speed, approachSpeed, effCooldown, jumpImpact, jumpGoal)
 		elseif fakeHold then
 			-- 🎭 a tap that died is not a shot — hold and stay set
 			hudLabel, hudColor = "FAKE — HOLD", Color3.fromRGB(255, 150, 50)
@@ -4368,7 +4431,7 @@ local function mainStep(deltaTime)
 			and speed >= CONFIG.MIN_SHOT_SPEED and not isDribbling and not fakeHold then
 			local oppositeDir = (activeMode.primeSide == "Left" and "Right")
 				or (activeMode.primeSide == "Right" and "Left")
-			local sinceShot = tNow - ST.lastShotReset
+			local sinceShot = now - ST.lastShotReset
 			local clearlyOther = (oppositeDir == "Right" and horizontalDist >= 20)
 				or (horizontalDist <= -20)
 			-- Only count "other side" frames while the ball is a live shot
@@ -4403,9 +4466,9 @@ local function mainStep(deltaTime)
 			-- and the keeper dives at the tap.
 			hudLabel, hudColor = "RECEIVER IN PATH — WATCH", Color3.fromRGB(255, 150, 50)
 			ST.commitDir, ST.commitFrames = nil, 0
-			if (os.clock() - ST.lastReceiverPrint) > 2.5 then
-				ST.lastReceiverPrint = os.clock()
-				print(string.format("[AI-Dive] 📥 RECEIVER IN PATH — watching (pass, not a shot) | @%.1f studs",
+			if (now - ST.lastReceiverPrint) > 2.5 then
+				ST.lastReceiverPrint = now
+				log(string.format("[AI-Dive] 📥 RECEIVER IN PATH — watching (pass, not a shot) | @%.1f studs",
 					distToGoalie))
 			end
 		elseif not (inWindow and withinReach and withinCommit) then
@@ -4430,7 +4493,7 @@ local function mainStep(deltaTime)
 		-- keeper's weight goes where the guide says it should.
 		local nearPostSide = nil
 		if fPos then
-			local threatLat = (fPos - rootPos):Dot(Camera.CFrame.RightVector)
+			local threatLat = (fPos - rootPos):Dot(camRight)
 			if math.abs(threatLat) >= CONFIG.WIDE_STRIKER_LAT then
 				nearPostSide = threatLat > 0 and "Right" or "Left"
 			end
@@ -4484,40 +4547,35 @@ local function mainStep(deltaTime)
 				hudColor = threatColor
 
 				ST.commitDir, ST.commitFrames = nil, 0
-				ST.cooldownUntil = os.clock() + effCooldown
-				CHARGE.lastDive = tNow
-				diveWatch = { time = tNow, speed = speed, approach = approachSpeed, resolved = false }
 
-					local tag
-					if isExtreme then
-						tag = "☄️ EXTREME — MAX URGENCY"
-					elseif speedSpike then
-						tag = "🚀 LATE SPIKE — INSTANT"
-					elseif isBomb then
-						tag = "💥 BOMB — FULL SPEED"
-					elseif pointBlank then
-						tag = "⚡ INSTANT REACTION"
-					elseif speed >= CONFIG.BIG_BANG_SPEED then
-						tag = "💥 BIG BANG"
-					elseif isHyperShot then
-						tag = "🔥 HYPER"
-					elseif isQuickShot then
-						tag = "🔥 QUICK"
-					else
-						tag = "🧤 NEUER"
-					end
-					if standOp then
-						tag = tag .. " | 🦸 STAND OP"
-					end
-					if activeMode then
-						tag = tag .. " | 🎮 " .. activeMode.name
-					end
-					print(string.format("[AI-Dive] %s | Dir: %s | Ping: %dms | TTI: %.2fs | Speed: %d | @%d studs",
-						tag, direction, math.floor(currentPing * 1000), timeToImpact, math.floor(speed),
-						math.floor(distToGoalie)))
-				tryAutoJump(((crossPos and crossPos.Y) or math.max(impactPos.Y, ballPos.Y)) - rootPos.Y,
-					goal and (goal.crossbarY - rootPos.Y) or nil) -- 🦘 top-bin dives jump first
-				pcall(function() DiveEvent:FireServer(direction) end)
+				local tag
+				if isExtreme then
+					tag = "☄️ EXTREME — MAX URGENCY"
+				elseif speedSpike then
+					tag = "🚀 LATE SPIKE — INSTANT"
+				elseif isBomb then
+					tag = "💥 BOMB — FULL SPEED"
+				elseif pointBlank then
+					tag = "⚡ INSTANT REACTION"
+				elseif speed >= CONFIG.BIG_BANG_SPEED then
+					tag = "💥 BIG BANG"
+				elseif isHyperShot then
+					tag = "🔥 HYPER"
+				elseif isQuickShot then
+					tag = "🔥 QUICK"
+				else
+					tag = "🧤 NEUER"
+				end
+				if standOp then
+					tag = tag .. " | 🦸 STAND OP"
+				end
+				if activeMode then
+					tag = tag .. " | 🎮 " .. activeMode.name
+				end
+				log(string.format("[AI-Dive] %s | Dir: %s | Ping: %dms | TTI: %.2fs | Speed: %d | @%d studs",
+					tag, direction, math.floor(currentPing * 1000), timeToImpact, math.floor(speed),
+					math.floor(distToGoalie)))
+				fireDive(direction, now, speed, approachSpeed, effCooldown, jumpImpact, jumpGoal)
 			else
 				hudLabel = (isQuickShot and (not instant) and "QUICK READ " or "READING ") .. direction
 				hudColor = threatColor
@@ -4530,7 +4588,7 @@ local function mainStep(deltaTime)
 	-- game's own check: ball in hand (root radius) OR overlapping any of the
 	-- keeper's hitbox parts. Parries, bounces and deflections don't count.
 	if not diveWatch.resolved then
-		local age = tNow - diveWatch.time
+		local age = now - diveWatch.time
 		if age > 1.5 then
 			diveWatch.resolved = true -- expired: ball was never secured
 		else
@@ -4539,47 +4597,46 @@ local function mainStep(deltaTime)
 			if secured and speed < 30 then
 				diveWatch.resolved = true
 				matchStats.saves = matchStats.saves + 1
-				ST.lastSaveTime = tNow
-				ST.pendingFlash = { text = "SAVE!!", color = Color3.fromRGB(80, 255, 120), t = tNow }
-				print("[AI-Dive] 🧤 SAVE! (ball secured)")
+				ST.lastSaveTime = now
+				ST.pendingFlash = { text = "SAVE!!", color = Color3.fromRGB(80, 255, 120), t = now }
+				log("[AI-Dive] 🧤 SAVE! (ball secured)")
 			end
 		end
 	end
 
 	--  WIDE diagnostic: if the keeper is being held back by the can't-score
 	-- ruling, log WHY (once every 2.5s) so it's easy to verify.
-	if not onTarget and goal and crossPos and (os.clock() - ST.lastWidePrint) > 2.5 then
-		ST.lastWidePrint = os.clock()
-		print(string.format("[AI-Dive]  ruled WIDE/MISS — lateral %.1f (post %.1f), height %.1f (bar %.1f)",
-			math.abs((crossPos - goal.linePos):Dot(goal.axis)), goal.halfWidth,
-			crossPos.Y, goal.crossbarY))
+	if not onTarget and goal and crossPos and (now - ST.lastWidePrint) > 2.5 then
+		ST.lastWidePrint = now
+		log(string.format("[AI-Dive] ruled WIDE/MISS — lateral %.1f (post %.1f), height %.1f (bar %.1f)",
+			crossWide or 0, goal.halfWidth, crossY or 0, goal.crossbarY))
 	end
 
 	-- 8) 🥅 CONCEDE DETECTION (fallback without goal geometry):
 	-- ball went behind the keeper within ~1.5s of being in front of it.
 	if not goal then
-		local keeperFacing = Camera.CFrame.LookVector
+		local keeperFacing = camForward
 		local depthK = (ballPos - rootPos):Dot(keeperFacing)
 		if depthK > 2 then
-			ST.lastInFront = tNow
+			ST.lastInFront = now
 		-- 🐛 FAKE-GOAL FIX: a concede needs a credited shot within the window
 		-- AND the ball crossing at shot speed — post-save rebounds, wide
 		-- crossings, and carried balls no longer count.
-		elseif depthK < -2 and (tNow - ST.lastInFront) < 1.5
-			and (tNow - ST.lastShotReset) < CONFIG.CONCEDE_SHOT_WINDOW
+		elseif depthK < -2 and (now - ST.lastInFront) < 1.5
+			and (now - ST.lastShotReset) < CONFIG.CONCEDE_SHOT_WINDOW
 			and speed > CONFIG.CONCEDE_MIN_SPEED
-			and (tNow - ST.lastConcede) > 3 and (tNow - ST.lastSaveTime) > 3 then
-			ST.lastConcede = tNow
+			and (now - ST.lastConcede) > 3 and (now - ST.lastSaveTime) > 3 then
+			ST.lastConcede = now
 			local ownGoal = (myKey and lastShooterKey == myKey)
-				and (tNow - lastShooterTime) < CONFIG.SHOT_OWNER_MEMORY
+				and (now - lastShooterTime) < CONFIG.SHOT_OWNER_MEMORY
 			if ownGoal then
-				ST.pendingFlash = { text = "OUR GOAL!!", color = Color3.fromRGB(80, 255, 120), t = tNow }
-				print("[AI-Dive] ⚽ OUR GOAL!")
+				ST.pendingFlash = { text = "OUR GOAL!!", color = Color3.fromRGB(80, 255, 120), t = now }
+				log("[AI-Dive] ⚽ OUR GOAL!")
 			else
 				matchStats.conceded = matchStats.conceded + 1
 				diveWatch.resolved = true
-				ST.pendingFlash = { text = "GOAL...", color = Color3.fromRGB(255, 60, 60), t = tNow }
-				print("[AI-Dive] 🥅 CONCEDED")
+				ST.pendingFlash = { text = "GOAL...", color = Color3.fromRGB(255, 60, 60), t = now }
+				log("[AI-Dive] 🥅 CONCEDED")
 			end
 		end
 	end
@@ -4588,7 +4645,7 @@ local function mainStep(deltaTime)
 	-- 🔄 RECOVER CUE: for 1s after a dive, remind the keeper to reposition
 	-- before the rebound / second shot.
 	local displayLabel = hudLabel
-	if (tNow - CHARGE.lastDive) < 1.0 then
+	if (now - CHARGE.lastDive) < 1.0 then
 		displayLabel = "🔄 RECOVER"
 	end
 	stateInfo.active  = true
@@ -4653,13 +4710,39 @@ end)
 -- ==========================================
 -- BOOT
 -- ==========================================
+-- ⚙️ report what the load-time validation had to fix (it ran before the derived
+-- constants, so nothing here needs to know about it)
+for _, fix in ipairs(configFixes) do
+	warn("[Auto-Dive] ⚙️ CONFIG fixed: " .. fix)
+end
+
 setupVisuals()
 createHud()
 createBillboard()
 createZone()
 scanBall()
+-- 🥅🏟️ prime the goal geometry and the team split NOW. Both are throttled
+-- lookups, and the loop only reaches them when the ball is live — without this
+-- the first kickoff (the most-shot moment of the match) runs blind: no on/off
+-- target ruling and no teammates, which is how a keeper ends up diving at our
+-- own goal kick.
+do
+	local char = LocalPlayer.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	refreshTeams()
+	if root then
+		scanGoal(root.Position)
+	end
+end
 scanCharacters()
 updateStyleTags()
 updateHud(true)
-print(string.format("[Auto-Dive] ⚡ Zero-Latency AI Engine Active! (v2.43 Fake Killer + Weak-Center Catch | net: bar %ds / %ds wide) ⚡",
-	CONFIG.NET_CROSSBAR_STUDS, CONFIG.NET_WIDTH_STUDS))
+local nStyles, nMoves, nCounters = 0, 0, 0
+for _ in pairs(CHAR_PROFILES) do nStyles = nStyles + 1 end
+for _ in pairs(MOVE_INFO) do nMoves = nMoves + 1 end
+for _ in pairs(COUNTER_MODES) do nCounters = nCounters + 1 end
+print(string.format(
+	"[Auto-Dive] ⚡ v2.44 armed | net: bar %ds / %ds wide | %d styles, %d moves, %d counters | %s%s",
+	CONFIG.NET_CROSSBAR_STUDS, CONFIG.NET_WIDTH_STUDS, nStyles, nMoves, nCounters,
+	DiveEvent and ("dive remote: " .. tostring(diveEventPath)) or "NO DIVE REMOTE (dives are logged only)",
+	#configFixes > 0 and (" | " .. #configFixes .. " config fix(es)") or ""))
