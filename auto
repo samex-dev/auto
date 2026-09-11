@@ -1,11 +1,24 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.44 "Correctness pass + hot-loop rewrite"
+	⚡ ZERO-LATENCY GK AI — v2.46 "Handler read: the counter follows the ball"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.46 in one breath: possession now picks the COUNTER, not just the shooter.
+	While an opponent HOLDS the ball (NetworkOwner first, carrier heuristic after)
+	his style arms a stance — curve handlers get forced 2-frame reads, impact
+	handlers re-arm faster, carriers get extra reach — and the stance FLIPS the
+	frame a pass or steal changes the handler (logged: 🎭 HANDLER | A → B).
+	Kurona's One-Two bait is registered and answered with HOTLINE TRICK — HOLD.
+
+	v2.45 in one breath: roster audit against the fandom research now preserved in
+	docs/GAME_RESEARCH.md — Nagi's Skull Rush key was misspelled `skulrush` (single L)
+	and could never match the in-game tag, so that counter was dead code (fixed, old
+	spelling kept as alias); Isagi's MOVE IT steal and DFU's alt-spelled Lightning
+	Trap are registered; Kurona (in-script since before this doc existed) verified.
 
 	v2.44 in one breath: own-team kicks are no longer dived (team + goal lookups were
 	stuck behind the loop's idle early-returns), the loft catch respects the honest
@@ -1131,6 +1144,7 @@ local MOVE_INFO = {
 	-- Skibidi-specific kits (from the Skibidi wikis)
 	directedbackheel = { char = "isagi", speed = "tricky",  aerial = false, barrage = false },
 	luckshot         = { char = "isagi", speed = "fast",    aerial = false, barrage = false },
+	moveit           = { char = "isagi", speed = "steal",   aerial = false, barrage = false },
 	puppeteercontrol = { char = "rin", speed = "fast",      aerial = false, barrage = false },
 	flourginga       = { char = "bachira", speed = "dribble", aerial = false, barrage = false },
 	littlebee        = { char = "bachira", speed = "dribble", aerial = false, barrage = false },
@@ -1148,7 +1162,8 @@ local MOVE_INFO = {
 	fivestagevolley      = { char = "nagi", speed = "fast",   aerial = true,  barrage = false },
 	fivestagefakevolley  = { char = "nagi", speed = "fast",   aerial = true,  barrage = false },
 	jumpeturn            = { char = "nagi", speed = "tricky", aerial = true,  barrage = false },
-	skulrush             = { char = "nagi", speed = "fast",   aerial = false, barrage = false },
+	skullrush            = { char = "nagi", speed = "fast",   aerial = false, barrage = false },
+	skulrush             = { char = "nagi", speed = "fast",   aerial = false, barrage = false }, -- legacy single-L alias
 	-- Sae
 	magicturn            = { char = "sae", speed = "dribble", aerial = false, barrage = false },
 	neversurpassme       = { char = "sae", speed = "tricky",  aerial = false, barrage = false },
@@ -1175,6 +1190,7 @@ local MOVE_INFO = {
 	-- Devil Fruit User (Skibidi kit — Gomu-Gomu family is HIS)
 	jetkick              = { char = "devilfruituser", speed = "extreme", aerial = false, barrage = false },
 	lightingtrap         = { char = "devilfruituser", speed = "fast",    aerial = true,  barrage = false },
+	lightningtrap        = { char = "devilfruituser", speed = "fast",    aerial = true,  barrage = false }, -- alt spelling
 	-- Luffy (Gear 5 Skibidi kit)
 	rocgunshot           = { char = "luffy", speed = "fast",    aerial = true,  barrage = false },
 	gomuhakipunch        = { char = "luffy", speed = "fast",    aerial = false, barrage = false },
@@ -1247,9 +1263,34 @@ local MOVE_INFO = {
 	fallenhero       = { char = "kunigami", speed = "extreme", aerial = false, barrage = false },
 	planethotline    = { char = "kurona", speed = "extreme", aerial = false, barrage = false },
 	sharksteal       = { char = "kurona", speed = "steal",   aerial = false, barrage = false },
+	onetwo           = { char = "kurona", speed = "pass",    aerial = false, barrage = false },
+	baitdribble      = { char = "kurona", speed = "dribble", aerial = false, barrage = false },
 	laser            = { char = "hiori", speed = "fast",     aerial = false, barrage = false },
 	malicia          = { char = "igaguri", speed = "fast",   aerial = false, barrage = false },
 	maliciaheader    = { char = "igaguri", speed = "fast",   aerial = true,  barrage = false },
+}
+
+-- 🎭 v2.46 HANDLER STANCES: the keeper's posture while an opponent simply HOLDS
+-- the ball (no move tag yet — the about-to-click-shot case). Move-tag counters
+-- in COUNTER_MODES stay the authority while a tag is alive; these stances apply
+-- the moment STYLE possession says "this man has it", and — because possession is
+-- re-resolved from the live holder every frame (NetworkOwner first) — the stance
+-- flips the same frame a PASS or STEAL changes hands (see the HANDLER log).
+-- Fields = the subset the loop already consumes from activeMode. Deliberately
+-- NO primeSide here: pre-committing a dive side at a DRIBBLING player is the
+-- exact bait the official GK guide warns about ("diving during a dribble
+-- animation allows the attacker to wait and finish into the empty side").
+-- bombThreshold/heightBonus for these come from CHAR_PROFILES (profile read
+-- already runs on the handler) — entries here only add the behavioral stance.
+local STYLE_COUNTERS = {
+	rin            = { name = "CURVE HANDLER",    confirmFrames = 2 }, -- any touch can become the left-breaker
+	sae            = { name = "CURVE HANDLER",    confirmFrames = 2 },
+	reo            = { name = "WILDCARD HANDLER", confirmFrames = 2 }, -- his kick is ANYONE's kick: never jump on frame one
+	devilfruituser = { name = "BALLOON WATCH",    confirmFrames = 2 }, -- the ball may sit INSIDE him: read, then explode
+	kaiser         = { name = "IMPACT HANDLER",   cooldownScale = 0.75 }, -- fastest release: re-arm fast
+	isagi          = { name = "VOLLEY HANDLER",   cooldownScale = 0.8  },
+	nagi           = { name = "CARRIER HANDLER",  rangeBoost = 6 },    -- Skull-Rush carriers shoot mid-rush
+	barou          = { name = "POWER HANDLER",    quickSpeed = 95 },   -- straight-line bomb: the quick read opens early
 }
 
 -- 🎮 COUNTER MODES: each known ABILITY gets its OWN keeper response —
@@ -1574,6 +1615,10 @@ local COUNTER_MODES = {
 		name = "LUCK WALL",            -- Isagi's Skibidi signature power shot
 		snap = true, bombThreshold = 125, confirmFrames = 1,
 	},
+	moveit = {
+		name = "STEAL ALERT",          -- throws a player into the air and TAKES THE BALL
+		bombThreshold = 130, confirmFrames = 1,
+	},
 	puppeteercontrol = {
 		name = "PUPPETEER READ",       -- chargeable: "requires timing for max efficiency"
 		confirmFrames = 2,
@@ -1666,8 +1711,12 @@ local COUNTER_MODES = {
 		name = "AIR SPIN READ",
 		confirmFrames = 2, heightBonus = 8,
 	},
-	skulrush = {
+	skullrush = {
 		name = "SKULL RUSH",             -- high-speed carrier, may shoot mid-rush
+		quickSpeed = 100, rangeBoost = 8,
+	},
+	skulrush = {
+		name = "SKULL RUSH",             -- legacy single-L spelling of the same move
 		quickSpeed = 100, rangeBoost = 8,
 	},
 	-- SAE
@@ -1723,6 +1772,10 @@ local COUNTER_MODES = {
 	},
 	lightingtrap = {
 		name = "LIGHTNING TRAP",         -- jump-intercept then powerful shot
+		confirmFrames = 2, heightBonus = 8, bombThreshold = 130,
+	},
+	lightningtrap = {
+		name = "LIGHTNING TRAP",         -- alt spelling of the same move
 		confirmFrames = 2, heightBonus = 8, bombThreshold = 130,
 	},
 	-- LUFFY (GEAR 5)
@@ -1878,6 +1931,10 @@ local COUNTER_MODES = {
 	planethotline = {
 		name = "HOTLINE WALL",
 		snap = true, bombThreshold = 125, confirmFrames = 1,
+	},
+	onetwo = {
+		name = "HOTLINE TRICK — HOLD",   -- one-two pass game (the BLR wiki calls it "confuses goalkeepers"): stay set,
+		confirmFrames = 2,               -- the volley comes off the RECEIVER's first touch — the handler read re-arms there
 	},
 	sharksteal = {
 		name = "STEAL ALERT",
@@ -2614,6 +2671,8 @@ local ST = {
 	lastSaveTime    = 0,     -- last registered save (no double-count with a goal)
 	lastConcede     = 0,     -- last counted concede (dedupe)
 	lastShotReset   = 0,     -- when the ball last left a still spell (spike exclusion)
+	hChar           = nil,   -- v2.46: style key of the last armed opponent ball-HANDLER (switch detection + stance)
+	hUntil          = 0,     -- v2.46: handler read survives until this time (1.2 s hold-on across a one-two)
 	lastWidePrint   = 0,     -- last time we logged a WIDE/MISS ruling
 	lastReceiverPrint = 0,   -- last time we logged a RECEIVER IN PATH block
 	pendingFlash    = nil,   -- { text, color, t } big HUD flash
@@ -2881,6 +2940,10 @@ end
 local function markIdle()
 	hideVisuals() -- v2.44: folded in. Every caller did this first and one of them
 	              -- forgetting it leaves the impact marker stuck on screen.
+	-- NOTE (v2.46): ST.hChar deliberately SURVIVES the rest — the one-two that
+	-- dies at the receiver's feet must not lose the flip to the new handler.
+	-- The read clears itself via the attackerChar recompute (loose ball or own
+	-- touch => attackerChar nil => hChar nil) on the next live frame.
 	if stateInfo.active then
 		stateInfo.active = false
 		stateInfo.zoneOn = false
@@ -3419,11 +3482,63 @@ local function mainStep(deltaTime)
 		local own = (netOwner == LocalPlayer)
 			or (myKey ~= nil and teamKeyOf(netOwner) == myKey)
 		poss = own and "own" or "opp"
-	elseif carrierKey or carryPlayer then
-		local cKey = carrierKey or teamKeyOf(carryPlayer)
+	elseif carrierKey or carrierPlayer or carryPlayer then
+		-- v2.46: also check carrierPlayer itself — carrierKey is the team key and
+		-- is nil for teamless players (lobbies, style tests), which used to skip
+		-- this branch entirely even though a carrier had been found.
+		local cKey = carrierKey or teamKeyOf(carrierPlayer or carryPlayer)
 		poss = (myKey and cKey == myKey) and "own" or "opp"
 	elseif shooterKey and (now - lastShooterTime) < CONFIG.SHOT_OWNER_MEMORY then
 		poss = (myKey and shooterKey == myKey) and "own" or "opp"
+	end
+
+	-- 🎭 HANDLER READ (v2.46): the dangerous man is whoever HAS the ball —
+	-- NetworkOwner first (authoritative; it does not blink mid-pass), then the
+	-- carrier heuristic, then the last shooter. Computed HERE, before the
+	-- prediction gates, with a short hold-on: the quiet half-second of a
+	-- one-two (ball in flight between two attackers — no carrier, sub-release
+	-- speed, possession reads nil) must NOT wipe the read. A completed pass or
+	-- steal flips the identity — the flip is logged, which doubles as console
+	-- proof the counter followed the ball. Own-team touch clears it; a loose
+	-- ball lets it decay after 1.2 s.
+	local attackerPlayer
+	if netOwner then
+		if not ((netOwner == LocalPlayer) or (myKey ~= nil and teamKeyOf(netOwner) == myKey)) then
+			attackerPlayer = netOwner
+		end
+	elseif carrierPlayer or carryPlayer then
+		local h = carrierPlayer or carryPlayer
+		if not (myKey ~= nil and (carrierKey == myKey or teamKeyOf(h) == myKey)) then
+			attackerPlayer = h
+		end
+	elseif lastShooterPlayer and (now - lastShooterTime) < CONFIG.SHOT_OWNER_MEMORY then
+		if not (myKey ~= nil and shooterKey == myKey) then
+			attackerPlayer = lastShooterPlayer
+		end
+	end
+	if attackerPlayer then
+		local hKey = charByPlayer[attackerPlayer]
+		if hKey then
+			if ST.hChar ~= hKey then
+				local st = STYLE_COUNTERS[hKey]
+				if ST.hChar then
+					log(string.format("[AI-Dive] 🎭 HANDLER | %s → %s | counter re-armed%s",
+						(CHAR_PROFILES[ST.hChar] and CHAR_PROFILES[ST.hChar].label) or ST.hChar,
+						(CHAR_PROFILES[hKey] and CHAR_PROFILES[hKey].label) or hKey,
+						st and (" — " .. st.name) or ""))
+				else
+					log(string.format("[AI-Dive] 🎭 HANDLER | %s | counter armed%s",
+						(CHAR_PROFILES[hKey] and CHAR_PROFILES[hKey].label) or hKey,
+						st and (" — " .. st.name) or ""))
+				end
+				ST.hChar = hKey
+			end
+			ST.hUntil = now + 1.2
+		end
+	elseif poss == "own" then
+		ST.hChar = nil
+	elseif ST.hChar and now > ST.hUntil then
+		ST.hChar = nil
 	end
 
 	-- 🎯 CONTROLLED-BALL GATE (v2.40 — the "dives when they don't shoot" fix):
@@ -3541,14 +3656,16 @@ local function mainStep(deltaTime)
 
 	-- ⚔️ STYLE AWARENESS: who is attacking? Adapt the keeper's thresholds.
 	-- A fresh move-effect alert (last ~2.5s) overrides the character guess.
-	local attackerPlayer = (poss == "opp") and (carrierPlayer or lastShooterPlayer) or nil
+	-- v2.46: the fallback is the HANDLER READ above the gates — unlike the old
+	-- inline carrier lookup, it survives the one-two's flight, and it flips to
+	-- the receiver the moment the catch makes him the live holder.
 	local attackerChar, profile
 	if abilityAlert and (now - abilityAlert.t) < 2.5 then
 		attackerChar = abilityAlert.char
 		profile = CHAR_PROFILES[attackerChar]
-	elseif attackerPlayer then
-		attackerChar = charByPlayer[attackerPlayer]
-		profile = CHAR_PROFILES[attackerChar]
+	else
+		attackerChar = ST.hChar
+		profile = attackerChar and CHAR_PROFILES[attackerChar] or nil
 	end
 
 	local effBombSpeed = CONFIG.BOMB_SPEED
@@ -3586,6 +3703,12 @@ local function mainStep(deltaTime)
 			if cm.cooldownScale then
 				effCooldown = math.min(effCooldown, CONFIG.COOLDOWN_TIME * cm.cooldownScale)
 			end
+		end
+	elseif ST.hChar then
+		-- 🎭 v2.46: no move tag alive — the HOLDER's style stance applies.
+		activeMode = STYLE_COUNTERS[ST.hChar]
+		if activeMode and activeMode.cooldownScale then
+			effCooldown = math.min(effCooldown, CONFIG.COOLDOWN_TIME * activeMode.cooldownScale)
 		end
 	end
 
