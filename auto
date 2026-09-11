@@ -1,11 +1,23 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.52 "Admin-grade hitbox expander (Infinite-Yield style)"
+	⚡ ZERO-LATENCY GK AI — v2.53 "Floor-shot plow + awakening watch"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.53 in one breath: field-tested against FRIENDS and it exposed the floor-ball
+	weakness — low skidders flip the side-speed the lateral read trusts, and the
+	keeper dove the WRONG WAY. Fix: FLOOR SHOT READ (the ball low over the measured
+	pitch): the center band widens ×1.8, side dives need an extra agreeing frame,
+	and a floor ball coming at us inside 22 studs gets the FORWARD PLOW — the
+	user's own rule: 'if it's a floor shot, or going towards you — forwards'. No
+	side can be wrong if you never pick one. Plus the AWAKENING WATCH: every
+	documented G cutscene is a promise, not a shot ('Requires the ball' → the
+	awakened bomb follows) — the 15 fandom cutscene names are registered
+	(awareness-only), and the man who just woke up gets FULL reads for 6.5 s
+	while the ball is his. 🧊 and 👑 log when they act.
 
 	v2.52 in one breath: the reach boost done the way the admin tools do it. The
 	HITBOX EXPANDER (Infinite Yield `expandhitbox` / Nameless Admin): instead of
@@ -104,7 +116,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 30 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 32 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -243,6 +255,25 @@ local CONFIG = {
 	-- 40+ = “why is the ball mine now”.
 	HITBOX_EXPAND               = 14,        -- studs, cube side welded to the root
 	HITBOX_EXPAND_MAX           = 60,        -- sanity clamp (Infinite Yield clamps at 1000; that swallows the goal camera)
+	-- 🧊 FLOOR SHOT READ (v2.53 — FIELD REPORT: low skidding balls tricked the
+	-- lateral read and the keeper dove the WRONG WAY. Physics of it: a struck low
+	-- ball SKIDS, BOUNCES and sheds speed on the pitch (community guide: it may
+	-- “slide across the ground and awkwardly come to a dead stop”), so its
+	-- SIDE-SPEED is the least stable number we read. The guide's own GK doctrine —
+	-- “stay centered as long as possible, react to the RELEASE” — becomes the fix.
+	-- While the ball is low over the MEASURED pitch (ST.groundY, the bounce model's
+	-- own reference — no new sensors):
+	FLOOR_SHOT_READ         = true,   -- master switch
+	FLOOR_MAX_ABOVE_REST    = 1.8,    -- studs above groundY = still a floor ball
+	FLOOR_CONFIRM_EXTRA     = 1,      -- side dives need +1 agreeing frame on rollers
+	FLOOR_CENTER_BIAS       = 1.8,    -- CENTER_TOLERANCE × this while floor-classified
+	FLOOR_SMOTHER_DIST      = 22,     -- must LEAD the dive commit (≈0.2s × shot
+	                                  -- speed) or the side guess beats us to it — the
+	                                  -- 16 studs was TOO LATE, S30 proved it. The
+	                                  -- user's rule: “if it's a floor shot or going
+	                                  -- towards you or somewhere near you — FORWARDS”
+	                                  -- (plow/smother; no side can be wrong if you
+	                                  -- never pick one)
 	CENTER_TOLERANCE      = 4.5,    -- |horizontal offset| below this = Middle
 	CENTER_ACTION         = "Middle",
 
@@ -566,6 +597,10 @@ local CONFIG_RULES = {
 	{ "DOUBLE_JUMP_HEIGHT_FRACTION",0.5,    2.0,   0.95 },
 	{ "HITBOX_EXPAND",              0.0,    60.0,  14 },
 	{ "HITBOX_EXPAND_MAX",        4.0,    200.0, 60 },
+	{ "FLOOR_MAX_ABOVE_REST",     0.2,    6.0,   1.8 },
+	{ "FLOOR_CONFIRM_EXTRA",      0.0,    4.0,   1 },
+	{ "FLOOR_CENTER_BIAS",        1.0,    3.0,   1.8 },
+	{ "FLOOR_SMOTHER_DIST",       6.0,    40.0,  22 },
 	{ "CENTER_TOLERANCE",           0.0,    20.0,  4.5 },
 	{ "BALL_RADIUS",                0.1,    5.0,   1.0 },
 	{ "MIN_SHOT_SPEED",             1.0,    400.0, 20 },
@@ -1430,6 +1465,24 @@ local MOVE_INFO = {
 	jetlightingdribble   = { char = "devilfruituser", speed = "tricky", aerial = false, barrage = false }, -- longer lightning zigzag
 	gigantsables         = { char = "devilfruituser", speed = "stun",   aerial = false, barrage = false }, -- knockback tornado, not a shot
 	instantconquerorshaki = { char = "luffy", speed = "stun",  aerial = false, barrage = false }, -- counter existed, ROW did not: dead code, now live
+	-- 👑 v2.53 AWAKENING CUTSCENES — every documented G-move pose by its fandom
+	-- name (all are cutscenes: awareness only, they arm the AWAKENING WATCH, never a
+	-- bomb read, never forensics evidence):
+	theking             = { char = "barou", speed = "defense", aerial = false, barrage = false, cutscene = true },
+	thegenius           = { char = "sae", speed = "defense",   aerial = false, barrage = false, cutscene = true },
+	thesloth            = { char = "nagi", speed = "defense",  aerial = false, barrage = false, cutscene = true },
+	theemperor          = { char = "kaiser", speed = "defense", aerial = false, barrage = false, cutscene = true },
+	chameleondefense    = { char = "reo", speed = "defense",   aerial = false, barrage = false, cutscene = true },
+	chamaleondefense    = { char = "reo", speed = "defense",   aerial = false, barrage = false, cutscene = true }, -- wiki spelling kept
+	ironwall            = { char = "aiku", speed = "defense",  aerial = false, barrage = false, cutscene = true },
+	theworld            = { char = "dio", speed = "defense",   aerial = false, barrage = false, cutscene = true },
+	hungryzombie        = { char = "donlorenzo", speed = "defense", aerial = false, barrage = false, cutscene = true },
+	blindspotofftheball = { char = "isagi", speed = "defense", aerial = false, barrage = false, cutscene = true },
+	blindspot           = { char = "isagi", speed = "defense", aerial = false, barrage = false, cutscene = true }, -- prefix-strip alias
+	gearsecond          = { char = "devilfruituser", speed = "defense", aerial = false, barrage = false, cutscene = true },
+	thebestgoalkeeper   = { char = "gagamaru", speed = "defense", aerial = false, barrage = false, cutscene = true },
+	theredphanter       = { char = "chigiri", speed = "defense", aerial = false, barrage = false, cutscene = true }, -- “The Red Phanter” verbatim
+	redpanther          = { char = "chigiri", speed = "defense", aerial = false, barrage = false, cutscene = true }, -- sane-spelling alias
 }
 
 -- 🎭 v2.46 HANDLER STANCES: the keeper's posture while an opponent simply HOLDS
@@ -2281,16 +2334,11 @@ local liveRoleEvidence = {} -- [Player] = { char, n, t }
 local roleOverride     = {} -- [Player] = the corrected char key
 local lastRawStyle     = {} -- [Player] = last raw Values string (self-heal detect)
 local ROLE_FORENSIC_RADIUS = 14 -- studs: an effect spawns AT its caster
-local function roleForensics(info, inst)
-	-- keeper-kit effects get thrown all over the box around OTHER players, and
-	-- SHARED-NAME CUTSCENES (The Destroyer is BOTH Rin’s and Shidou’s awakening,
-	-- v2.51 wiki) attribute NOBODY — only real field-style casts are evidence.
-	local charKey = info and info.char
-	if not charKey or charKey == "gagamaru" or info.cutscene then return end
-	local ok, pos = pcall(function() return inst.Position end)
-	if not (ok and pos) then return end
-	local now = os.clock()
-	local best, bd = nil, ROLE_FORENSIC_RADIUS
+
+-- 👑 v2.53 shared finder (role forensics AND the awakening watch): nearest live
+-- opponent to a world position within radius studs.
+local function nearestOpponentNear(pos, radius)
+	local best, bd = nil, radius
 	for _, plr in ipairs(Players:GetPlayers()) do
 		if plr ~= LocalPlayer and plr.Character then
 			local root = plr.Character:FindFirstChild("HumanoidRootPart")
@@ -2300,6 +2348,18 @@ local function roleForensics(info, inst)
 			end
 		end
 	end
+	return best
+end
+local function roleForensics(info, inst)
+	-- keeper-kit effects get thrown all over the box around OTHER players, and
+	-- SHARED-NAME CUTSCENES (The Destroyer is BOTH Rin’s and Shidou’s awakening,
+	-- v2.51 wiki) attribute NOBODY — only real field-style casts are evidence.
+	local charKey = info and info.char
+	if not charKey or charKey == "gagamaru" or info.cutscene then return end
+	local ok, pos = pcall(function() return inst.Position end)
+	if not (ok and pos) then return end
+	local now = os.clock()
+	local best = nearestOpponentNear(pos, ROLE_FORENSIC_RADIUS)
 	if not best then return end
 	local ev = liveRoleEvidence[best]
 	if (not ev) or ev.char ~= charKey or (now - ev.t) > 6 then
@@ -2315,6 +2375,22 @@ local function roleForensics(info, inst)
 		charByPlayer[best]      = charKey
 		styleNameByPlayer[best] = lbl
 	end
+end
+
+-- 👑 v2.53 AWAKENING WATCH. Every documented G cutscene is a PROMISE, not a
+-- shot — fandom pages repeat “Requires the ball” and what follows IS the awakened
+-- bomb (Big Bang Drive, Godspeed Kill Shot, Beinchuss, the 5-Stage Volley, King's
+-- return...). When a cutscene effect resolves, credit the nearest player to it and
+-- force FULL reads against that man for 6.5 s — never quick-open at someone mid-
+-- animation. ONE table = ONE mainStep upvalue (the budget is real).
+local awakeWatch = { plr = nil, untilT = 0 }
+local function awakeningWatch(inst)
+	local ok, pos = pcall(function() return inst.Position end)
+	if not (ok and pos) then return end
+	local plr = nearestOpponentNear(pos, 20)
+	if not plr then return end
+	awakeWatch.plr, awakeWatch.untilT = plr, os.clock() + 6.5
+	log(string.format("[AI-Dive] 👑 AWAKENING | %s | %s — full reads until it resolves", plr.Name, tostring(inst.Name)))
 end
 
 local function scanCharacters()
@@ -2453,6 +2529,7 @@ workspace.DescendantAdded:Connect(function(inst)
 	if info then
 		armAbility(info, MOVE_EXACT_KEY[lower], name)
 		roleForensics(info, inst)
+		if info.cutscene then awakeningWatch(inst) end
 		return
 	end
 	if not lower:find("[^%a%d]") and lower:sub(1, 6) ~= "ichigo" then
@@ -2465,6 +2542,7 @@ workspace.DescendantAdded:Connect(function(inst)
 	if info and moveKey then
 		armAbility(info, moveKey, name)
 		roleForensics(info, inst)
+		if info.cutscene then awakeningWatch(inst) end
 	else
 		-- 🥅 ICHIGO GENERIC CATCH-ALL (v2.40): his in-game move names are
 		-- unpublished, so ANY effect named "Ichigo<Move>" arms the ICHIGO
@@ -3878,11 +3956,21 @@ local function mainStep(deltaTime)
 				ST.hChar = hKey
 			end
 			ST.hUntil = now + 1.2
+			ST.hPlayer = attackerPlayer
 		end
 	elseif poss == "own" then
 		ST.hChar = nil
+		ST.hPlayer = nil
 	elseif ST.hChar and now > ST.hUntil then
 		ST.hChar = nil
+		ST.hPlayer = nil
+	end
+
+	-- 👑 v2.53: the handler right now is the man mid-awakening? FULL reads on
+	-- him until the window closes (the stance/confirm layers consume this).
+	local awakeHot = false
+	if awakeWatch.untilT > now and awakeWatch.plr == ST.hPlayer then
+		awakeHot = true
 	end
 
 	if speed < CONFIG.MIN_INTEREST_SPEED then
@@ -4649,6 +4737,16 @@ local function mainStep(deltaTime)
 		and (poss ~= "own")
 		and not isDribbling
 
+	-- 🧊 v2.53 FLOOR SHOT classification (see CONFIG): low over the measured pitch,
+	-- live, on target. Everything below relaxes toward “center is safe, sides need
+	-- proof” while it holds.
+	local floorShot = false
+	if CONFIG.FLOOR_SHOT_READ and (not isCarried) and (not isJuggle)
+		and onTarget and (not movingAway) and speed >= CONFIG.MIN_SHOT_SPEED
+		and (ballPos.Y - groundY) <= CONFIG.FLOOR_MAX_ABOVE_REST then
+		floorShot = true
+	end
+
 	-- 4) CAMERA MATRIX (left/right from the keeper's view), relative to the
 	-- PREDICTED keeper position (aimPos) — the side you dive to should match
 	-- where you'll be when the ball gets there.
@@ -4656,10 +4754,11 @@ local function mainStep(deltaTime)
 	local horizontalDist = impactOffset:Dot(camRight)
 	local verticalDist   = impactPos.Y - aimPos.Y
 
+	local centerTol = floorShot and (CONFIG.CENTER_TOLERANCE * CONFIG.FLOOR_CENTER_BIAS) or CONFIG.CENTER_TOLERANCE
 	local direction = CONFIG.CENTER_ACTION
-	if horizontalDist > CONFIG.CENTER_TOLERANCE then
+	if horizontalDist > centerTol then
 		direction = "Right"
-	elseif horizontalDist < -CONFIG.CENTER_TOLERANCE then
+	elseif horizontalDist < -centerTol then
 		direction = "Left"
 	end
 
@@ -4669,7 +4768,7 @@ local function mainStep(deltaTime)
 		-- the crossing side is the truth (immune to camera rotation and keeper
 		-- jitter); v2.44 measures it on the keeper-right basis inside the
 		-- integrator, so there is no Cross + Dot left in the per-frame path
-		if abs(crossLateral) > CONFIG.CENTER_TOLERANCE then
+		if abs(crossLateral) > centerTol then
 			direction = crossLateral > 0 and "Right" or "Left"
 		end
 	end
@@ -4714,6 +4813,21 @@ local function mainStep(deltaTime)
 	if speed < CONFIG.WEAK_SHOT_SPEED
 		and math.abs(horizontalDist) <= CONFIG.WEAK_CENTER_MAX then
 		direction = "Forward"
+	end
+
+	-- 🧊 v2.53 FLOOR PLOW — the user's rule verbatim: “if it's a floor shot or
+	-- going towards you or somewhere near you — forwards.” A LOW, FAST ball inside
+	-- plow range and near the (widened) center band is SMOTHERED: hands forward,
+	-- body behind it, no side guessed. Skid-curves cannot beat a keeper who is
+	-- already on top of the ball.
+	if floorShot and direction ~= "Forward"
+		and math.abs(horizontalDist) <= centerTol * 2
+		and distToGoalie <= CONFIG.FLOOR_SMOTHER_DIST then
+		direction = "Forward"
+		if (not ST.floorLoudT) or (now - ST.floorLoudT > 2) then
+			ST.floorLoudT = now
+			log("[AI-Dive] 🧊 FLOOR PLOW — forward onto the skidder, no side guessed")
+		end
 	end
 
 	-- (The sweeper smother lives in the slow-ball branch of section 6 —
@@ -5062,7 +5176,10 @@ local function mainStep(deltaTime)
 			end
 		end
 		local modeConfirm = activeMode and activeMode.confirmFrames or nil
-			local needsConfirm, confirmFrames = false, CONFIG.COMMIT_CONFIRM_FRAMES
+		if awakeHot and (not modeConfirm or modeConfirm < 2) then
+			modeConfirm = 2
+		end
+		local needsConfirm, confirmFrames = false, CONFIG.COMMIT_CONFIRM_FRAMES
 			if modeConfirm and modeConfirm > 1 then
 				needsConfirm, confirmFrames = true, modeConfirm
 			elseif (not instant) and isQuickShot and CONFIG.QUICK_READ_FRAMES > 1
@@ -5078,6 +5195,13 @@ local function mainStep(deltaTime)
 			and (direction == "Left" or direction == "Right")
 			and direction ~= nearPostSide then
 			confirmFrames = confirmFrames + 1
+		end
+		-- 🧊 floor balls must SURVIVE the skid: +1 agreeing frame before the
+		-- body leaves the ground for a side. (Never touches the plow — Forward was
+		-- already chosen, or the read simply stays open, which is the point.)
+		if floorShot and needsConfirm and CONFIG.FLOOR_CONFIRM_EXTRA > 0
+			and (direction == "Left" or direction == "Right") then
+			confirmFrames = confirmFrames + CONFIG.FLOOR_CONFIRM_EXTRA
 		end
 
 		local confirmed = not needsConfirm
