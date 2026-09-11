@@ -7,6 +7,70 @@ fixed, so they double as the design rationale for the thresholds in `CONFIG`.
 
 ---
 
+---
+
+## v2.46 — the counter follows the ball (handler style read + Kurona One-Two)
+
+Prompted by the fandom research (`docs/GAME_RESEARCH.md`): the keeper should
+read WHO has the ball, not only what move tag fired. v2.45 already profiled the
+attacker; this makes possession select the full stance.
+
+- 🎭 **STYLE_COUNTERS — per-style HANDLER stances.** While an opponent controls
+  the ball and no move tag is alive, his style arms a stance through the same
+  `activeMode` pipeline the move counters use: Rin/Sae → CURVE HANDLER (forced
+  2-frame read — any touch can become the left-breaker); Reo → WILDCARD HANDLER
+  (his kick is anyone's kick); DFU → BALLOON WATCH; Kaiser → IMPACT HANDLER
+  (0.75× re-arm); Isagi → VOLLEY HANDLER; Nagi → CARRIER HANDLER (+6 range for
+  the Skull-Rush carrier); Barou → POWER HANDLER (quick read opens at 95/s).
+  Deliberately NO dive-side prime at a *dribbling* player — that is the exact
+  bait the official GK guide warns about; tags still prime (v2.32 rule).
+- 🔀 **Switch the frame the ball changes hands.** `attackerPlayer` now prefers
+  `NetworkOwner` over the distance-carrier heuristic (a fast dribble run drops
+  the heuristic but not server ownership), and the handler flip is logged:
+  `🎭 HANDLER | KURONA → KAISER | counter re-armed`. The read deliberately
+  survives a short ball-rest (the one-two pauses at the receiver's feet — the
+  flip must stick), and clears on a live frame once the ball is loose or an own
+  touch takes it. The stance name rides the dive log (🎮 tag) and the HUD.
+- 🦈 **Kurona One-Two / Bait Dribble registered.** The sister-game wiki
+  explicitly recommends the one-two as goalkeeper bait ("One, Two, Volley!" —
+  the receiver fires on the first touch). `onetwo` classified as a pass with a
+  HOTLINE TRICK — HOLD counter (stay set through the exchange; the receiver
+  becomes the handler and his style re-arms the counter on the catch);
+  `baitdribble` classified as a dribble (carry gate already handles it).
+- 👀 `Naoya` (Sep 2026 code) still has no character data anywhere — watchlist
+  only, in `docs/GAME_RESEARCH.md`. The AI prints unclassifiable move tags, so
+  when the update lands, its real move names come to you.
+
+## v2.45 — roster audit vs fandom research (`docs/GAME_RESEARCH.md`)
+
+Cross-checked every move in the script against a full research pass of the Blue
+Lock: Skibidi fandom (all styles, the GK guide, chemical reactions, dive rules)
+and the September 2026 update's code names (`Naoya`, `Mugetsu`, `KURONA`).
+
+- 🩸 **Nagi — SKULL RUSH counter was dead code.** The roster key was spelled
+  `skulrush` (single L); the in-game effect tag is `NagiSkullRush`, so the
+  quickSpeed/rangeBoost entry could never fire on the carrier. Primary key fixed
+  to `skullrush`; the single-L spelling kept as a harmless alias (in-game tag
+  spellings have varied before — the dribble move already carries both).
+- ➕ **Isagi — MOVE IT registered** (`speed = "steal"` → STEAL ALERT): throws a
+  player into the air and takes the ball. Until now the steal alerts covered
+  Devour / Half Baked / Yo Michael / I'll Beat You Up / Dough Donut / Monster
+  Attack but not Isagi's.
+- ➕ **Devil Fruit User — LIGHTNING TRAP alt spelling.** Fandom text mixes
+  "Lightning" and "lighting"; the script already registers both spellings for
+  Lightning Dribble but only `lightingtrap` for the Trap. Added `lightningtrap`.
+- 👀 **Watchlist (deliberately NOT in the script):** `Naoya`, `Mugetsu`,
+  `hidoi na` are September 2026 cash codes with no fandom pages yet; Mugetsu is
+  presumably Ichigo's Bankai finisher (the `BANKAI` code and `bankai` roster
+  entry already exist). The AI prints any move-style tag it sees but cannot
+  classify, so the real names will announce themselves in the console before
+  anyone can hardcode them.
+- 📚 Verified against `CONFIG`: the research doc's v2.32-era design numbers all
+  match (BASE_DIVE_TIME 0.32, COMMIT_SPEED_FACTOR 0.16, QUICK_READ_FRAMES 1,
+  COOLDOWN_TIME 0.5, SHOT_RELEASE_SPEED 75, timestop armed 6 s);
+  CURVE_COMMIT_LEAD is 0.30 (v2.34 improved it from the 0.20 the doc quotes).
+- 📚 `docs/GAME_RESEARCH.md` added — the research dump + a 2026-09-11 addendum,
+  so future sessions get the fandom context without re-researching.
 
 ## v2.44 — correctness pass, hot-loop rewrite, real test rig
 
