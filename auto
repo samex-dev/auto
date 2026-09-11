@@ -1,11 +1,23 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.49 "Self-healing dive handle: match resets can't kill it"
+	⚡ ZERO-LATENCY GK AI — v2.50 "Shidou's double jump modeled + the keeper's apex hop"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.50 in one breath: the game's double jump is now a modeled threat AND a
+	used tool. The fandom wiki documents Shidou's Demon Rush as "a fast dash with
+	a short window to press the key again: if pressed, the player jumps far in the
+	air" (Mario-jump SFX), Big Bang Drive launching from an aerial bicycle kick,
+	and Demon Wings jumping ~1.5x Nagi's trap height before an UNCANCELLABLE
+	flight. The counters follow (rush alerts force the 2-frame read + vertical
+	capture; wings danger is the jump IN; the Destroyer cutscene is awareness
+	only). And since the game clearly permits mid-air hops, the keeper gets the
+	same trick: after a top-bin jump, if the predicted impact would clip the
+	crossbar even jumped (≥95% of the measured net), one apex hop is armed
+	(AUTO_DOUBLE_JUMP — no-ops harmlessly if the game owns the humanoid).
 
 	v2.49 in one breath: the script had the SAME disease it was built to out-read.
 	The dive RemoteEvent was resolved ONCE at boot; when the game's match framework
@@ -69,7 +81,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 28 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 29 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -184,6 +196,16 @@ local CONFIG = {
 	                                 -- 0.7 = "top bin" = top 30% of the net (top corner, where a
 	                                 -- flat dive can't reach). Raise to 0.8 = top corner only; 0.5 = jump more.
 	AUTO_JUMP_COOLDOWN    = 0.6,    -- s between auto-jumps (no jump spam)
+	-- 🦘🦘 v2.50 DOUBLE JUMP: the game itself mario-hops — Shidou's Demon Rush is
+	-- "a dash with a SHORT WINDOW to press the key again: if pressed, the player
+	-- jumps far in the air" (fandom wiki). If the attackers' humanoid can hop
+	-- twice mid-air, so can the keeper. After a top-bin jump, when the predicted
+	-- impact would CLIP THE CROSSBAR even jumped (≥ this fraction of the
+	-- measured net height), one apex hop is armed. If the game owns the humanoid
+	-- states this no-ops harmlessly (the existing 🦘 block-warning covers it).
+	AUTO_DOUBLE_JUMP            = true,
+	AUTO_DOUBLE_JUMP_DELAY      = 0.26,  -- s after the first hop: fire near apex
+	DOUBLE_JUMP_HEIGHT_FRACTION = 0.95,  -- only for impacts ≥ 95% of the net
 	CENTER_TOLERANCE      = 4.5,    -- |horizontal offset| below this = Middle
 	CENTER_ACTION         = "Middle",
 
@@ -503,6 +525,8 @@ local CONFIG_RULES = {
 	{ "COOLDOWN_TIME",              0.0,    5.0,   0.5 },     -- negative = dive every frame
 	{ "TACKLE_COOLDOWN",            0.0,    5.0,   0.9 },
 	{ "AUTO_JUMP_COOLDOWN",         0.0,    5.0,   0.6 },
+	{ "AUTO_DOUBLE_JUMP_DELAY",     0.05,   1.0,   0.26 },
+	{ "DOUBLE_JUMP_HEIGHT_FRACTION",0.5,    2.0,   0.95 },
 	{ "CENTER_TOLERANCE",           0.0,    20.0,  4.5 },
 	{ "BALL_RADIUS",                0.1,    5.0,   1.0 },
 	{ "MIN_SHOT_SPEED",             1.0,    400.0, 20 },
@@ -1159,6 +1183,10 @@ local MOVE_INFO = {
 	-- Shidou double jump (real in-game effect names, from the console)
 	doublejump       = { char = "shidou", speed = "tricky",  aerial = true,  barrage = false },
 	doublejumpshot   = { char = "shidou", speed = "fast",    aerial = true,  barrage = false },
+	-- v2.50 (fandom wiki): the G awakening cutscene — "stands over the ball,
+	-- stares forward, says 'my ball'": a POSSESSION grab with a cutscene, not a
+	-- shot. Classified so it never arms a bomb read, only awareness.
+	thedestroyer     = { char = "shidou", speed = "defense", aerial = false, barrage = false },
 	unstoppable      = { char = "shidou", speed = "extreme", aerial = false, barrage = false },
 	-- Gagamaru (real Skibidi GK kit, from the wiki)
 	ballthrow        = { char = "gagamaru", speed = "fast",    aerial = true,  barrage = false },
@@ -1383,7 +1411,7 @@ local STYLE_COUNTERS = {
 	nagi           = { name = "CARRIER HANDLER",   rangeBoost = 6 },    -- Skull-Rush carriers shoot mid-rush
 	barou          = { name = "POWER HANDLER",     quickSpeed = 95 },   -- straight-line bomb: the quick read opens early
 	-- ── v2.47: the rest of the roster, derived row-by-row from CLASSIFICATION ──
-	shidou         = { name = "DOUBLE-JUMP WATCH",  confirmFrames = 2, rangeBoost = 8 }, -- a jump means a SECOND action: wait it out; demonrush rows close distance fast (the move-counter does the per-move work)
+	shidou         = { name = "DOUBLE-JUMP WATCH",  confirmFrames = 2, rangeBoost = 8 }, -- v2.50: the demon-rush dash has a SECOND ACT (re-press = mario-jump, fandom wiki) — never treat the dash as the whole move; the aerial finish comes from above
 	dio            = { name = "TIME-FREEZE HOLD",   confirmFrames = 2, cooldownScale = 0.6 }, -- the shot comes AFTER time resumes: never dive at a frozen pop; barrage re-arm mirrors the timestop COUNTER_MODEs
 	luffy          = { name = "RUBBER ANGLE WATCH", confirmFrames = 2 }, -- freedommovement/gear5: any angle is a real angle, read two frames before committing
 	ichigo         = { name = "BANKAI IMPACT",      quickSpeed = 95, cooldownScale = 0.75 }, -- bankai/finalgetenka/getenka all 'extreme': meet him like a Kaiser bomb
@@ -1448,10 +1476,18 @@ local COUNTER_MODES = {
 	demonswings = {
 		name = "AERIAL CAPTURE",       -- shot from a double jump: high entry
 		heightBonus = 12, bombThreshold = 135,
+		-- v2.50 wiki: he jumps "incredibly high (~1.5x Nagi's Trap Shot)" then
+		-- FLIES — uncancellable, extended absence. The danger is the jump ENTRY
+		-- only; while cruising on wings he is nowhere near the ball.
 	},
 	demonrush = {
 		name = "RUSH ANTICIPATION",
 		rangeBoost = 15, quickSpeed = 100,
+		-- 🦘 v2.50 (fandom wiki): the rush is "a medium-length fast dash with a
+		-- SHORT WINDOW to press the key again — if pressed, the player jumps far
+		-- in the air". The dash has a SECOND ACT arriving from above the flat
+		-- dive plane: forced read through the rush + extra vertical capture.
+		confirmFrames = 2, heightBonus = 10,
 	},
 	backheelshot = {
 		name = "BACKHEEL MIRROR READ", -- a FEINT: animation faces one way, ball
@@ -3245,6 +3281,13 @@ local function tryAutoJump(impactHeightAboveRoot, goalHeightAboveRoot)
 		lastAutoJump = now
 		log("[AI-Dive] 🦘 TOP-BIN JUMP (impact " .. string.format("%.1f", impactHeightAboveRoot)
 			.. " studs up" .. (goalHeightAboveRoot and string.format(" / net %.1f", goalHeightAboveRoot) or "") .. ")")
+		-- 🦘🦘 v2.50: crossbar-clipper? Arm ONE apex hop after this jump — the
+		-- keeper's answer to the game's own mario-hop (see AUTO_DOUBLE_JUMP).
+		if CONFIG.AUTO_DOUBLE_JUMP and (not ST.djArmed)
+			and impactHeightAboveRoot >= goalH * CONFIG.DOUBLE_JUMP_HEIGHT_FRACTION then
+			ST.djArmed = true
+			ST.djAt = now + CONFIG.AUTO_DOUBLE_JUMP_DELAY
+		end
 		return true
 	elseif ok1 or ok2 then
 		-- The calls were accepted but the humanoid never left the ground: this game
@@ -3436,6 +3479,31 @@ local function mainStep(deltaTime)
 	refreshTeams()
 	scanCharacters()
 	updateStyleTags()
+
+	-- 🦘🦘 v2.50 DOUBLE-JUMP APEX HOP: one armed follow-up hop fires here, in the
+	-- always-on section, because by its apex the ball may already be under the
+	-- interest gates (or the dive resolved) — the hop must not depend on the
+	-- prediction pipeline still running. Airborne-only: on the ground it would
+	-- just be a second normal jump.
+	if ST.djArmed then
+		local djNow = os.clock()
+		if djNow >= ST.djAt then
+			ST.djArmed = false
+			local djChar = LocalPlayer.Character
+			local djHum = djChar and djChar:FindFirstChildOfClass("Humanoid")
+			if djHum then
+				local djState
+				pcall(function() djState = djHum:GetState() end)
+				local djLanded = false
+				pcall(function() djLanded = (djState == Enum.HumanoidStateType.Landed) end)
+				if djState ~= nil and not djLanded then
+					pcall(function() djHum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+					pcall(function() djHum:Jump() end)
+					log("[AI-Dive] 🦘 DOUBLE JUMP — apex hop for the crossbar ball")
+				end
+			end
+		end
+	end
 
 	-- 🎥 CAMERA BASIS, resolved once per frame (v2.44). Every "which side is the
 	-- ball on" read used to index Camera.CFrame directly: when
