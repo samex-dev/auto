@@ -1,11 +1,29 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.64 "Neon credit curtain — the five seconds before the load"
+	⚡ ZERO-LATENCY GK AI — v2.65 "Wider bait net, teammate discipline, a stance for every style"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.65 in one breath: six asks, all shipped. (1) The curtain sits DEAD
+	CENTER now and holds EIGHT seconds — the credits are for READING, not for
+	a blink test. (2) THE BAIT NET WIDENED from one shape to three: the chasing
+	shooter (v2.61), a LOOSE SOFT ROLLER inside 30 studs even when nobody is
+	attached to it (the two-man one-two where both attackers circle), and a
+	BAIT MEMORY — a shooter whose soft shot was once held has every soft shot
+	held for 4 more seconds; a bait farm gets no second bite, only a third
+	hold. (3) TEAMMATE DISCIPLINE, the proactive half of "if ur teammate gets
+	the ball it won't dive": a ball FLYING TO a teammate at collectible speed
+	is a giveaway, not a threat — refused before it lands (the poss=="own"
+	gates already refused it after). (4) EVERY OWN→OPP FLIP re-arms the read
+	fresh — no stale commit side inherited from our own player's boot. (5)
+	A STANCE FOR EVERY STYLE: style detection no longer shrugs at names the
+	tome hasn't met — Santa Claus, next crossover, whoever: registered, forced
+	2-frame universal read, announced, and the console asks for his moves.
+	(6) More counters keep their per-style tuning — ichigo and naoya already
+	had their rows; now NOTHING rides on no row at all.
 
 	v2.64 in one breath: the boot gets a CREDITS CURTAIN. Five seconds of neon
 	purple, its own screen (not a chat notification, never one): AUTO DIVE
@@ -121,7 +139,7 @@
 	(quickSpeed 100), +4 reach for volleys off the dribble angle, every documented
 	move live as a counter (scissor barrage, Ginga monster, bee shot, trance, the
 	Schizophrenic mid-air bend). Isagi, Rin and Reo got the same multi-signal nudge.
-	45 scenarios.
+	48 scenarios.
 
 	v2.57 in one breath: second lag report from the friend's phone, two causes the
 	v2.54 guardian could not see: his device sits around 35-40 fps — comfortably
@@ -279,7 +297,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 45 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 48 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -304,8 +322,9 @@ local UP          = Vector3.new(0, 1, 0)
 -- ==========================================
 -- 🟣 CREDITS CURTAIN (v2.64 — the user: "before the script loads, I'd like to
 -- give credits to…"). A NEON PURPLE splash — a screen of its own, NOT a chat
--- notification — that holds the boot for five seconds while the script
--- finishes loading, rises up into frame, and when loading is done it
+-- notification — that holds the boot for EIGHT seconds (v2.65: "make it last
+-- 8 secs so they can read properly") while the script finishes loading, RISES
+-- UP DEAD CENTER into frame, and when loading is done it
 -- BACKTRACKS out: the entrance played in reverse, sliding down the way it
 -- came, and the keeper goes live in the frame the curtain lands off-screen.
 --
@@ -321,7 +340,7 @@ local UP          = Vector3.new(0, 1, 0)
 local function showCreditsCurtain()
 	local CURTAIN    = Color3.fromRGB(191, 64, 255)  -- the one neon purple
 	local CURTAIN_DK = Color3.fromRGB(16, 4, 26)     -- the screen it hangs on
-	local HOLD       = 5                              -- seconds before the load finishes
+	local HOLD       = 8                              -- seconds before the load finishes (v2.65: read properly)
 	local gui, card, status
 	local built = pcall(function()
 		local plr = Players.LocalPlayer
@@ -335,8 +354,8 @@ local function showCreditsCurtain()
 		gui.Parent = pg
 		card = Instance.new("Frame")
 		card.Size = UDim2.fromScale(0.46, 0.36)
-		card.AnchorPoint = Vector2.new(0.5, 0)
-		card.Position = UDim2.new(0.5, 0, 0.62, 0)    -- starts BELOW frame: rise-in
+		card.AnchorPoint = Vector2.new(0.5, 0.5)      -- v2.65: DEAD CENTER, the user's "put it on the middle"
+		card.Position = UDim2.new(0.5, 0, 0.78, 0)    -- starts BELOW frame: rise-in
 		card.BackgroundColor3 = CURTAIN_DK
 		card.BackgroundTransparency = 0.85
 		card.BorderSizePixel = 0
@@ -390,21 +409,21 @@ local function showCreditsCurtain()
 			for _, t in ipairs(texts) do t.Transparency = ft end
 		end
 		local function ease(u) return u * u * (3 - 2 * u) end
-		for i = 1, 20 do                                  -- rise-in, ~0.66s
+		for i = 1, 20 do                                  -- rise-in, ~0.66s — 0.78 to true 0.50 center
 			local u = ease(i / 20)
-			place(0.62 - 0.12 * u, 0.85 - 0.72 * u)
+			place(0.78 - 0.28 * u, 0.85 - 0.72 * u)
 			task.wait(1 / 30)
 		end
-		local remain = HOLD - 0.7                         -- the promised 5s total
+		local remain = HOLD - 0.7                         -- the promised 8s total
 		while remain > 0 do                               -- hold + live countdown
 			remain = remain - 0.1
 			if status then status.Text = string.format("script loads in %.1fs…", math.max(0, remain)) end
 			task.wait(0.1)
 		end
 		if status then status.Text = "✅ LOADED — keeper online" end
-		for i = 1, 14 do                                  -- 🎬 the BACKTRACK:
-			local u = ease(i / 14)                        -- entrance in reverse,
-			place(0.5 + 0.28 * u, 0.13 + 0.87 * u)       -- down the way it came
+		for i = 1, 20 do                                  -- 🎬 the BACKTRACK (v2.65:
+			local u = ease(i / 20)                        -- the long, readable 8s
+			place(0.5 + 0.45 * u, 0.13 + 0.87 * u)       -- center it came to, straight back down
 			task.wait(1 / 30)
 		end
 		if gui then gui:Destroy() end
@@ -723,6 +742,22 @@ local CONFIG = {
 	REBOUND_WINDOW      = 1.6,    -- seconds of second-shot watch after an unresolved dive
 	REBOUND_REARM       = 0.3,    -- cooldown floor while watching (default 0.5)
 	REBOUND_COMMIT      = 6,      -- extra commit distance against the follow-up
+	-- 🪤 v2.65 MORE BAIT DETECTION (friend: "add focus for baits… add more
+	-- bait detection"). Tier 1 (chasing shooter) was v2.61. Tier 2 LOOSE IN
+	-- THE BOX: the two-man version — a soft loose roller inside this distance
+	-- is bait-grade even when no one is attached to it (they pass it and BOTH
+	-- circle; the chaser condition never fires, and the old keeper dove).
+	-- Tier 3 BAIT MEMORY: once a shooter has had a soft shot HELD, everything
+	-- soft he does for the next BAIT_MEMORY seconds is held on sight — a bait
+	-- farm gets no second bite, only a third hold.
+	BAIT_LOOSE_MAX      = 30,     -- loose + soft inside this = bait-grade roll
+	BAIT_MEMORY         = 4.0,    -- seconds a held-bait mark remembers its shooter
+	-- 🤝 v2.65 TEAMMATE DISCIPLINE (friend: "if ur teammate gets the ball it
+	-- won't dive" — the proactive half). The poss=="own" gate already refuses
+	-- dives at OUR BALL; this refuses dives at the PASS ON ITS WAY there: a
+	-- sub-shot-speed ball FLYING TO a teammate is a giveaway, not a threat.
+	TEAM_PASS_DIST      = 22,     -- teammate this close to the flight line = his ball
+	TEAM_PASS_MAX       = 75,     -- over this speed even a pass becomes a shot
 	-- 🎯 WEAK-CENTER CATCH (v2.43): a weak shot near the center is a CATCH
 	-- (forward), not a committed side dive — the "it dove left/right instead
 	-- of forward" fix. A keeper meets a weak central ball by stepping to it,
@@ -999,6 +1034,10 @@ local CONFIG_RULES = {
 	{ "REBOUND_WINDOW",              0.4,   4.0, 1.6 },   -- the combo lands ~1s after the first dive
 	{ "REBOUND_REARM",               0.1,   1.0, 0.3 },   -- below REBOUND_WINDOW/2 or it's decoration
 	{ "REBOUND_COMMIT",              0.0,  20.0,   6 },
+	{ "BAIT_LOOSE_MAX",             15.0,  60.0,  30 },   -- under COMMIT_BASE or it swallows every release
+	{ "BAIT_MEMORY",                 2.0,  12.0, 4.0 },
+	{ "TEAM_PASS_DIST",             10.0,  40.0,  22 },
+	{ "TEAM_PASS_MAX",              30.0, 120.0,  75 },
 	{ "AUTO_JUMP_COOLDOWN",         0.0,    5.0,   0.6 },
 	{ "AUTO_DOUBLE_JUMP_DELAY",     0.05,   1.0,   0.26 },
 	{ "DOUBLE_JUMP_HEIGHT_FRACTION",0.5,    2.0,   0.95 },
@@ -1656,6 +1695,14 @@ local CHAR_PROFILES = {
 		-- STYLE_COUNTERS.naoya arms the universal forced read meanwhile.
 		signature = "Perfect Impact family · move list self-reports in console",
 	},
+	santaclaus = {
+		label = "SANTA CLAUS", danger = "SPECIAL · NAME REGISTER (2026-09)",
+		aerial = false, heightBonus = 0,
+		-- Registered on request (friend: style detection "like Santa Claus").
+		-- NO invented kit: his moves are undocumented here, so he gets the
+		-- universal stance via styleStance() and the console asks for names.
+		signature = "Unknown handler · universal 2-frame read until tagged",
+	},
 }
 
 local CHAR_NAMES = {
@@ -1688,6 +1735,7 @@ local CHAR_NAMES = {
 	-- so this is name-registration ONLY (tag + Role read + prefix strip recognize
 	-- him); no move is claimed that the classification table does not already know.
 	naoya = { "naoya" },
+	santaclaus = { "santaclaus", "santa" },
 	santaclaus = { "santaclaus", "santa" },
 }
 
@@ -4328,6 +4376,27 @@ end
 -- ==========================================
 -- 🧠 MAIN AI PREDICTION LOOP 🧠
 -- ==========================================
+	-- 🎭 v2.65: EVERY STYLE GETS A STANCE (friend: "more counters style
+	-- detection like Santa Claus, Ichigo, Naoya — EVERY style"). A roster char
+	-- with a tuned row keeps it exactly; a roster char WITHOUT one — a fresh
+	-- crossover, Santa Claus, whatever the next update ships — gets the
+	-- documented universal unknown-handler stance (forced 2-frame read, zero
+	-- invented claims), and the switch is ANNOUNCED with an ask for console
+	-- move-names. Detection never shrugs at a name it hasn't met.
+	local UNIVERSAL_STANCE = { name = "UNIVERSAL READ — unknown handler", confirmFrames = 2 }
+	local stanceAnnounced = {}
+	local function styleStance(key)
+		if not key then return nil end
+		local row = STYLE_COUNTERS[key]
+		if row then return row end
+		if not stanceAnnounced[key] then
+			stanceAnnounced[key] = true
+			log(string.format("[AI-Dive] 🎭 STYLE DETECTED | %s | no tuned row yet — universal 2-frame stance armed (send a console line with his move names!)",
+				(CHAR_PROFILES[key] and CHAR_PROFILES[key].label) or key))
+		end
+		return UNIVERSAL_STANCE
+	end
+
 local function mainStep(deltaTime)
 	-- ⏸ 0a) PAUSED: keep the loop alive (so re-arming is instant) but park
 	-- everything exactly once — running the idle path every frame would mean
@@ -4539,6 +4608,7 @@ local function mainStep(deltaTime)
 	local carrierDist   = math.huge
 	local nearDist      = math.huge
 	local nearPlayer    = nil
+	local nearRoot      = nil -- v2.65: the closest player's ROOT (pass-to-mate vector)
 	local isCarried     = false
 	local carryPlayer   = nil
 	local bestD         = nil      -- nearest opponent gap (controlled-ball gate)
@@ -4557,7 +4627,7 @@ local function mainStep(deltaTime)
 		local teammate = (myKey ~= nil and k == myKey)
 
 		if d < nearDist then
-			nearDist, nearPlayer = d, e.player
+			nearDist, nearPlayer, nearRoot = d, e.player, e.root
 		end
 		-- juggle drop: a player directly under an elevated ball
 		if not playerUnderBall
@@ -4614,6 +4684,19 @@ local function mainStep(deltaTime)
 	elseif shooterKey and (now - lastShooterTime) < CONFIG.SHOT_OWNER_MEMORY then
 		poss = (myKey and shooterKey == myKey) and "own" or "opp"
 	end
+	-- 🔄 v2.65: possession FLIPPING OFF a teammate's touch re-arms the whole
+	-- read fresh — a stale commit side or a stale bait mark inherited from OUR
+	-- player's boot is how a keeper dives at yesterday's ball. The mate had it;
+	-- now they have it; read HIM, not the ghost.
+	if poss == "own" then
+		ST.wasOwn = true
+	elseif ST.wasOwn and poss ~= "own" then
+		ST.wasOwn = nil
+		ST.commitDir, ST.commitFrames = nil, 0
+		ST.baitMark, ST.baitLogged = nil, nil
+		ST.curveChaseN, ST.curveChaseSide = 0, nil
+		log("[AI-Dive] 🔄 OWN→OPP — teammate's touch ended: read re-armed fresh")
+	end
 
 	-- 🎭 HANDLER READ (v2.46): the dangerous man is whoever HAS the ball —
 	-- NetworkOwner first (authoritative; it does not blink mid-pass), then the
@@ -4643,7 +4726,7 @@ local function mainStep(deltaTime)
 		local hKey = charByPlayer[attackerPlayer]
 		if hKey then
 			if ST.hChar ~= hKey then
-				local st = STYLE_COUNTERS[hKey]
+				local st = styleStance(hKey)
 				if ST.hChar then
 					log(string.format("[AI-Dive] 🎭 HANDLER | %s → %s | counter re-armed%s",
 						(CHAR_PROFILES[ST.hChar] and CHAR_PROFILES[ST.hChar].label) or ST.hChar,
@@ -4952,7 +5035,7 @@ local function mainStep(deltaTime)
 		end
 	elseif ST.hChar then
 		-- 🎭 v2.46: no move tag alive — the HOLDER's style stance applies.
-		activeMode = STYLE_COUNTERS[ST.hChar]
+		activeMode = styleStance(ST.hChar)
 		if activeMode and activeMode.cooldownScale then
 			effCooldown = math.min(effCooldown, CONFIG.COOLDOWN_TIME * activeMode.cooldownScale)
 		end
@@ -5563,17 +5646,51 @@ local function mainStep(deltaTime)
 	-- window only re-opens inside BAIT_SMOTHER_DIST, where hands on the ball beat
 	-- committing to a fake. The tackle rules win the collect the frame he touches
 	-- it (v2.56 doctrine: let it drop, take it).
-	local baitHold = false
+	local baitHold, baitWhy = false, ""
 	if CONFIG.BAIT_GUARD and not fakeHold and not isDribbling
 		and speed < CONFIG.BAIT_ROLL_MAX and distToGoalie > CONFIG.BAIT_SMOTHER_DIST
-		and onTarget and approachSpeed > 0
-		and lastShooterPlayer and (now - lastShooterTime) < CONFIG.SHOT_OWNER_MEMORY
-		and strikerDist and strikerDist <= CONFIG.BAIT_CHASE_DIST then
-		baitHold = true
-		if (not ST.baitLogged) or (now - ST.baitLogged > 3) then
-			ST.baitLogged = now
-			log(string.format("[AI-Dive] 🪤 BAIT HELD — %.0f roller with its runner %.0f studs behind — stay home, smother inside %d",
-				speed, strikerDist, CONFIG.BAIT_SMOTHER_DIST))
+		and onTarget and approachSpeed > 0 then
+		local chaser = lastShooterPlayer and (now - lastShooterTime) < CONFIG.SHOT_OWNER_MEMORY
+			and strikerDist and strikerDist <= CONFIG.BAIT_CHASE_DIST
+		local loose = (not ballControlled) and distToGoalie <= CONFIG.BAIT_LOOSE_MAX
+		local remembered = ST.baitMark and lastShooterKey and ST.baitMark.key == lastShooterKey
+			and (now - ST.baitMark.t) < CONFIG.BAIT_MEMORY
+		if chaser then
+			baitHold, baitWhy = true, "runner chasing it"
+		elseif remembered then
+			baitHold, baitWhy = true, "bait memory on this shooter"
+		elseif loose then
+			baitHold, baitWhy = true, "loose roller in the box"
+		end
+		if baitHold then
+			if (not ST.baitLogged) or (now - ST.baitLogged > 3) then
+				ST.baitLogged = now
+				if chaser or loose then
+					ST.baitMark = { key = lastShooterKey, t = now } -- 🪤 episode counted
+				end
+				log(string.format("[AI-Dive] 🪤 BAIT HELD (%s) — %.0f roller @%.0f studs — stay home, smother inside %d",
+					baitWhy, speed, distToGoalie, CONFIG.BAIT_SMOTHER_DIST))
+			end
+		end
+	end
+
+	-- 🤝 v2.65 PASS TO MINE: the ball FLYING TO a teammate at collectible speed
+	-- is not a shot at all — refusing it here is the proactive half of "if ur
+	-- teammate gets the ball it won't dive". Vector test on the closest
+	-- player: if he's ours, close, and the ball is genuinely closing on him,
+	-- let it land. (The poss=="own" gates still own the back half.)
+	local passToMine = false
+	if nearPlayer and nearRoot and myKey and teamKeyOf(nearPlayer) == myKey
+		and nearDist <= CONFIG.TEAM_PASS_DIST and speed >= CONFIG.MIN_SHOT_SPEED
+		and speed <= CONFIG.TEAM_PASS_MAX and distToGoalie > CONFIG.BAIT_SMOTHER_DIST then
+		local vx, vz = nearRoot.Position.X - ballPos.X, nearRoot.Position.Z - ballPos.Z
+		local dd = math.sqrt(vx * vx + vz * vz)
+		if dd > 0.1 and (velocity.X * vx + velocity.Z * vz) / dd > 12 then
+			passToMine = true
+			if (not ST.teamPassLogged) or (now - ST.teamPassLogged > 2.5) then
+				ST.teamPassLogged = now
+				log("[AI-Dive] 🤝 PASS TO TEAMMATE — ball is going home at collectible speed — let it land, a dive here is the whole joke")
+			end
 		end
 	end
 
@@ -5821,6 +5938,7 @@ local function mainStep(deltaTime)
 		end
 		local slowSaveOK = CONFIG.USE_SLOW_FORWARD_SAVE
 			and (not baitHold)   -- v2.61: the STEP-UP branch is exactly what the bait baited; held
+			and (not passToMine) -- v2.65: ...and the same discipline refuses a giveaway to our own man
 			and (not fakeHold)
 			and (not freshPopConfirm) -- v2.43: no step-dive on an unproven pop
 			and (not ballControlled) -- v2.40: never step-dive at a controlled ball
@@ -5909,7 +6027,7 @@ local function mainStep(deltaTime)
 		-- 📏 Commit gate: bombs bypass it (they must be met at full speed,
 		-- no waiting for the ball to fly in). Everything else commits inside
 		-- the dynamic commit distance (25 for slow shots, up to 48 for Big Bang power).
-		local withinCommit = (instant or (distToGoalie <= commitDist)) and (not baitHold) -- 🪤 v2.61: a held bait commits NOTHING beyond smother range
+		local withinCommit = (instant or (distToGoalie <= commitDist)) and (not baitHold) and (not passToMine) -- 🪤 v2.61/65: a held bait OR an inbound giveaway commits NOTHING beyond smother range
 
 		-- 📐 CURVE COMMIT (v2.32 — why Rin's Killer Shot STILL slipped in
 		-- after v2.31): v2.31 primed the read to the curve side, but the
