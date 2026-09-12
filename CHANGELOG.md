@@ -7,6 +7,258 @@ fixed, so they double as the design rationale for the thresholds in `CONFIG`.
 
 ---
 
+## v2.58 — enum-proof dives, OP tackles, long-read guard (friend console #2) (2026-09-12)
+
+- FIELD REPORT #5 arrived as a console screenshot from the friend's device, not
+  prose — and it was worth both. The v2.57 markers were all live (🌈/🧊/📟
+  PERF ~49 fps tier 0), and between an EXTREME commit and a CONCEDED sat
+  `LOOP ERROR #3: Falling is not a valid member of "Enum.HumanoidStateType"`.
+  The user's ask rode along: tackling more OP, dive detections better, counters
+  better, and "bachira is not just dribbling read" — his roster rows say the
+  same (aerial scissor barrage, mid-air curve bends), so the reads had to
+  cover the man, not just his feet.
+- THE LOOP ERROR WAS EATING SAVES. `tryAutoJump`'s moved-check read
+  `humanoid:GetState() == Enum.HumanoidStateType.Falling` — and on clients
+  whose enum table predates or strips members (mobile/older executors) reading
+  a missing member THROWS. The throw sat between `ChangeState(Jumping)` and
+  `FireServer`, so the jump decorated nothing, the dive never fired, and the
+  frame died to the outer loop handler — an EXTREME commit became a CONCEDED.
+  v2.58 reads the state as `tostring(GetState())` and matches `.Falling` /
+  `.Jumping` / `.Landed` by string inside pcall (a Roblox enum's tostring ends
+  in the member name, so a missing member can't be indexed at all), and the
+  one DIVE ORDER RULE is now enforced in `fireDive` itself: FireServer FIRST,
+  decoration (the jump attempt) after — a hop can never again swallow a
+  committed dive. The mock grew `SIM.enumMissing` + `SIM.stateOverride` so the
+  test lane can reproduce an honest client (game rejects the forced jump →
+  state is Falling); S37 against v2.57 prints the friend's error line verbatim
+  — same member, same code path — and shows dives 0. On v2.58: jumped, dived,
+  zero loop errors.
+- TACKLE, OP-ED (user ask). `TACKLE_RANGE` 9 → 10.5 studs and
+  `TACKLE_COOLDOWN` 0.9 → 0.55 s: the keeper now out-reaches a first touch and
+  wins second balls. Two fences keep it honest — 11 studs started stealing
+  S08's fresh-receiver gathers (a receiver walking onto a pass is not a
+  dribbler), so 10.5 is the ceiling the scenario suite allows, and the new
+  loose-flick collect clause only arms inside the flick-memory window (ball
+  popped ≤ FLICK_MEMORY+0.6 s ago, ≤4 studs off, ball <8 studs/s) and NEVER
+  during a juggle or a receiver's path. The rules table carries both rows.
+- 🧷 LONG READ GUARD. The friend's screenshot committed `Dir: Left` at 95
+  studs on a LATE SPIKE whose lateral offset was a coin flip; the wiki GK
+  guide's doctrine is "stay on your line and react to the release, not the
+  animation". Past `LONG_GUESS_DIST` (85 studs, new CONFIG row + rules-table
+  row), a Left/Right read whose predicted lateral still sits inside the
+  center band (×1.8 tolerance) is HELD — `Middle` goes to the game, the
+  keeper stays set, and `🧷 LONG READ — holding the middle at N studs` says
+  why (3 s dedup, urgent-line: it's a decision). Close-range guesses are
+  untouched; a floor ball inside 22 studs still gets its v2.53 plow — the
+  guard only replaces SIDE guesses that far out. S38 (chest-height 190-stud/s
+  spike from 103 studs) pins it.
+- COUNTERS, SHARPENED. Bachira's stance is no longer dribble-only: his
+  COUNTER_MODES row reads WILD HANDLER — confirmFrames 2 (his shots BEND
+  mid-air: waiting one extra frame reads the curve, not the feint),
+  quickSpeed 100 (he releases fast off the trivelox), rangeBoost 4 (the
+  scissor barrage arrives flatter than a struck shot). The numbers are OUR
+  knobs around in-repo roster data — none of his unreleased move values are
+  hardcoded. Isagi's row got the +5 quick release read (105), Rin and Reo
+  each +4 range (their kits read as strikes from further than the game's
+  numbers imply). Counter choice still follows the BALL-HANDLER live — the
+  roster rows only decide HOW each style is read.
+- Header now claims 38 scenarios (S37/S38 added); 38/38 pass, lint clean,
+  S21 bench 46.8 ms / 798 frames (v2.57: 45.1 — the guard is three compares).
+
+---
+
+## v2.57 — log budget, faster guardian, ECO_LOCK (second lag report) (2026-09-12)
+
+- FIELD REPORT #4 (same friend, same phone): "he's lagging again." Two real
+  causes, neither of which the v2.54 guardian could see or touch:
+  1. His device lives around 35–40 fps — ABOVE the 33 fps tier-1 trigger, so
+     easing never fired at all. A governor that only reacts at 30 fps is a
+     rescue siren for the drowning, not an air conditioner.
+  2. `VERBOSE = true` ships on: every decision PRINTS, and on a phone with the
+     executor console attached a print costs more Lua-frame than the entire
+     dive brain. A scramble (handler re-arming on every possession swap, floor
+     reads, dive lines, saves/goals) stacks a dozen prints in a second — the
+     console itself becomes the lag.
+- GOVERNOR v2: tier 1 starts under ~41 fps (ema>0.0245; back to full above
+  ~52), tier 2 under ~25; the EMA constant moved 0.06→0.10 so tier flips land
+  in ~15 frames, not 40. The thresholds that mattered were the ones between
+  the friend's reality and 33.
+- LOG BUDGET: all output flows through one sliding gate — 8 lines per 2 s at
+  full paint, 3 while easing, 12 for the boot window (the load banner is never
+  clipped); overflow COUNTS, and the next allowed line appends
+  `(+N lines muted by log budget)` — the mute is visible, never silent.
+  Lines that matter under stress BYPASS it (urgent flag): the 🐢 tier flips,
+  🔌 remote heals, 📟 PERF. Decision lines stay decision lines — the budget
+  eats ink, never saves: S36 asserts every scramble shot is still dived while
+  half the commentary is muted.
+- 📟 PERF HEARTBEAT: while a device sits under 50 fps, every 20 s:
+  `📟 PERF | ~39 fps | paint tier 1` — silent on healthy devices. That gives a
+  "it lags" report an actual number next time.
+- ECO_LOCK (0/1/2): the A/B answer for "is the script still causing my lag?"
+  — set 2 and every decoration is off regardless of fps; if the phone still
+  stutters, the culprit is the game or the executor, not this file. Clamped in
+  CONFIG_RULES like the rest.
+- S36 runs the loop at 0.0255 s/frame and asserts all three: tier 1 engages
+  where v2.56 ignored it, the scramble overflows the budget (mute note
+  appears), PERF reports after its 20 s, and every shot is still dived.
+  Against v2.56 the scenario fails 3 ways. 36/36.
+## v2.56 — flick respect: rainbows don't beat gravity (2026-09-12)
+
+- FIELD REPORT #3 (user's friend): "when u play the script and u rainbow flick
+  it jumps — auto jumps — because it thinks it's an aerial shot." Correct on
+  all three counts. A dribble pop off the feet feeds THREE separate bites:
+  (1) the descent reads as a descending loft (vY < -10 near the keeper) →
+  LOFT-CATCH lunge; (2) the raw height inflates the dive's jump impact
+  (`max(impactY, ballPos.Y)`) → top-bin test satisfied → JUMP + apex hop at a
+  ball that was landing at the flicker's feet; (3) a pop is literally "ball
+  rose off a player's feet" — the CHARGE juggle tell — so the keeper armed
+  🎪 against a shot that was never coming. The mock reproduces all of it:
+  S34 against v2.55 logs `☄️ EXTREME — MAX URGENCY | Dir: Forward | @6 studs`
+  mid-pop.
+- THE SIGNAL NO STRUCK SHOT SHOWS: the ball RISING while still at the nearest
+  opponent's own distance (≤ FLICK_CARRY_RADIUS) and under strike speed
+  (< DRIBBLE_MAX_SPEED). That frame stamps a memory (`ST.flickT`): for
+  FLICK_MEMORY (1.2 s) the loft lunge and the top-bin/apex jump stand down,
+  and the pop does NOT count as a charge juggle. No new velocity plumbing —
+  the juggle read already had `nearPlayer`/`nearDist`/`vySign` on the frame.
+- NOT A SELF-BLIND: the gate rides the ball's CURRENT speed on the dive side,
+  so a real shot struck off the flick (75+ studs/s) leaves the window the same
+  frame — S34 asserts the follow-up strike is still dived (`Dir:` logged,
+  exactly one dive total: zero during the drop, one on the shot). And the drop
+  itself stays watched: GK-tackle/step-up paths fire when the attacker collects.
+- The jump gate receives the dive's `ballSpeed` (new third arg on tryAutoJump,
+  threaded from fireDive) rather than re-sampling — the jump decision belongs to
+  the dive it decorates, same speed, same frame.
+- Console line when it bites: `🌈 FLICK RESPECT | CHIGIRI popped it up at his
+  own feet — no lunge, no leap, let it land` (deduped 1.5 s). Knobs:
+  FLICK_CARRY_RADIUS 7, FLICK_MEMORY 1.2 (both clamp-validated).
+## v2.55 — self-fitting UI: the HUD learns the size of your screen (2026-09-12)
+
+- FIELD REPORT #2 (user's friend, same weak phone): "no more lag but the UI is
+  too annoying." True by construction — createHud() had literally hardcoded the
+  desktop layout since v1: a 720-px panel (`UDim2.fromOffset(720, 80)`), text
+  sizes 13–15, a 44-pt SAVE!! flash. On a 640-px phone that is a HUD wider than
+  the screen minus margins: half the game covered in telemetry.
+- THE FITTER: `fitUi` reads `Camera.ViewportSize.X` (real pixels — the only
+  honest measure of "how big is this on MY screen"), clamps
+  `width / UI_FIT_REF` into `[UI_FIT_MIN, 1]`, and scales every non-game visual
+  from that one number: HUD frame size AND position (kept dead-center: the
+  offset is `-360*scale`, not the raw 360), corner radius, all three line
+  fonts, the flash, the floating studs label, and the font of every style tag.
+  Freshly created tags are BORN at the current scale (one shared `uiScaleCur`),
+  so a mid-match joiner never shows a desktop-size tag on a phone.
+- CADENCE: the governor connection (v2.54) polls the viewport at 1 Hz with a
+  two-stage guard (width moved ≥8 px before computing; scale moved ≥0.03
+  before writing) — a property read and two comparisons per second is free even
+  on the friend's phone, and rotation/resize re-fits within a heartbeat after.
+  Boot gets one FORCED fit (`fitUi(true)` right after the builders) so the
+  first frame is already sized. The paint guardian and the fitter stay
+  orthogonal: UI_AUTO_FIT works with LOW_SPEC_GUARDIAN off and vice versa.
+- LEGIBILITY FLOOR: UI_FIT_MIN = 0.55 — a 640-px screen gets a 396-px HUD with
+  10-pt minimum text, NOT unreadable ant-size; desktops (≥1280 px) keep the
+  original full layout, byte-identical sizes.
+- S33 drives the real mock GUI tree at 640 px and 1920 px: frame offset 396 →
+  720, line1 floored to 10, studs label 24→13pt, and both 📱 console lines.
+  Bench went 46→43 ms across the suite — the 1 Hz viewport poll is noise, and
+  change-gating (v2.54) pays for itself on normal screens too.
+## v2.54 — low-spec guardian: lag-proof paint, full-rate dives (2026-09-12)
+
+- FIELD REPORT (user's friend, weak phone): "lagging so much… bad device."
+  Profiled the script before touching it: the Lua brain is ~0.055 ms/frame
+  (bench: 46.3 ms across 798 frames of 12-player chaos + 23 Vector3 allocs) —
+  a phone cannot fall over on that. What falls over is PAINT: translucent path
+  dots + impact marker (GPU overdraw), billboard style tags (each head = a text
+  relayout EVERY frame the anchor moves), HUD text (10 Hz relayout), zone parts.
+- THE GUARDIAN: one Heartbeat governor reads the REAL deltaTime (the same
+  callback the tag-follow loop runs in — the two loops were merged into one
+  connection, one cadence). Frame-time EMA with two hysteresis pairs:
+  tier 1 sustained <~33 fps (dots/impact OFF, tag follow 20 Hz, HUD 3.5x
+  slower), tier 2 sustained <~22 fps (style BILLBOARDS fully `Enabled=false` —
+  zero render cost — zones hidden). Recovery re-upgrades automatically; every
+  tier flip logs ONE console line (🐢 … dives untouched) — hysteresis, not a
+  timer, is the anti-spam: crossing back needs seconds of sustained frames.
+- WHAT NEVER SLOWS: prediction, commit counting, jumps, the apex hop, the
+  hitbox cube, and the dive remote. Decision logic runs EVERY frame in every
+  tier — a laggy phone keeps saving with fewer sparkles; the keeper never
+  blinks because the GPU is drowning. S32 proves it by running the whole script
+  at 16 fps (dt=0.06/frame through the mock Heartbeat): 🐢 deep fires, the dive
+  still lands (`Dir: Forward` at @3 studs), paint recovers at 60 fps.
+- EVERY-DEVICE WIN regardless of tiers: every HUD Text/TextColor3 write is now
+  gated on CHANGE (identical string = no relayout) and the tag label writes
+  already were — the governor makes the expensive case rare, the guards make
+  the common case cheaper.
+- `LOW_SPEC_GUARDIAN = false` opts out entirely (the follow loop runs unguarded
+  at frame rate, ecoTier stays 0).
+
+## v2.53 — floor-shot plow + awakening watch (2026-09-11)
+
+- FIELD TEST (user, vs friends): low skidding balls tricked the lateral read and
+  the keeper DIVE THE WRONG WAY. Cause: a struck floor ball skids, bounces and
+  sheds speed — its last-frame SIDE-SPEED is the least stable input we consume,
+  and quick-open commits a direction before the skid finishes. The community GK
+  guide's own doctrine is the fix: "stay centered as long as possible and react
+  to the RELEASE, not the animation"; the shot-guide even describes the ground
+  ball "sliding across the ground and awkwardly coming to a dead stop".
+- 🧊 FLOOR SHOT READ (CONFIG.FLOOR_SHOT_READ, master switch): while the live ball
+  is low over the MEASURED pitch (ballY − ST.groundY ≤ 1.8 — the bounce model's
+  own running ground reference, no new sensor), three things change: the center
+  band WIDENS ×1.8 (half-committed side dives at maybe-left rollers become "hold,
+  gather"); side dives need +1 agreeing confirm frame (the read must survive the
+  skid); and a floor ball inside the widened band within plow range is SMOTHERED
+  FORWARD — the user's rule verbatim ("if it's a floor shot or going towards you
+  or somewhere near you — forwards"). No side can be wrong if you never pick one.
+- Sizing lesson from S30: FLOOR_SMOTHER_DIST started at 16 studs and MISSED —
+  the dive commit fires ≈0.2 s ahead (≈17 studs at shot speed), so the override
+  now LEADS it at 22 (clamped 6–40). The plow log dedupes once per 2 s.
+- 👑 AWAKENING WATCH: every fandom-documented G cutscene is a PROMISE —
+  "Requires the ball" and the AWAKENED BOMB follows (Big Bang Drive after Demon
+  wings-cue, Godspeed Kill Shot, Beinchuss, 5-Stage Volley, King's Return…).
+  Registered 15 cutscene rows (theking, thegenius, thesloth, theemperor,
+  chameleondefense + wiki "chamaleon" spelling, ironwall, theworld, hungryzombie,
+  blindspot(offtheball), gearsecond, thebestgoalkeeper, theredphanter + redpanther
+  alias) — all speed=defense + cutscene=true: awareness, NEVER a bomb read,
+  NEVER role-forensics evidence (shared names like The Destroyer prove why).
+  When one resolves, the NEAREST opponent is credited (shared finder with role
+  forensics now — nearestOpponentNear) and while the ball is his, all reads on
+  him are FORCED FULL (confirmFrames ≥ 2) for 6.5 s: never quick-open at a man
+  mid-animation. Console: 👑 AWAKENING | Name | BarouTheKing — full reads until
+  it resolves. One table = one upvalue (budget kept).
+- Scenarios S30 (skidding x=6 ball: outside the OLD band, inside the floor band —
+  asserts the 🧊 plow line AND dirs{Forward} via the runner's direction mix) and
+  S31 (cutscene arms 👑 and by itself dives NOTHING: max = 0). 32/32, lint clean,
+  bench flat (23 allocs/frame — the classifier is two comparisons on cached
+  values; the plow never allocates).
+
+---
+
+## v2.52 — admin-grade hitbox expander (the Infinite-Yield way) (2026-09-11)
+
+- v2.51 resized the root part. The user said: no — do it like the ADMIN TOOLS.
+  Infinite Yield's `expandhitbox` / Nameless Admin's hitbox command welds a big
+  INVISIBLE, MASSLESS, non-colliding CUBE onto HumanoidRootPart instead. Better
+  on every axis: the server doesn't re-sync welded client attachments the way it
+  snaps part sizes, a fat root would clip walls and seating, and part-LIST checks
+  (touches, catches, overlaps) accept any attached part as "the character".
+  This game runs the ball CLIENT-side (NetworkOwners — the very basis of the
+  handler-read), which is precisely where an expansion cube registers: the ball
+  touches 14 studs of "keeper" before his body arrives.
+- CONFIG (admin-command style): HITBOX_EXPAND = 14 studs default (0 = off,
+  24 = wall, 40+ = possession is nine-tenths), clamped by HITBOX_EXPAND_MAX = 60
+  (Infinite Yield clamps at 1000; that swallows the goal camera).
+- Lifecycle: one cube per character — it is a CHILD of the root, so a respawn
+  destroys it automatically and the next tick re-welds; a 4 s watchdog re-welds
+  if anything else scrubs it. Weld = legacy Instance.new("Weld") Part0/Part1
+  with identity C0/C1 (the classic: centers the cube on the root).
+- Our OWN save-detector explicitly SKIPS GKHitbox (name filter): the cube is for
+  the GAME's catch math; the internal "did the ball touch the keeper" truth stays
+  body-honest, so a fake overlap can never resolve diveWatch early and skip a
+  re-react. If the game validates part lists server-side, the cube is just an
+  invisible box — harmless.
+- S29 re-targeted (asserts the 🧱 HITBOX EXPANDED line — which only prints when
+  the weld actually succeeded). 30/30, lint clean, bench flat (23 allocs/frame).
+
+---
+
 ## v2.51 — whole-game wiki sync + the reach-boost hitbox (2026-09-11)
 
 - Deep sweep: EVERY character page, the controls/mechanics sources and the GK
