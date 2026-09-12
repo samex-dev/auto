@@ -1,11 +1,25 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.55 "Low-spec guardian + self-fitting UI"
+	⚡ ZERO-LATENCY GK AI — v2.56 "Flick respect: rainbows don't beat gravity"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.56 in one breath: friend report #3 — a RAINBOW FLICK beat the keeper by
+	making him jump it. A pop off a dribbler's feet reads as a descending loft
+	at the keeper's head (loft-catch lunge) and its raw height even satisfied
+	the top-bin test (jump + apex hop), and twice on the same move the juggle
+	tell armed a CHARGED shot that never came. The fix is one signal no struck
+	shot ever shows: the ball RISING while still at the flicker's own distance
+	at dribble speed. That stamp opens a 1.2 s memory: loft lunge and top-bin
+	jump stand down, the ball belongs to the attacker until the strike — and a
+	real shot off the flick (>= DRIBBLE_MAX_SPEED, 75) leaves the window the
+	same frame, so the follow-up is dived normally. Flicks also stop counting
+	as 🎪 charge juggles. Two knobs: FLICK_CARRY_RADIUS (how "at his feet" the pop
+	must be), FLICK_MEMORY (window length). Friend #3 was right: don't jump
+	someone else's ball.
 
 	v2.55 in one breath: friend report #2 — the lag is gone, but the HUD was a
 	720-px desktop panel drowning a phone screen. The UI now FITS ITSELF: the
@@ -137,7 +151,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 34 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 35 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -465,6 +479,20 @@ local CONFIG = {
 	JUGGLE_RISE_SPEED     = 2,      -- ball rising faster than this (studs/s) = not a shot
 	JUGGLE_DRIFT_SPEED    = 35,     -- just rose + horizontal drift slower than this = mid-juggle
 	JUGGLE_DROP_H_SPEED   = 20,     -- falling with horizontal slower than this...
+	-- 🌈 v2.56 FLICK RESPECT (friend field report: "when u play the script and
+	-- u rainbow flick it jumps — auto jumps — because it thinks it's an aerial
+	-- shot"). A pop off a dribbler's feet has two signatures NO shot shares: it
+	-- RISES while still at the striker's own distance, and it stays under dribble
+	-- speed. That exact moment now stamps a short memory window:
+	--   · the loft-catch lunge skips it (jumping at a drop the attacker will walk
+	--     onto is how rainbows were invented to beat keepers),
+	--   · the top-bin/apex jump skips it (nothing above your head that is falling
+	--     toward a rival's feet belongs to you),
+	--   · and it never counts as a CHARGE juggle (no 🎪 arming on dribblers).
+	-- A ball STRUCK off the flick at shot speed leaves the window instantly via
+	-- DRIBBLE_MAX_SPEED — the gate never blinding you to the real follow-up shot.
+	FLICK_CARRY_RADIUS    = 7,      -- pop must rise within this of the nearest opponent
+	FLICK_MEMORY          = 1.2,    -- seconds the flick memory suppresses loft+jump
 	JUGGLE_OVERHEAD_DIST  = 6,      -- ...and a player this close below = juggle drop
 
 	-- 🧤 PUNCH OUT (dead ball at your feet in the goal mouth)
@@ -638,6 +666,8 @@ local CONFIG_RULES = {
 	{ "DOUBLE_JUMP_HEIGHT_FRACTION",0.5,    2.0,   0.95 },
 	{ "UI_FIT_REF",                 600,    3840,  1280 },   -- 0 = divide by zero in the scale
 	{ "UI_FIT_MIN",                 0.35,   1.0,   0.55 },
+	{ "FLICK_CARRY_RADIUS",         1.0,    30.0,  7 },
+	{ "FLICK_MEMORY",               0.3,    3.0,   1.2 },
 	{ "HITBOX_EXPAND",              0.0,    60.0,  14 },
 	{ "HITBOX_EXPAND_MAX",        4.0,    200.0, 60 },
 	{ "FLOOR_MAX_ABOVE_REST",     0.2,    6.0,   1.8 },
@@ -3558,8 +3588,16 @@ local function fallbackGoalHeightAboveRoot()
 end
 
 local lastAutoJump = 0
-local function tryAutoJump(impactHeightAboveRoot, goalHeightAboveRoot)
+local function tryAutoJump(impactHeightAboveRoot, goalHeightAboveRoot, diveSpeed)
 	if not CONFIG.AUTO_JUMP_TOP_BIN then return false end
+	-- 🌈 v2.56: never leap at a flick. While the memory window is open (and
+	-- the ball is still under strike speed — a genuine shot struck off the pop
+	-- clears the gate instantly), feet on the ground wait out the drop; the GK
+	-- tackle/step-up paths handle the ball when the attacker collects it.
+	if ST.flickT and (os.clock() - ST.flickT) < CONFIG.FLICK_MEMORY
+		and (diveSpeed or 0) < CONFIG.DRIBBLE_MAX_SPEED then
+		return false
+	end
 	-- 📏 DATA-DRIVEN TOP-BIN TEST: the fandom publishes no net dimensions,
 	-- so the script measures the REAL in-game goal (crossbar height) at
 	-- runtime. The "top bin" is defined against the ACTUAL measured net:
@@ -3682,7 +3720,7 @@ local function fireDive(direction, tFrame, ballSpeed, approach, cooldown, jumpIm
 	CHARGE.lastDive  = tFrame
 	diveWatch = { time = tFrame, speed = ballSpeed, approach = approach, resolved = false }
 	if impactPart then impactPart.Color = Color3.fromRGB(255, 60, 60) end
-	tryAutoJump(jumpImpact, jumpGoal)
+	tryAutoJump(jumpImpact, jumpGoal, ballSpeed)
 	-- 🔌 v2.49: NEVER fire into a stale handle — validate (and if needed, re-find)
 	-- at the exact moment of use, and if the FireServer itself errors the remote
 	-- died under us: drop it so the next decision re-acquires.
@@ -4261,9 +4299,26 @@ local function mainStep(deltaTime)
 	-- the shooter juggles it up first, then fires. 2 juggle cycles from an
 	-- opponent in front of goal = an explosive aerial shot is being set up.
 	local vySign = velocity.Y > 5 and 1 or (velocity.Y < -5 and -1 or 0)
+	-- 🌈 v2.56 FLICK RESPECT: a ball rising RIGHT NEXT TO a nearby opponent
+	-- at sub-strike speed is a rainbow flick / dribble pop — the ball and the
+	-- chaser's gap stays small, unlike a struck shot. Stamp the memory NOW (the
+	-- rise is the only moment both the proximity and the vertical sign are
+	-- unambiguous); the loft lunge and the top-bin jump read it while the drop
+	-- is still in the air, seconds later, when it already LOOKS like a shot.
+	local flickRise = false
+	if vySign == 1 and nearPlayer and nearDist <= CONFIG.FLICK_CARRY_RADIUS
+		and speed < CONFIG.DRIBBLE_MAX_SPEED then
+		flickRise = true
+		local was = ST.flickT
+		ST.flickT = now
+		if not was or now - was > 1.5 then
+			log("[AI-Dive] 🌈 FLICK RESPECT | " .. (styleNameByPlayer[nearPlayer] or nearPlayer.Name)
+				.. " popped it up at his own feet — no lunge, no leap, let it land")
+		end
+	end
 	if vySign == 1 and CHARGE.lastVySign == -1 then
 		-- the ball just rose off a player's feet (a juggle touch)
-		if nearPlayer and nearDist <= CONFIG.CHARGE_JUGGLE_RADIUS
+		if nearPlayer and not flickRise and nearDist <= CONFIG.CHARGE_JUGGLE_RADIUS
 			and (now - CHARGE.windowStart) <= 3 then
 			if CHARGE.cycles == 0 then CHARGE.windowStart = now end
 			CHARGE.cycles = CHARGE.cycles + 1
@@ -5061,7 +5116,11 @@ local function mainStep(deltaTime)
 	-- ballistically. While the ball is still rising we wait — diving early
 	-- leaves the opposite side open.
 	local loftFired = false
+	local flickLive = ST.flickT and (now - ST.flickT) < CONFIG.FLICK_MEMORY
+		and speed < CONFIG.DRIBBLE_MAX_SPEED
 	if speed >= CONFIG.MIN_SHOT_SPEED
+		and not flickLive -- 🌈 the flick drop is the attacker's ball; catch it and
+		              -- you jump through their skill instead of waiting for the strike
 		and not isDribbling and not isCarried and poss ~= "own" and not isJuggle and not movingAway
 		and not receiverInPath -- v2.42: a lobbed pass to a receiver, not a shot
 		and not definitelyMiss -- v2.44: a ball over the bar, or already past the
