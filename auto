@@ -1,11 +1,23 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.63 "The SAVE and the second one — the gyro combo, fixed end to end"
+	⚡ ZERO-LATENCY GK AI — v2.64 "Neon credit curtain — the five seconds before the load"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.64 in one breath: the boot gets a CREDITS CURTAIN. Five seconds of neon
+	purple, its own screen (not a chat notification, never one): AUTO DIVE
+	rises into frame with "credits to JOE — for helping me make the auto dive"
+	and "credits to ITSLAPEACE — for testing the script and the advice — From
+	The Streets", counts the load down live, and at LOADED it plays the
+	BACKTRACK: the entrance in reverse, sliding off the bottom, and the keeper
+	goes live in the frame it lands. Discipline baked in: every GUI write is
+	pcall-guarded and every frame is STEP-COUNTED (never clock- or wait-
+	trusted, so headless executors and the test harness snap through in zero
+	time), a failed splash destroys itself mid-flight, and the curtain may
+	DECORATE the boot — it may never GATE it. Script loads regardless.
 
 	v2.63 in one breath: I misread the friend. "Add a inhumane gyro shot" was
 	never an ask to WEAPONIZE it — it is an ask to SAVE it, and his own
@@ -288,6 +300,120 @@ local Stats             = game:GetService("Stats")
 local LocalPlayer = Players.LocalPlayer
 local Camera      = workspace.CurrentCamera
 local UP          = Vector3.new(0, 1, 0)
+
+-- ==========================================
+-- 🟣 CREDITS CURTAIN (v2.64 — the user: "before the script loads, I'd like to
+-- give credits to…"). A NEON PURPLE splash — a screen of its own, NOT a chat
+-- notification — that holds the boot for five seconds while the script
+-- finishes loading, rises up into frame, and when loading is done it
+-- BACKTRACKS out: the entrance played in reverse, sliding down the way it
+-- came, and the keeper goes live in the frame the curtain lands off-screen.
+--
+--   CREDIT 1 — JOE: for helping me make the auto dive.
+--   CREDIT 2 — ITSLAPEACE: for testing the script and the advice — every
+--              "From The Streets" console and meta behind v2.58–v2.63.
+--
+-- Discipline: the curtain may DECORATE the boot, it may never GATE it.
+-- Every GUI write is pcall-guarded, all timing is step-counted (never clock-
+-- or wait-dependent, so headless executors and test harnesses run it in zero
+-- real time), and any failure destroys the splash mid-flight. Script loads
+-- regardless — five seconds of purple, then business.
+local function showCreditsCurtain()
+	local CURTAIN    = Color3.fromRGB(191, 64, 255)  -- the one neon purple
+	local CURTAIN_DK = Color3.fromRGB(16, 4, 26)     -- the screen it hangs on
+	local HOLD       = 5                              -- seconds before the load finishes
+	local gui, card, status
+	local built = pcall(function()
+		local plr = Players.LocalPlayer
+		local pg  = plr and (plr:FindFirstChild("PlayerGui") or plr:WaitForChild("PlayerGui", 5))
+		if not pg then return end
+		local old = pg:FindFirstChild("AutoDiveCredits")
+		if old then old:Destroy() end
+		gui = Instance.new("ScreenGui")
+		gui.Name, gui.ResetOnSpawn, gui.IgnoreGuiInset, gui.DisplayOrder =
+			"AutoDiveCredits", false, true, 1000
+		gui.Parent = pg
+		card = Instance.new("Frame")
+		card.Size = UDim2.fromScale(0.46, 0.36)
+		card.AnchorPoint = Vector2.new(0.5, 0)
+		card.Position = UDim2.new(0.5, 0, 0.62, 0)    -- starts BELOW frame: rise-in
+		card.BackgroundColor3 = CURTAIN_DK
+		card.BackgroundTransparency = 0.85
+		card.BorderSizePixel = 0
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 14)
+		corner.Parent = card
+		card.Parent = gui
+		-- the neon border is the ONE decoration allowed to fail on old UI stacks
+		pcall(function()
+			local stroke = Instance.new("UIStroke")
+			stroke.Color = CURTAIN
+			stroke.Transparency = 0.15
+			stroke.Thickness = 2
+			stroke.Parent = card
+		end)
+		local function line(name, yScale, hScale, size, font, text, color)
+			local t = Instance.new("TextLabel")
+			t.Name = name
+			t.Size = UDim2.new(1, -24, hScale, 0)
+			t.Position = UDim2.new(0, 12, yScale, 0)
+			t.BackgroundTransparency = 1
+			t.Font = font
+			t.TextSize = size
+			t.TextColor3 = color
+			t.Text = text
+			t.TextWrapped = true
+			t.Parent = card
+			return t
+		end
+		line("Title", 0.040, 0.20, 30, Enum.Font.GothamBold, "⚡ AUTO DIVE", Color3.fromRGB(240, 230, 255))
+		line("C1",    0.270, 0.15, 19, Enum.Font.GothamBold, "credits to JOE", CURTAIN)
+		line("C1w",   0.415, 0.13, 14, Enum.Font.GothamMedium, "for helping me make the auto dive", Color3.fromRGB(210, 200, 228))
+		line("C2",    0.545, 0.15, 19, Enum.Font.GothamBold, "credits to ITSLAPEACE", CURTAIN)
+		line("C2w",   0.690, 0.13, 14, Enum.Font.GothamMedium, "for testing the script and the advice — From The Streets", Color3.fromRGB(210, 200, 228))
+		status = line("Boot", 0.845, 0.13, 14, Enum.Font.GothamMedium, "loading the keeper…", CURTAIN)
+	end)
+	if not built or not card then return end
+	-- All animation is STEP-COUNTED: task.wait may be a no-op (headless exec,
+	-- test harness), so the choreography never trusts the clock — worst case
+	-- the curtain snaps through its frames, which is exactly what a harness
+	-- wants, and best case it is butter on a real client.
+	pcall(function()
+		local texts = {}
+		for _, inst in ipairs(card:GetChildren()) do
+			if inst:IsA("TextLabel") then texts[#texts + 1] = inst end
+		end
+		local function place(yFrac, fade)
+			card.Position = UDim2.new(0.5, 0, yFrac, 0)
+			card.BackgroundTransparency = fade
+			local ft = fade >= 0.5 and ((fade - 0.5) * 2) or 0
+			for _, t in ipairs(texts) do t.Transparency = ft end
+		end
+		local function ease(u) return u * u * (3 - 2 * u) end
+		for i = 1, 20 do                                  -- rise-in, ~0.66s
+			local u = ease(i / 20)
+			place(0.62 - 0.12 * u, 0.85 - 0.72 * u)
+			task.wait(1 / 30)
+		end
+		local remain = HOLD - 0.7                         -- the promised 5s total
+		while remain > 0 do                               -- hold + live countdown
+			remain = remain - 0.1
+			if status then status.Text = string.format("script loads in %.1fs…", math.max(0, remain)) end
+			task.wait(0.1)
+		end
+		if status then status.Text = "✅ LOADED — keeper online" end
+		for i = 1, 14 do                                  -- 🎬 the BACKTRACK:
+			local u = ease(i / 14)                        -- entrance in reverse,
+			place(0.5 + 0.28 * u, 0.13 + 0.87 * u)       -- down the way it came
+			task.wait(1 / 30)
+		end
+		if gui then gui:Destroy() end
+	end)
+	if not pcall(function() return card.Parent end) and gui then
+		pcall(function() gui:Destroy() end)
+	end
+end
+pcall(showCreditsCurtain)
 -- the trajectory integrator runs hundreds of steps a frame: hoist the two math
 -- functions it leans on out of the global table (an upvalue read beats a global
 -- lookup + table index, and this is the innermost loop in the script)
