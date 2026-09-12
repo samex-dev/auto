@@ -1,11 +1,23 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.56 "Flick respect: rainbows don't beat gravity"
+	⚡ ZERO-LATENCY GK AI — v2.57 "Log budget + faster guardian + ECO_LOCK"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.57 in one breath: second lag report from the friend's phone, two causes the
+	v2.54 guardian could not see: his device sits around 35-40 fps — comfortably
+	ABOVE the old 33 fps trigger, so nothing ever eased — and with VERBOSE on,
+	every decision printed, so a scramble stacked a dozen console prints in a
+	second and on an executor-attached phone PRINTS ARE FRAMES. Now: tier 1
+	starts under ~41 fps (tier 2 ~25) with a 1.6x faster frame average; ALL log
+	output runs a sliding budget (8 lines/2s, 3 while easing, 12 for the boot
+	banner, muted lines counted not vanished); a 📟 PERF health line reports
+	fps+tier every 20 s ONLY under 50 fps; and ECO_LOCK forces paint tiers for
+	the A/B test — with 2 and every sparkle off, lingering stutter is the game
+	or the executor, not this script. Decisions remain every-frame, every tier.
 
 	v2.56 in one breath: friend report #3 — a RAINBOW FLICK beat the keeper by
 	making him jump it. A pop off a dribbler's feet reads as a descending loft
@@ -151,7 +163,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 35 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 36 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -316,8 +328,19 @@ local CONFIG = {
 	-- real frame time (Heartbeat's own deltaTime) and eases PAINT in two tiers with
 	-- hysteresis; DECISIONS NEVER SLOW: prediction, commits, jumps, the hitbox
 	-- cube and the dive remote run at full rate in every tier.
-	--   tier 1 (sustained <~33 fps): dots/impact marker OFF, tag follow 20 Hz, HUD 3x slower
-	--   tier 2 (<~22 fps):           style billboards DISABLED (zero render cost), zones hidden
+	--   tier 1 (sustained <~41 fps): dots/impact marker OFF, tag follow 20 Hz, HUD slower
+	--   tier 2 (<~25 fps):           style billboards DISABLED (zero render cost), zones hidden
+	-- v2.57 re-tuned from the SECOND lag report: a phone parked at 35-40 fps felt
+	-- rough but sat ABOVE the old 33 fps trigger, so nothing eased — and with
+	-- VERBOSE on every decision printed, so scramble chatter (which prints ARE,
+	-- on an executor-attached phone) cost frames all by itself. Tier 1 now starts
+	-- under ~41 fps, the frame average reacts 1.6x faster, ALL printing runs
+	-- through the sliding log budget near the top, and a 📟 PERF line reports
+	-- fps+tier every 20 s but ONLY on devices under 50 fps — healthy phones never
+	-- see it. ECO_LOCK (0/1/2) FORCES a paint tier: set 2 and if the phone still
+	-- stutters with every sparkle off, the lag is the game or the executor, not
+	-- this script. Decisions stay every-frame in every tier, as always.
+	ECO_LOCK              = 0,
 	-- Recovery re-upgrades as soon as the frames come back. false = never intervene.
 	LOW_SPEC_GUARDIAN     = true,
 	CENTER_TOLERANCE      = 4.5,    -- |horizontal offset| below this = Middle
@@ -604,8 +627,37 @@ local CONFIG = {
 -- ==========================================
 -- 📝 LOGGING — one gate so VERBOSE=false is genuinely quiet
 -- ==========================================
-local function log(...)
-	if CONFIG.VERBOSE then print(...) end
+-- 📟 v2.57 LOG BUDGET — on weak phones PRINTS ARE FRAMES: with the
+-- executor console attached, one print can cost more than the entire Lua
+-- decision for its frame, and a scramble (handler flipping every swap, floor
+-- reads, dive lines) can stack a dozen in a second. Every console line now
+-- flows through a sliding budget: 8 lines per 2 s normally, 3 while the
+-- low-spec guardian is easing. Boot gets a wider first window (12) so the
+-- load banner is never clipped. Muted lines are NEVER lost silently — the
+-- next allowed line reports the count. VERBOSE=false still mutes everything.
+local ecoLogTier = 0        -- the governor (below, later in the file) writes its tier here
+local logT0, logN, logMax, logMuted = -999, 0, 12, 0
+local function log(msg, urgent)
+	if not CONFIG.VERBOSE then return end
+	local t = os.clock()
+	if t - logT0 >= 2 then
+		logT0, logN = t, 0
+		logMax = (ecoLogTier > 0) and 3 or 8
+	end
+	-- urgent=true lines (guardian tier flips, PERF, remote heal) BYPASS the
+	-- budget — they are exactly the lines a struggling device most needs to show.
+	if not urgent then
+		if logN >= logMax then
+			logMuted = logMuted + 1
+			return
+		end
+		logN = logN + 1
+	end
+	if logMuted > 0 then
+		msg = msg .. "  (+" .. logMuted .. " lines muted by log budget)"
+		logMuted = 0
+	end
+	print(msg)
 end
 
 -- 🔌 v2.49 SELF-HEALING DIVE HANDLE — "when a new match happens it just doesn't
@@ -668,6 +720,7 @@ local CONFIG_RULES = {
 	{ "UI_FIT_MIN",                 0.35,   1.0,   0.55 },
 	{ "FLICK_CARRY_RADIUS",         1.0,    30.0,  7 },
 	{ "FLICK_MEMORY",               0.3,    3.0,   1.2 },
+	{ "ECO_LOCK",                   0,      2,     0 },
 	{ "HITBOX_EXPAND",              0.0,    60.0,  14 },
 	{ "HITBOX_EXPAND_MAX",        4.0,    200.0, 60 },
 	{ "FLOOR_MAX_ABOVE_REST",     0.2,    6.0,   1.8 },
@@ -3247,25 +3300,27 @@ RunService.Heartbeat:Connect(function(dt)
 	-- 1) paint governor (guarded: with LOW_SPEC_GUARDIAN off nothing below runs
 	--    and ST.ecoTier simply stays 0 = full paint forever)
 	if CONFIG.LOW_SPEC_GUARDIAN and aiEnabled then
-		emaDt = emaDt * 0.94 + (dt or 0.016) * 0.06
+		emaDt = emaDt * 0.90 + (dt or 0.016) * 0.10
 		local tier = ST.ecoTier or 0
 		local want = tier
-		if emaDt > 0.045 then want = 2
-		elseif emaDt > 0.030 then
+		if emaDt > 0.040 then want = 2
+		elseif emaDt > 0.0245 then
 			if want < 1 then want = 1 end
-		elseif emaDt < 0.026 then want = 0
-		elseif emaDt < 0.036 and want == 2 then want = 1
+		elseif emaDt < 0.019 then want = 0
+		elseif emaDt < 0.031 and want == 2 then want = 1
 		end
+		if CONFIG.ECO_LOCK and CONFIG.ECO_LOCK > want then want = CONFIG.ECO_LOCK end
 		if want ~= tier then
 			ST.ecoTier = want
+			ecoLogTier = want -- the log budget tightens with the paint (see log())
 			-- log EVERY tier change: the hysteresis itself is the anti-spam (a tier
 			-- flip needs seconds of sustained frame-time in the other direction, and
 			-- the EMA at 0.06 cannot oscillate across two thresholds per second)
 			if want > 0 then
 				log(want == 2 and "[AI-Dive] 🐢 LOW-SPEC GUARDIAN: deep — dots, tags and zones OFF (dives untouched)"
-					or "[AI-Dive] 🐢 LOW-SPEC GUARDIAN: easing paint (dives untouched)")
+					or "[AI-Dive] 🐢 LOW-SPEC GUARDIAN: easing paint (dives untouched)", true)
 			else
-				log("[AI-Dive] 🐢 LOW-SPEC GUARDIAN: full paint (device recovered)")
+				log("[AI-Dive] 🐢 LOW-SPEC GUARDIAN: full paint (device recovered)", true)
 			end
 			local show = want < 2
 			for i = 1, #tagAnchors do
@@ -3274,6 +3329,19 @@ RunService.Heartbeat:Connect(function(dt)
 			end
 			if zoneFolderRef then pcall(function() zoneFolderRef.Visible = show end) end
 			if want > 0 then hideVisuals() end
+		end
+		-- 📟 v2.57: while the device is under 50 fps, a small health line every
+		-- 20 s — fps, tier, and whether the lock is forcing it. Silent on healthy
+		-- devices; on a lagging one it gives the friend something to paste back that
+		-- says more than "it lags".
+		if emaDt > 0.020 then
+			local tp = os.clock()
+			if tp - (ST.perfT or 0) > 20 then
+				ST.perfT = tp
+				log(string.format("[AI-Dive] 📟 PERF | ~%.0f fps | paint tier %d%s",
+					1 / math.max(emaDt, 1e-4), want,
+					(CONFIG.ECO_LOCK or 0) > 0 and " (ECO_LOCK)" or ""), true)
+			end
 		end
 	end
 	-- 2) tag follow (v2.44: root found ONCE, re-found when it dies; v2.48: also
@@ -3729,7 +3797,7 @@ local function fireDive(direction, tFrame, ballSpeed, approach, cooldown, jumpIm
 		local ok = pcall(function() ev:FireServer(direction) end)
 		if not ok then
 			DiveEvent = nil
-			log("[AI-Dive] 🔌 dive remote died mid-fire — re-acquiring on the next decision")
+			log("[AI-Dive] 🔌 dive remote died mid-fire — re-acquiring on the next decision", true)
 		end
 	elseif not diveBlockedWarned then
 		diveBlockedWarned = true
