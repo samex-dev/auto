@@ -1,11 +1,19 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.54 "Low-spec guardian: lag-proof paint, full-rate dives"
+	⚡ ZERO-LATENCY GK AI — v2.55 "Low-spec guardian + self-fitting UI"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.55 in one breath: friend report #2 — the lag is gone, but the HUD was a
+	720-px desktop panel drowning a phone screen. The UI now FITS ITSELF: the
+	governor reads Camera.ViewportSize once a second (forced once at boot) and
+	scales the whole overlay — HUD frame/lines, the save flash, the studs
+	label, every style tag's font — by real screen width. Full size at 1280+,
+	floor at 0.55 (UI_FIT_MIN) so text stays legible; phone rotation re-fits in
+	a second. One flag off (UI_AUTO_FIT=false) = the old fixed layout.
 
 	v2.54 in one breath: a friend's phone LAGGED on the script, so the paint is now
 	under a governor. The brain was never the problem (~0.05 ms of Lua per
@@ -129,7 +137,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 33 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 34 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -510,6 +518,15 @@ local CONFIG = {
 	SHOW_HUD              = true,   -- top-screen readout (studs, TTI, speed, ping, stats)
 	SHOW_BILLBOARD        = true,   -- floating studs label above the keeper
 	SHOW_ZONE             = true,   -- reach-zone disc on the ground under the keeper
+	-- 📱 v2.55 UI AUTO-FIT (second friend report: no lag now, but the HUD was
+	-- BUILT FOR A DESKTOP — a 720-px panel eats a phone screen alive). The fit
+	-- reads Camera.ViewportSize every second (and at boot) and scales the whole
+	-- UI — HUD frame/lines/flash, the studs label, and every style tag's font —
+	-- by the screen width. Full size at >= UI_FIT_REF px, floor at UI_FIT_MIN so
+	-- text never becomes unreadable. Rotating the phone re-fits within a second.
+	UI_AUTO_FIT           = true,
+	UI_FIT_REF            = 1280,   -- viewport width (px) that shows the UI at full size
+	UI_FIT_MIN            = 0.55,   -- never scale below this fraction of full size
 
 	-- 🧤 GK MOVE PREDICTION (v2.44): the keeper is usually MOVING when the shot
 	-- arrives, so the whole prediction is aimed at where the keeper WILL be
@@ -619,6 +636,8 @@ local CONFIG_RULES = {
 	{ "AUTO_JUMP_COOLDOWN",         0.0,    5.0,   0.6 },
 	{ "AUTO_DOUBLE_JUMP_DELAY",     0.05,   1.0,   0.26 },
 	{ "DOUBLE_JUMP_HEIGHT_FRACTION",0.5,    2.0,   0.95 },
+	{ "UI_FIT_REF",                 600,    3840,  1280 },   -- 0 = divide by zero in the scale
+	{ "UI_FIT_MIN",                 0.35,   1.0,   0.55 },
 	{ "HITBOX_EXPAND",              0.0,    60.0,  14 },
 	{ "HITBOX_EXPAND_MAX",        4.0,    200.0, 60 },
 	{ "FLOOR_MAX_ABOVE_REST",     0.2,    6.0,   1.8 },
@@ -2586,7 +2605,10 @@ end)
 -- You = blue, teammate = green, opponent = red, unknown side = gray.
 -- ==========================================
 local styleTags   = {}   -- [Player] = { anchor, label }
-local tagAnchors  = {}   -- array of { player, anchor } for per-frame following
+local tagAnchors  = {}   -- array of { player, anchor, bb } for per-frame following
+-- 📱 v2.55: the current UI scale, owned by fitUi (defined below) but READ
+-- at this height so freshly created style tags are born at the right size.
+local uiScaleCur, uiFitW = 1, -1
 local lastTagScan = 0
 local tagsFolder  = nil
 
@@ -2652,7 +2674,7 @@ local function updateStyleTags()
 			label.Size = UDim2.fromScale(1, 1)
 			label.BackgroundTransparency = 1
 			label.Font = Enum.Font.GothamBold
-			label.TextSize = 22
+			label.TextSize = math.floor(22 * uiScaleCur + 0.5) -- 📱 born at the fitted size
 			label.Text = "..."
 			label.Parent = bb
 
@@ -3169,15 +3191,29 @@ local function createHud()
 	flash.TextStrokeTransparency = 0.4
 	flash.Parent = gui
 
-	hudRefs = { line1 = line1, line2 = line2, line3 = line3, flash = flash }
+	hudRefs = { line1 = line1, line2 = line2, line3 = line3, flash = flash,
+		frame = frame, corner = corner }
 	end
+
+local fitUi = nil  -- 📱 v2.55: defined after the UI builders; the governor polls it
 
 -- 🐢 v2.54 THE GOVERNOR (see CONFIG.LOW_SPEC_GUARDIAN). It owns the tag-follow
 -- loop too (folded in from its own connection: one Heartbeat, one cadence, and
 -- the follow is the exact paint a weak phone cannot afford 60 times a second).
 local zoneFolderRef = nil   -- set by createZone at boot; hidden in tier 2
 local emaDt = 0
+local uiFitPoll = 0
 RunService.Heartbeat:Connect(function(dt)
+	-- 📱 0) viewport watch (v2.55): one property read per second, and the
+	-- actual re-fit only runs when the screen width really moved (≥8 px).
+	-- Independent of the paint guardian below — UI fit is about SIZE, not fps.
+	if CONFIG.UI_AUTO_FIT and fitUi then
+		local tv = os.clock()
+		if tv - (uiFitPoll or 0) > 1 then
+			uiFitPoll = tv
+			fitUi(false)
+		end
+	end
 	-- 1) paint governor (guarded: with LOW_SPEC_GUARDIAN off nothing below runs
 	--    and ST.ecoTier simply stays 0 = full paint forever)
 	if CONFIG.LOW_SPEC_GUARDIAN and aiEnabled then
@@ -3369,6 +3405,53 @@ local function updateBillboard()
 	bbRefs.label.TextTransparency = 0
 	bbRefs.label.Text = string.format("%.1f %s", stateInfo.dist, DIVE_GLYPHS[stateInfo.dir] or "")
 	bbRefs.label.TextColor3 = stateInfo.color
+end
+
+-- 📱 v2.55 THE FITTER. Field report #2 from the friend's phone: the lag is
+-- gone, but the HUD is a 720-px desktop panel and on a 640-px screen it covers
+-- half the game. Everything visual that is NOT the game itself gets one scale:
+-- HUD frame + lines + save flash, the floating studs label, and every style
+-- tag's font. Driven by Camera.ViewportSize.X (real pixels), re-checked at
+-- 1 Hz by the governor loop and forced once at boot — so phone→tablet→desktop
+-- and rotation all re-fit themselves. The floor (UI_FIT_MIN) keeps text
+-- legible; the dive pipeline was never touched (it reads no GUI).
+fitUi = function(force)
+	local cam = workspace.CurrentCamera or Camera
+	local ok, vp = pcall(function() return cam and cam.ViewportSize end)
+	if not ok or not vp or not vp.X or vp.X <= 0 then return end
+	local w = vp.X
+	if not force and math.abs(w - uiFitW) < 8 then return end  -- rotation jitter guard
+	uiFitW = w
+	local sc = w / CONFIG.UI_FIT_REF
+	if sc > 1 then sc = 1 elseif sc < CONFIG.UI_FIT_MIN then sc = CONFIG.UI_FIT_MIN end
+	if not force and math.abs(sc - uiScaleCur) < 0.03 then return end
+	uiScaleCur = sc
+	local function px(v) return math.floor(v * sc + 0.5) end
+	if hudRefs then
+		local hf = hudRefs.frame
+		if hf then
+			hf.Size     = UDim2.fromOffset(px(720), px(80))
+			hf.Position = UDim2.new(0.5, -px(360), 0, px(10))
+			if hudRefs.corner then hudRefs.corner.CornerRadius = UDim.new(0, math.max(2, px(8))) end
+		end
+		hudRefs.line1.TextSize = math.max(10, px(14))
+		hudRefs.line2.TextSize = math.max(10, px(15))
+		hudRefs.line3.TextSize = math.max(10, px(13))
+		local fl = hudRefs.flash
+		if fl then
+			fl.Size     = UDim2.fromOffset(px(500), px(60))
+			fl.Position = UDim2.new(0.5, -px(250), 0, px(130))
+			fl.TextSize = math.max(16, px(44))
+		end
+	end
+	if bbRefs and bbRefs.label then
+		bbRefs.label.TextSize = math.max(12, px(24))
+	end
+	for _, tag in pairs(styleTags) do
+		if tag.label then tag.label.TextSize = math.max(11, px(22)) end
+	end
+	log(string.format("[AI-Dive] 📱 UI FIT — %.2f× on a %d px screen (reads: HUD %d px wide)",
+		sc, math.floor(w + 0.5), px(720)))
 end
 
 -- ==========================================
@@ -5482,6 +5565,7 @@ setupVisuals()
 createHud()
 createBillboard()
 createZone()
+if CONFIG.UI_AUTO_FIT then fitUi(true) end -- 📱 fit BEFORE the first frame
 scanBall()
 -- 🥅🏟️ prime the goal geometry and the team split NOW. Both are throttled
 -- lookups, and the loop only reaches them when the ball is live — without this
