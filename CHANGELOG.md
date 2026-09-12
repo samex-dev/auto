@@ -7,6 +7,287 @@ fixed, so they double as the design rationale for the thresholds in `CONFIG`.
 
 ---
 
+## v2.65 — wider bait net, teammate discipline, a stance for every style (2026-09-12)
+
+- SIX asks in one message; all six shipped.
+- 🟣 CURTAIN: DEAD CENTER (AnchorPoint 0.5/0.5 — "put it on the middle") and
+  EIGHT SECONDS ("make it last 8 secs the credits so they can read properly").
+  The backtrack-out got proportionally slower too — the exit is something you
+  read, not something you miss.
+- 🪤 MORE BAIT DETECTION ("add focus for baits… add more bait detection"):
+  the hold went from ONE shape to THREE. (a) chasing shooter — v2.61;
+  (b) LOOSE ROLLER IN THE BOX — the two-man one-two: soft ball, released,
+  BOTH attackers peeling away, no chaser within bar — v2.64 saw no shape and
+  stepped up into it (S46's repro: a dive at 13.7 studs on a 26/s roller
+  nobody was chasing); (c) BAIT MEMORY — a shooter who has once had a soft
+  shot held has EVERY soft shot held for BAIT_MEMORY (4 s): a bait farm gets
+  no second bite, only a third hold. All tiers share the one release rule:
+  inside BAIT_SMOTHER_DIST the hands come out — pride is for outside 11.
+- 🤝 TEAMMATE DISCIPLINE ("if ur teammate gets the ball it won't dive" — the
+  PROACTIVE half): poss=="own" already refuses dives at a ball OUR man holds;
+  now the ball FLYING TO him at collectible speed is refused mid-air — vector
+  test on the nearest player (ours? within 22? ball genuinely closing >12/s on
+  the line?) and the commit gates (side dive AND the slow-save step-up) both
+  hold. S47's fixture lesson, recorded: the ball must ARRIVE at the mate —
+  fly() overshoots its `to`, and a MISSED catch is not a giveaway; the keeper
+  who dives at a dropped pass is right, and the first version of the test said
+  so. Own→OPP flips now also re-arm the read fresh (commit side, bait memory,
+  curve frames — all belong to the teammate's touch, not the next striker).
+- 🎭 A STANCE FOR EVERY STYLE ("more counters style detection like Santa
+  Claus, Ichigo, Naoya — every style"): STYLE_COUNTERS lookup replaced with
+  styleStance() at both consumers — tuned row where the book has one (ichigo
+  and naoya already did), and where it doesn't: the documented UNIVERSAL READ
+  (forced 2-frame, zero invented claims) + an ANNOUNCED detection line that
+  asks the field for move names. Santa Claus registered name-only (profile +
+  prefix aliases; no kit invented). Detection never shrugs at a name again.
+- New rules rows: BAIT_LOOSE_MAX 30 (15–60), BAIT_MEMORY 4 (2–12),
+  TEAM_PASS_DIST 22 (10–40), TEAM_PASS_MAX 75 (30–120). S46/S47/S48 added —
+  48/48, all three discriminate against v2.64 (old build dove at the unchased
+  roller, armed Santa blind). Lint clean; bench 50.5 ms (+3.4 for the extra
+  gates and the stance indirection — two compares and a table hit per frame).
+
+---
+
+## v2.64 — the credits curtain: five seconds of neon purple before the load (2026-09-12)
+
+- The user asked for the people behind the script to be credited ON the boot
+  screen — "before the script loads, I'd like to give credits to":
+  **JOE**, for helping make the auto dive, and **ITSLAPEACE**, for testing the
+  script and the advice (the "From The Streets" consoles that became
+  v2.58–v2.63). Requirements taken literally: NEON PURPLE (191, 64, 255 on
+  16, 4, 26 — a screen of its own, explicitly not a chat notification), a
+  5-SECOND hold before the load completes, and a BACKTRACK exit: the rise-in
+  played in reverse, sliding off the bottom, with "✅ LOADED — keeper online"
+  on the last frame. The keeper boots in the frame the curtain lands.
+- Built like everything else in this file survives the streets: the curtain
+  may DECORATE the boot, it may never GATE it. Full pcall guard around
+  creation and around animation; the UIStroke (the one exotic decoration)
+  gets its own guard so ancient UI stacks just skip the neon border; the
+  whole choreography is STEP-COUNTED (20 up, ~43 hold, 14 down at task.wait
+  beats) — never clock-read, never wait-trusted — so headless executors and
+  the test harness snap through it in zero real time (45/45 with a curtain
+  in every boot proves it) while a real client gets a smooth 5.0 s.
+- Countdown line rewrites at 10 Hz during the hold ("script loads in 3.2s…")
+  — the 5 s is the PROMISE, and the splash shows it being kept.
+- On failure the splash destroys itself mid-flight (guarded parent probe);
+  no GUI at all → silent return, boot proceeds. A player must never be
+  locked out of their keeper by a decoration.
+
+---
+
+## v2.63 — the SAVE and the second one: the gyro combo, fixed end to end (2026-09-12)
+
+- CORRECTION ACCEPTED: "add a inhumane gyro shot" was never an ask to
+  weaponize it — the user's reply says plain: "he means to SAVE the gyro
+  shot." And the friend's own follow-ups (the screenshot that came after)
+  spell the rest of the meta: "THE CHEMS · FISHKICK · FIX THE INHUMA OFF-BALL
+  2ND KILLER SHOT COMBO · MAKE IT TACKLE KURONA MAINS." Two of those four
+  were already shipped (fishkick row in v2.61, kurona tacklePressure in v2.61,
+  the CHEMS answer — no anti-jump at chandeliers + landing ball gets floor-
+  dived — lives in v2.49/v2.53/v2.56). The combo fix is this entry; the gyro
+  SAVING is the rest of it.
+- 🌀 GYRO SAVE (inches, not just sides). v2.62 chased the inhuman bend and
+  committed to the correct side — S44 on the old build proves the gap exactly:
+  it printed INHUMANE BEND and then dived NOTHING (dives=0: right read, no
+  reach). Now a LIVE chase (fresh 2-frame window, 0.7s) stretches the catch
+  box itself: +GYRO_REACH (5) lateral, +GYRO_HEIGHT (3) ceiling — because the
+  defining cruelty of a gyro is that it keeps breaking AFTER the commit
+  moment, and the answer to "inhumane" physics is inhumane reach. Applies only
+  while the chase is proving itself; a straight shot gets the routine box.
+  Announced 🌀 INHUMANE SAVE so the field can tell reach-extension from a miss.
+- 🏃 SECOND-SHOT WATCH — the off-ball combo, timed. The combo Rin mains play
+  is not the first shot: dive commits → ball comes off UNRESOLVED → he sprints
+  in OFF-BALL and finishes while the keeper is still resetting off the 0.5s
+  cooldown. So: the EXACT frame the diveWatch expires unsecured now arms
+  REBOUND_WINDOW (1.6s) — re-arm floor REBOUND_REARM (0.3) so the keeper is on
+  his feet in half the time, and REBOUND_COMMIT (6) puts the second shot's
+  commit window 6 studs EARLIER, so he meets it already moving. The secured-
+  SAVE path deliberately does NOT arm: a ball in hands IS the win — arming
+  there would just be noise. 🏃 prints once per window.
+- New rules rows (validated ranges): GYRO_REACH 0–14 (14+ claims reach the
+  welded cube can't back), GYRO_HEIGHT 0–8, REBOUND_WINDOW 0.4–4 (the combo
+  lands ~1s after the dive), REBOUND_REARM 0.1–1, REBOUND_COMMIT 0–20.
+- S44/S45 added — 45/43 discrimination both ways (v2.62: right side, zero
+  dives; watch absent, silence on the rebound). Lint clean, bench 47.1 ms:
+  the whole doctrine costs 0.4 ms.
+
+---
+
+## v2.62 — counter doctrine: the streets' moves get answers (2026-09-12)
+
+- The friend asked for two things this repo will not BUILD (a pitch-wide
+  ankle-break exploit, "an inhumane gyro shot"). The user's one-line verdict:
+  "Like a counter." So the mechanics behind both became keeper doctrine —
+  every ask ends up here eventually, as a SAVE.
+- 🌀 GYRO, UNIVERSAL TIER. The v2.61 chase was gated on the family rows
+  (rin/sae/yukimiya) — which means an UNFLAGGED handler firing a monstrous
+  bend (a copied kit, an unpatched move, an exploit's own numbers) got NO
+  chase. Now the chase reads physics as well as rosters: sustained lateral
+  accel ≥ GYRO_ACCEL (55 studs/s², rules row, deliberately above the family
+  bar of 35 — this tier is for inhuman bends, not wobble) primes the v2.32
+  machinery for EVERY handler, and says so: 🌀 INHUMANE BEND. S42: Ghost (no
+  curve row at all) fires a 58/s² drive — v2.61 watches it, v2.62 chases.
+- 🛡️ SLIDE RESPECT — the ankle-break counter. A slide-tackle's whole purpose
+  is to punish the lunging defender; the GK TACKLE IS a lunge. Nagi's
+  FAKE VOLLEY BAIT row already documented it verbatim ("they slide towards
+  you, you ankle-break"). That row now carries slideWindow, and the tackle
+  gate refuses every lunge inside a flagged window: no tackle at the carrier,
+  no diving feet-first past him — the chaser's legs close on air and the
+  ball outlives them. Announced once per window (🛡️ SLIDE RESPECT) because
+  silence under an active window reads as a broken script. S43: Nagi
+  announces, the alert arms, he carries INTO tackle reach — v2.61 dove into
+  the trip (SAVE! — the contact the bait wanted); v2.62 stands, and there is
+  nothing to break.
+- The fences all held: the receiver clause is NOT relaxed by the slide logic
+  (windows suppress lunges, never invite them), S09's open-carry tackle still
+  fires the moment NO window is live (the fence is windowed, not a blanket),
+  and every v2.61 counter — bait hold, curve chase, volley pressure — is
+  untouched beneath. 43/43 scenarios, lint clean, bench 47.7 ms.
+
+---
+
+## v2.61 — bait hold, live curve chase, volley tackle (the friend's Discord meta) (2026-09-12)
+
+- EVIDENCE: nine screenshots of the friend's chat, transcribed into mechanics.
+  "nagi shots — they're hard for the ai" · "a jetkick for luffy — insanely
+  fast" · "improve the auto tackle to counter kurona mains" · "can u do gaga
+  shots" · "the fishkick and scorpion also come for up" · and the meta gem:
+  "when players shoot the ball slowly and get it back — it triggers the AI to
+  dive." (Two other asks — a league-wide ankle-break on slide, and "an
+  inhumane gyro shot" — are offensive-exploit scripts; this repo answers a
+  shot with a better SAVE, so they stay out.)
+- 🪤 BAIT HOLD (the meta fix). The one-two counter (.onetwo) keyed on the
+  ABILITY; this bait fires nothing — it is a soft roller (< BAIT_ROLL_MAX 55)
+  with its own shooter (lastShooter, fresh) chasing within BAIT_CHASE_DIST 22.
+  When that shape is live beyond smother range (BAIT_SMOTHER_DIST 11), the
+  keeper HOLDS: no side dive, no step-up, no plow (the slow-save and floor
+  branches respect the hold too — that's where v2.60 still ate it, @13.9 in
+  S40's repro) and one 🪤 BAIT HELD line per episode. The tackle/collect
+  rules win the ball the frame the baiter touches it — v2.56 doctrine aimed
+  at humans.
+- 🌀 CURVE CHASE (user: "add curve detection for RIN"). The v2.32 machinery
+  already committed to a CURVE SIDE early — but only when the named move
+  tagged the prime. Handlers flagged curveChase (rin, sae, yukimiya — the
+  repo's own CURVE family rows, and the answer to the "gyro shot" ask: gyros
+  get CHASED) feed the LIVE estimator into the same lever: two stable frames
+  of sideways accel ≥ CURVE_CHASE_ACCEL (35 — deliberately above CURVE_DEADZONE
+  30, or the estimator would report straight and be right) set the dive side
+  where the bend ARRIVES, mid-flight corrections included.
+- 🦵 TACKLE vs KURONA MAINS (friend's exact ask). kurona's row gains
+  tacklePressure: the tackle may enter the volley-churn — the juggle fence
+  lifts for him (rapid touches ARE the window), and the collect clause widens
+  to 6 studs / 12 studs/s without needing a flick EVENT (his taps raise none).
+  S12's showoff-juggler carries no flag and stays untouchable; the receiver
+  fence is not relaxed one inch.
+-  ROSTER ROWS: new MOVE_INFO entries for jetkick (luffy, extreme) and
+  fishkick (gagamaru, aerial) — the friend's own naming; new COUNTER_MODES
+  rows JET SNAP (frame-zero, bomb bar 125, +12 commit early), SCORPION REACH
+  (+10 height), FISHKICK LOFT (+8 height), FIVE-STAGE BAIT — HOLD (Nagi's
+  ankle-break sequence: read his LAST touch, not the theatre); nagi gets
+  quickSpeed 110 (trap shot explodes off the first touch), luffy quickSpeed
+  105, gagamaru rangeBoost 8 (his kit launches from farther out). Every
+  style keeps its tuned stance — "more counters for every style" means no row
+  left generic where the repo has evidence, and none invented where it
+  doesn't (hiori stays label-only; naoya stays the universal 2-frame read).
+- FIELD NOTES: four rules now carry CONFIG rows with validated ranges
+  (BAIT_ROLL_MAX/CHASE/SMOTHER, CURVE_CHASE_ACCEL). S40/S41 added — 41/41,
+  lint clean, bench 46.7 ms (chase is free: three compares on a cached vector).
+- Two build bugs caught by the suite en route, recorded for discipline: the
+  bait scenarios initially struck the ball BEFORE the 0.5 s roster cache
+  refresh (no shooter to credit — no real match is 0.35 s old when it shoots;
+  scenario timing fixed, not the rule), and an over-tight S40 floor clamp put
+  the "held" ball inside the legitimate smother window (16.5 studs, keeper
+  stands ~3.5 off his line — measure like the script does, not like the
+  fixture).
+
+---
+
+## v2.60 — UNBLIND: no scan cap may ever decide (v2.59 fallout) (2026-09-12)
+
+- REPORT #7 was the kind you swallow whole: "the script doesn't even work
+  anymore, no dives, trajectory doesn't appear, nothing." The sim couldn't
+  reproduce it (39/39, benches fine) — because the mock's tiny tree can never
+  hide a ball past a visit cap. That was the tell: v2.59 capped EVERY
+  full-tree walk at 5000 visits. In a real, busy place the ball can live
+  deeper than visit #5000 — and then boot misses, every retry misses (also
+  capped), and a capped miss is indistinguishable from no ball at all: no
+  dives, no path dots, nothing. A perf cap had become a DECISION. Caps are
+  allowed to trim lag, never to decide what exists.
+- THE FIX — a tiered finder where every tier can actually see:
+  0. remembered parent: `lastBallRef.Parent:FindFirstChild(name)` — O(1),
+     zero walks (this is what real re-find traffic hits every match reset);
+  1. workspace's DIRECT children, uncapped — balls nearly always live here;
+  2. the descendants walk — capped at 5000 ONLY on the short backoff steps,
+     and UNCAPPED on boot and on the two long steps (2 s/5 s waits). Worst
+     case for a deep ball: found on its third retry. "Never" is gone.
+  The leaderboard hunt got the same treatment (deep mode on its 15 s/60 s
+  steps; pass-2 finds now also populate the cache).
+- ESCALATION BUG, SAME FILE, FOUND ALONGSIDE: v2.59 incremented the backoff
+  counter PER FRAME instead of per walk miss — four frames in, the ramp was
+  already at its 5 s rung, so the first fallback scan after a boot miss ran
+  at t=5 s, not t=0.5 s. It now counts what its name says: walk misses. The
+  ball hook and the roster check were also put back where they belong (the
+  1 s team gate), removing a per-frame `#Players:GetPlayers()`.
+- FIELD INSTRUMENTATION (the sim cannot fake a huge tree, so the SCRIPT
+  reports it): after 7 blind seconds one mute-proof line prints —
+  `⚠️ BALL HUNT: no ball after 7 s — uncapped deep scans now running every
+  5 s`. Its presence = ball blindness (ours; now recoverable); its absence
+  plus no dives = a paste/version problem, not an algorithm one. The HUD
+  "tracking ball" vs "scanning for ball..." line says the same at a glance.
+- LAG WINS FROM v2.59 ARE KEPT: while the ball is visible, ZERO walks run —
+  the finder is O(1) — so the uncapped tier fires only while already blind,
+  at most one walk per 5 s. The 15 Hz paint, change-gated hides and the
+  `📟 PERF | lua ms/f` line are untouched.
+- A patch-discipline note for the ledger: the first v2.60 attempt mangled
+  `local function scanBall()` into `al function ...` (a sliced-string anchor
+  bug); lint passed (it parses as an expression statement), and 39 scenarios
+  caught it instantly. Test suites, not linters, are the real net.
+
+---
+
+## v2.59 — the lag hunt: walk diet, 15 Hz paint, lua-cost line (third lag report) (2026-09-12)
+
+- FIELD REPORT #6, and the script's own meters said nothing was wrong: bench
+  46.8 ms of Lua across 798 frames, guardian tier 0, log budget honored. The
+  friend: "lagging so much." The contradiction resolved when we asked WHERE the
+  milliseconds live — not in our Lua, in the engine calls the bench cannot
+  price. Two of them were running marathons:
+  1. `refreshBall`'s fallback re-walked `workspace:GetDescendants()` every
+     0.5 s while the ball was gone. The ball is gone during every kickoff,
+     every goal reset, half of stoppage — the recovery path was a metronome of
+     full-tree walks aimed at the moments the keeper most needs frames.
+  2. `scanLeaderboard` (every 2 s) called `findBoard` on FOUR parents, which
+     each ran `GetDescendants()` TWICE — and when the game has no name-matched
+     board (this one doesn't), it did that FOREVER, plus a nested
+     board-node × player loop inside.
+- DISCOVER-ONCE DOCTRINE (v2.44 goal scan, finally universal): the board is
+  found once and cached (`cachedBoard.Parent` liveness — no walk while it
+  lives); the ball keeps its event fast path (DescendantAdded = instant) and
+  only the FALLBACK walk backs off: misses escalate {0.5,1,2,5 s} for the
+  ball, {2,5,15,60 s} for the board, reset by a find or a roster change. The
+  1 s team pass that decisions read from is UNTOUCHED.
+- CAPPED + CHEAPER: every service-tree walk has a 5000-visit cap (a capped
+  miss waits for the next pass; the old walk could stall a phone frame on a
+  40k-instance place), and `scanLeaderboard`'s nested loop became a lowercase
+  name-map (O(1) per node instead of O(players)).
+- PAINT WRITES ONLY ON CHANGE: `hideVisuals` used to fire on EVERY dead-ball
+  frame (markIdle's 8 call sites) writing the same `Transparency = 1` — now a
+  one-shot flag, cleared by the impact paint; zone and billboard run at 15 Hz
+  with their Transparency/TextTransparency change-gated. Decorations eased;
+  prediction, dives, jumps and the welded cube never do.
+- 📟 PERF now prints `lua X.XXX ms/f` (an EMA of the mainStep call itself,
+  two clock reads a frame) — the friend's paste line becomes a verdict: low
+  lua + low fps = game/executor side; high lua = come back to us.
+- S39 budgets the walks with a mock-side counter (service-root
+  `GetDescendants` calls): 40 idle restart-gap seconds cost 78 walks on
+  v2.58, 16 on v2.59; assert max 40. The bench itself dropped 46.8 → 34.7
+  ms / 798 frames — the walks were the script's biggest Lua-adjacent bill too
+  (the mock's own tree copies were the cost).
+- Header v2.58 errata corrected in-file: tackle range shipped 9→10.5 (11 was
+  tested and rejected), and the long-read guard's glyph is one 🧷 everywhere.
+
+---
+
 ## v2.58 — enum-proof dives, OP tackles, long-read guard (friend console #2) (2026-09-12)
 
 - FIELD REPORT #5 arrived as a console screenshot from the friend's device, not
