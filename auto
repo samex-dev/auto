@@ -1,11 +1,47 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.60 "Unblind: no cap may ever decide"
+	⚡ ZERO-LATENCY GK AI — v2.62 "Counter doctrine: the streets' moves get answers"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.62 in one breath: "Like a counter" — the two asks this repo would not
+	BUILD became the two counters it shipped. (1) THE GYRO: an "inhumane gyro
+	shot" is physics, not a kit — so the chase got a second tier: sustained
+	lateral accel ≥ GYRO_ACCEL (55 studs/s², rules row) primes the dive side for
+	EVERY handler, family row or not — a bend that violent gets chased whoever
+	fired it. (2) THE ANKLE-BREAK: "everyone gets ankle-breaked when sliding" —
+	the tackle IS the contact a slide hunts, so any window flagged slideWindow
+	(Nagi's FAKE VOLLEY BAIT row already said 'they slide towards you, you
+	ankle-break') now fences the lunge itself: no tackle inside the slide, the
+	chaser's legs close while the ball survives, 🛡️ logged once so silence never
+	looks like a broken script. Bait hold, curve chase, volley pressure and every
+	fence stay exactly where v2.61 left them.
+
+	v2.61 in one breath: the friend's Discord screenshots, transcribed into
+	mechanics. (1) THE BAIT — "when players shoot the ball slowly and get it
+	back, it triggers the AI to dive": a one-two played with LEGS, no ability,
+	invisible to the move-driven HOLD. Now 🪤 BAIT HELD: under BAIT_ROLL_MAX
+	(55) with its shooter chasing within 22 studs, the keeper stays HOME and
+	only opens the dive window inside 11 studs (and the plow respects the hold)
+	— the tackle/collect rules take the ball the frame he touches it. (2) THE
+	CHASE — user: "add curve detection for RIN": the v2.32 prime machinery now
+	also runs on the LIVE estimator for the CURVE family rows (rin/sae/
+	yukimiya-GYRO): two stable frames of sideways accel ≥ 35 studs/s² set the
+	dive side where the bend ARRIVES, named move or not. (3) THE TACKLE —
+	"improve the auto tackle to counter kurona mains": kurona's row gains
+	tacklePressure, letting the keeper tackle INTO the volley-churn the flick
+	memory never saw (juggle/receiver fences intact — S12 proof). (4) THE
+	ROSTER: LUFFY jetkick rows ("insanely fast" → JET SNAP: frame-zero, bomb
+	bar 125, +12 studs early; style quickSpeed 105), GAGA shots (LAUNCH WATCH
+	+8 range; SCORPION REACH +10 height, FISHKICK LOFT +8 — "the fishkick and
+	scorpion also come for up"), NAGI (trap-shot quickSpeed 110 + the
+	five-stage fake volley gets its own HOLD row — the ankle-break bait the
+	repo always documented), and every style keeps its tuned counter. Asked
+	for "an inhumane gyro shot": the answer this script gives a shot is a
+	better SAVE — yukimiya's gyros now get chased live.
 
 	v2.60 in one breath: v2.59's walk cap BLINDed keepers in busy places — a
 	ball deeper than visit 5000 was never found by ANY scan, which reads as
@@ -57,7 +93,7 @@
 	(quickSpeed 100), +4 reach for volleys off the dribble angle, every documented
 	move live as a counter (scissor barrage, Ginga monster, bee shot, trance, the
 	Schizophrenic mid-air bend). Isagi, Rin and Reo got the same multi-signal nudge.
-	39 scenarios.
+	43 scenarios.
 
 	v2.57 in one breath: second lag report from the friend's phone, two causes the
 	v2.54 guardian could not see: his device sits around 35-40 fps — comfortably
@@ -215,7 +251,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 39 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 43 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -510,6 +546,25 @@ local CONFIG = {
 	FAKE_WINDOW         = 1.0,    -- s after the kick the bleed hold is live
 	FAKE_TRAVEL         = 14,     -- a fake dies within this of the kick; a real shot is gone
 	FAKE_DROP_ABS       = 12,     -- bleed must have dropped this much off the peak
+	-- 🪤 v2.61 BALL-DRIVEN ONE-TWO HOLD (friend, verbatim: "when players shoot
+	-- the ball slowly and get it back — it triggers the AI to dive"). The move
+	-- driven .onetwo HOLD needs the ABILITY; this bait needs NONE — it is a
+	-- one-two played with legs: a soft roller with its shooter right behind it.
+	-- The keeper holds home and lets the ball roll into smother territory.
+	BAIT_GUARD          = true,
+	BAIT_ROLL_MAX       = 55,     -- "slowly": under this = roller, not a bomb
+	BAIT_CHASE_DIST     = 22,     -- shooter within this of the ball = chasing it
+	BAIT_SMOTHER_DIST   = 11,     -- inside this the hold ends: hands beat pride
+	-- 🌀 v2.61 CURVE CHASE (user: "add curve detection for RIN"): sustained
+	-- LIVE sideways acceleration primes the v2.32 curve machinery even when no
+	-- named move fired. Must sit above CURVE_DEADZONE (below it the estimator
+	-- reports straight — and it would be right to).
+	CURVE_CHASE_ACCEL   = 35,     -- studs/s² of measured lateral accel = a live bend
+	-- 🌀 v2.62 INHUMANE BEND BAR (friend: "add a inhumane gyro shot" — the
+	-- answer): accel this strong is a gyro no matter WHO fired it — the chase
+	-- engages for EVERY handler, no style row required. Sits above the family
+	-- bar on purpose: this tier is for physics that are not human, not wobble.
+	GYRO_ACCEL          = 55,     -- studs/s² sustained = universal gyro, handler-agnostic
 	-- 🎯 WEAK-CENTER CATCH (v2.43): a weak shot near the center is a CATCH
 	-- (forward), not a committed side dive — the "it dove left/right instead
 	-- of forward" fix. A keeper meets a weak central ball by stepping to it,
@@ -776,6 +831,11 @@ local CONFIG_RULES = {
 	{ "TACKLE_COOLDOWN",            0.0,    5.0,   0.55 },
 	{ "TACKLE_RANGE",               2.0,    20.0,  10.5 },
 	{ "LONG_GUESS_DIST",          40.0,   300.0, 85 },
+	{ "BAIT_ROLL_MAX",              10.0,  90.0,  55 },     -- 90+ would let real strikes "bait"
+	{ "BAIT_CHASE_DIST",             5.0,  40.0,  22 },
+	{ "BAIT_SMOTHER_DIST",           4.0,  20.0,  11 },     -- beyond TACKLE_RANGE = a hole
+	{ "CURVE_CHASE_ACCEL",          30.0,  80.0,  35 },   -- at/above CURVE_DEADZONE or it never fires
+	{ "GYRO_ACCEL",                 40.0, 120.0,  55 },   -- above CURVE_CHASE_ACCEL: the universal tier is stricter
 	{ "AUTO_JUMP_COOLDOWN",         0.0,    5.0,   0.6 },
 	{ "AUTO_DOUBLE_JUMP_DELAY",     0.05,   1.0,   0.26 },
 	{ "DOUBLE_JUMP_HEIGHT_FRACTION",0.5,    2.0,   0.95 },
@@ -1513,6 +1573,7 @@ local MOVE_INFO = {
 	doughdonut       = { char = "devilfruituser", speed = "normal",  aerial = false, barrage = false },
 	gear5            = { char = "luffy", speed = "extreme", aerial = true,  barrage = false },
 	freedommovement  = { char = "luffy", speed = "tricky",  aerial = false, barrage = false },
+	jetkick          = { char = "luffy", speed = "extreme", aerial = false, barrage = false }, -- v2.61 (friend): "a jetkick for luffy — insanely fast"
 	-- Barou
 	kingschopshot    = { char = "barou", speed = "extreme", aerial = false, barrage = false },
 	-- Nagi
@@ -1548,6 +1609,7 @@ local MOVE_INFO = {
 	-- Gagamaru (real Skibidi GK kit, from the wiki)
 	ballthrow        = { char = "gagamaru", speed = "fast",    aerial = true,  barrage = false },
 	escorpion        = { char = "gagamaru", speed = "fast",    aerial = true,  barrage = false },
+	fishkick         = { char = "gagamaru", speed = "fast",    aerial = true,  barrage = false }, -- v2.61 (friend): "the fishkick and scorpion also come for up"
 	leap             = { char = "gagamaru", speed = "tricky",  aerial = true,  barrage = false },
 	perfectsave      = { char = "gagamaru", speed = "defense", aerial = false, barrage = false },
 	bestgoalkeeper   = { char = "gagamaru", speed = "defense", aerial = false, barrage = false },
@@ -1790,26 +1852,26 @@ local MOVE_INFO = {
 -- game. A style we know little about gets the universal safe stance: forced
 -- 2-frame read (never jump on frame one against an unread handler).
 local STYLE_COUNTERS = {
-	rin            = { name = "CURVE HANDLER",     confirmFrames = 2, rangeBoost = 4 }, -- v2.58: his breaker BENDS IN — edge-range is not out of range
-	sae            = { name = "CURVE HANDLER",     confirmFrames = 2 },
+	rin            = { name = "CURVE HANDLER",     confirmFrames = 2, rangeBoost = 4, curveChase = true }, -- v2.61 (user: "curve detection for RIN"): the LIVE estimator drives the prime too — no named move required
+	sae            = { name = "CURVE HANDLER",     confirmFrames = 2, curveChase = true },
 	reo            = { name = "WILDCARD HANDLER",  confirmFrames = 2, rangeBoost = 4 }, -- v2.58: copying a CHIGIRI means arriving at 95+ from where you thought he wasn't
 	devilfruituser = { name = "BALLOON WATCH",     confirmFrames = 2 }, -- the ball may sit INSIDE him: read, then explode
 	kaiser         = { name = "IMPACT HANDLER",    cooldownScale = 0.75 }, -- fastest release: re-arm fast
 	isagi          = { name = "VOLLEY HANDLER",    cooldownScale = 0.8, quickSpeed = 105 }, -- v2.58: first-touch volleys spike speed BEFORE the ball peaks
-	nagi           = { name = "CARRIER HANDLER",   rangeBoost = 6 },    -- Skull-Rush carriers shoot mid-rush
+	nagi           = { name = "CARRIER HANDLER",   rangeBoost = 6, quickSpeed = 110 }, -- v2.61 (friend: "nagi shots — hard for the ai"): the TRAP SHOT explodes off the first touch — arm the quick read early; his five-volley FAKE is met by its own HOLD row + the bait guard
 	barou          = { name = "POWER HANDLER",     quickSpeed = 95 },   -- straight-line bomb: the quick read opens early
 	-- ── v2.47: the rest of the roster, derived row-by-row from CLASSIFICATION ──
 	shidou         = { name = "DOUBLE-JUMP WATCH",  confirmFrames = 2, rangeBoost = 8 }, -- v2.50: the demon-rush dash has a SECOND ACT (re-press = mario-jump, fandom wiki) — never treat the dash as the whole move; the aerial finish comes from above
 	dio            = { name = "TIME-FREEZE HOLD",   confirmFrames = 2, cooldownScale = 0.6 }, -- the shot comes AFTER time resumes: never dive at a frozen pop; barrage re-arm mirrors the timestop COUNTER_MODEs
-	luffy          = { name = "RUBBER ANGLE WATCH", confirmFrames = 2 }, -- freedommovement/gear5: any angle is a real angle, read two frames before committing
+	luffy          = { name = "RUBBER ANGLE WATCH", confirmFrames = 2, quickSpeed = 105 }, -- freedommovement/gear5: any angle is a real angle, read two frames before committing; v2.61: the JET KICK's release is read as bomb-grade speed the frame it spikes
 	ichigo         = { name = "BANKAI IMPACT",      quickSpeed = 95, cooldownScale = 0.75 }, -- bankai/finalgetenka/getenka all 'extreme': meet him like a Kaiser bomb
 	bachira        = { name = "WILD HANDLER",  confirmFrames = 2, quickSpeed = 100, rangeBoost = 4 }, -- v2.58 (user: 'not just dribbling read — there's also other'): his OWN rows are the proof — scissorkicks (aerial BARRAGE), ginginghamonster (EXTREME aerial), freestylebeeshot, monstertrance, Schizophrenic mid-air BEND — the stance now opens EARLY on the out-of-nowhere spike and reaches 4 studs further for volleys off the dribble angle
 	chigiri        = { name = "FLANK BOMB WATCH",   quickSpeed = 95, rangeBoost = 6 }, -- blast = extreme straight; he ARRIVES at shooting range faster than anyone
 	ronaldo        = { name = "ACRO IMPACT WATCH",  confirmFrames = 2, cooldownScale = 0.75 }, -- cr7kick/siuuu extreme, goatflips trick+aerial: the flip shot is the second move
 	donlorenzo     = { name = "ZOMBIE CONTROL READ", confirmFrames = 2 }, -- zombiedribble/aceeater: a controller, not a shooter — the ball starts moving late
-	kurona         = { name = "HOTLINE BAIT WATCH",  confirmFrames = 2 }, -- baitdribble zigzag + the one-two IS the feint (COUNTER_MODES.onetwo does the exact HOLD)
-	gagamaru       = { name = "LAUNCH WATCH",        confirmFrames = 2 }, -- an opposing keeper with springjump/ballthrow/scorpion: tricky aerials beat the flat dive
-	yukimiya       = { name = "GYRO CURL READ",      confirmFrames = 2 }, -- every row tricky+aerial: the curl breaks late — the rin/sae class
+	kurona         = { name = "HOTLINE BAIT WATCH",  confirmFrames = 2, tacklePressure = true }, -- baitdribble zigzag + the one-two IS the feint (the .onetwo row does the exact HOLD); v2.61 (friend: "improve the auto tackle to counter kurona mains"): the tackle is allowed INTO his volley-churn
+	gagamaru       = { name = "LAUNCH WATCH",        confirmFrames = 2, rangeBoost = 8 }, -- an opposing keeper with springjump/ballthrow/scorpion: tricky aerials beat the flat dive; v2.61 (friend: "can u do gaga shots"): his kit launches from farther out — the shoot-forecast opens 8 studs earlier
+	yukimiya       = { name = "GYRO CURL READ",      confirmFrames = 2, curveChase = true }, -- every row tricky+aerial: the curl breaks late — the rin/sae class; v2.61: GYRO bends get chased live (the only way to answer a shot is a better SAVE)
 	otoya          = { name = "NINJA FEINT READ",    confirmFrames = 2 }, -- ninjashot is the listed threat and it is 'tricky'
 	aiku           = { name = "DEFENSIVE HOLD READ", confirmFrames = 2 }, -- field aiku: jumpingdeflect/cobraintercept are trick aerials; his kit is a hold-your-keepers kit
 	igaguri        = { name = "LONG-THROW WATCH",    rangeBoost = 12 }, -- malicia headers arrive from a THROW, not a wind-up: start the shoot-forecast in throw range
@@ -2319,6 +2381,9 @@ local COUNTER_MODES = {
 	fakeshot = {
 		name = "FAKE VOLLEY BAIT — HOLD",      -- “feints… when they slide towards
 		confirmFrames = 2,                     -- you, you ankle-break… +5 fake
+		slideWindow = true,                    -- v2.62: the ankle-break fence — the
+		                                       -- TACKLE gate refuses the lunge inside
+		                                       -- this alert's life (see the gate)
 	},                                        -- volleys”: NEVER take the bait.
 	beinchuss = {
 		name = "CHILEAN — HOLD SET",           -- cutscene wind-up (“Eat this...
@@ -2495,6 +2560,28 @@ local COUNTER_MODES = {
 	onetwo = {
 		name = "HOTLINE TRICK — HOLD",   -- one-two pass game (the BLR wiki calls it "confuses goalkeepers"): stay set,
 		confirmFrames = 2,               -- the volley comes off the RECEIVER's first touch — the handler read re-arms there
+	},
+	-- v2.61 — the friend's trio, his words in the comments. JET SNAP: "it's
+	-- insanely fast" → meet it at frame zero, lower bomb bar, 12 studs early.
+	-- SCORPION/FISHKICK: "the fishkick and scorpion also come for up" → the
+	-- lofted pair is met with REACH, never a flat dive. FIVE-STAGE BAIT:
+	-- Nagi's fake-volley sequence is the ankle-break bait — the shot rides
+	-- his LAST touch, so read the hands, not the theatrics.
+	jetkick = {
+		name = "JET SNAP",
+		snap = true, bombThreshold = 125, commitBonus = 12, confirmFrames = 1,
+	},
+	escorpion = {
+		name = "SCORPION REACH",
+		heightBonus = 10, bombThreshold = 130,
+	},
+	fishkick = {
+		name = "FISHKICK LOFT",
+		heightBonus = 8,
+	},
+	fivestagefakevolley = {
+		name = "FIVE-STAGE BAIT — HOLD",
+		confirmFrames = 2,
 	},
 	sharksteal = {
 		name = "STEAL ALERT",
@@ -5296,12 +5383,35 @@ local function mainStep(deltaTime)
 		direction = "Forward"
 	end
 
+	-- 🪤 v2.61 BAIT HOLD (friend meta, verbatim: "when players shoot the ball
+	-- slowly and get it back — it triggers the AI to dive"). The .onetwo counter
+	-- catches the ABILITY; this is the same trick with NO ability — a soft
+	-- roller (< BAIT_ROLL_MAX) still moving, with its own shooter
+	-- (lastShooterPlayer, fresh) chasing within BAIT_CHASE_DIST. Diving at that
+	-- ball IS the goal the bait is built to draw. So: hold home; the dive/smother
+	-- window only re-opens inside BAIT_SMOTHER_DIST, where hands on the ball beat
+	-- committing to a fake. The tackle rules win the collect the frame he touches
+	-- it (v2.56 doctrine: let it drop, take it).
+	local baitHold = false
+	if CONFIG.BAIT_GUARD and not fakeHold and not isDribbling
+		and speed < CONFIG.BAIT_ROLL_MAX and distToGoalie > CONFIG.BAIT_SMOTHER_DIST
+		and onTarget and approachSpeed > 0
+		and lastShooterPlayer and (now - lastShooterTime) < CONFIG.SHOT_OWNER_MEMORY
+		and strikerDist and strikerDist <= CONFIG.BAIT_CHASE_DIST then
+		baitHold = true
+		if (not ST.baitLogged) or (now - ST.baitLogged > 3) then
+			ST.baitLogged = now
+			log(string.format("[AI-Dive] 🪤 BAIT HELD — %.0f roller with its runner %.0f studs behind — stay home, smother inside %d",
+				speed, strikerDist, CONFIG.BAIT_SMOTHER_DIST))
+		end
+	end
+
 	-- 🧊 v2.53 FLOOR PLOW — the user's rule verbatim: “if it's a floor shot or
 	-- going towards you or somewhere near you — forwards.” A LOW, FAST ball inside
 	-- plow range and near the (widened) center band is SMOTHERED: hands forward,
 	-- body behind it, no side guessed. Skid-curves cannot beat a keeper who is
 	-- already on top of the ball.
-	if floorShot and direction ~= "Forward"
+	if floorShot and (not baitHold) and direction ~= "Forward"
 		and math.abs(horizontalDist) <= centerTol * 2
 		and distToGoalie <= CONFIG.FLOOR_SMOTHER_DIST then
 		direction = "Forward"
@@ -5370,14 +5480,35 @@ local function mainStep(deltaTime)
 	-- GROUNDED for exactly this moment; the tackle is what the ground is FOR) —
 	-- and for short balls at their boots mid-dribble while the gap-correlation
 	-- can't yet decide possession.
+	-- 🛡️ v2.62 SLIDE RESPECT (friend meta: everyone gets "ankle breaked when
+	-- sliding"): the tackle IS the contact a slide exists to punish — the
+	-- chaser arrives feet-first and the lunger eats the trip. Inside a flagged
+	-- slide/ankle-break alert window the keeper offers NO lunge: the slide dies
+	-- of its own awkwardness and the ball outlives the legs. Announced once per
+	-- window — silence would read as "broken".
+	if CONFIG.USE_GK_TACKLE and poss == "opp" and activeMode and activeMode.slideWindow
+		and (not ST.slideLogged or now - (ST.slideLogged or 0) > 2.5) then
+		ST.slideLogged = now
+		log("[AI-Dive] 🛡️ SLIDE RESPECT — ankle-break window live: no lunge, no tackle — let the slide die")
+	end
 	if CONFIG.USE_GK_TACKLE and poss == "opp"
+		and (not (activeMode and activeMode.slideWindow)) -- 🛡️ v2.62: the fence itself
 		-- v2.58: a JUGGLER never gets tackled (S12): each touch settles the ball at
 		-- the feet for a frame and the controlled gate would take the bait. You do
 		-- not dive at someone showing off; you dive when the ball leaves his foot
 		-- toward something real.
-		and (not isJuggle)
+		-- v2.61 EXCEPTION (friend: "improve the auto tackle to counter kurona
+		-- mains"): under a handler flagged tacklePressure, the ball popping at
+		-- his boots on EVERY volley touch is not showing off — it is the chandelier
+		-- window, and the keeper who waits is the keeper who concedes the second
+		-- ball. S12's juggler carries no such flag and stays untouchable.
+		and ((not isJuggle) or (activeMode and activeMode.tacklePressure))
 		and (ballControlled or (ST.flickT and (now - ST.flickT) < CONFIG.FLICK_MEMORY + 0.6
-			and bestD and bestD <= 4 and speed < 8)) -- the FLICK-COLLECT steal: a stopped,
+			and bestD and bestD <= 4 and speed < 8)
+			or (activeMode and activeMode.tacklePressure and bestD and bestD <= 6
+				and speed < 12)) -- v2.61 PRESSURE-COLLECT: rapid touches raise no flick EVENT —
+		-- a flagged handler opens the same collect window 2 studs wider and 4 studs
+		-- faster. The receiver fence below is NOT relaxed: passes stay passes.
 		                                   -- grounded ball at the flicker's boots right at the end
 		                                   -- of the flick memory. Tied to the flick on purpose —
 		                                   -- S08's receiver gather and S12's juggle both pass the
@@ -5518,6 +5649,7 @@ local function mainStep(deltaTime)
 			label = (distToGoalie <= CONFIG.SMOOTHER_MAX_DIST) and "SMOOTHER!" or "SLOW FORWARD!"
 		end
 		local slowSaveOK = CONFIG.USE_SLOW_FORWARD_SAVE
+			and (not baitHold)   -- v2.61: the STEP-UP branch is exactly what the bait baited; held
 			and (not fakeHold)
 			and (not freshPopConfirm) -- v2.43: no step-dive on an unproven pop
 			and (not ballControlled) -- v2.40: never step-dive at a controlled ball
@@ -5593,7 +5725,7 @@ local function mainStep(deltaTime)
 		-- 📏 Commit gate: bombs bypass it (they must be met at full speed,
 		-- no waiting for the ball to fly in). Everything else commits inside
 		-- the dynamic commit distance (25 for slow shots, up to 48 for Big Bang power).
-		local withinCommit = instant or (distToGoalie <= commitDist)
+		local withinCommit = (instant or (distToGoalie <= commitDist)) and (not baitHold) -- 🪤 v2.61: a held bait commits NOTHING beyond smother range
 
 		-- 📐 CURVE COMMIT (v2.32 — why Rin's Killer Shot STILL slipped in
 		-- after v2.31): v2.31 primed the read to the curve side, but the
@@ -5628,6 +5760,47 @@ local function mainStep(deltaTime)
 			-- ≥ 20 studs on the other side at shot speed.
 			if ST.curveOtherFrames < 20 then
 				curveDir = activeMode.primeSide
+			end
+		end
+		-- 🌀 CURVE CHASE (v2.61 — user: "add curve detection for RIN"): the prime
+		-- above needs the NAMED move to have tagged. Unscripted bends, copied
+		-- styles and yukimiya's late-breaking gyros never tag mid-flight — so for
+		-- handlers flagged curveChase (rin/sae/yukimiya: the repo's own CURVE
+		-- family rows), the LIVE estimator takes the wheel: two consecutive
+		-- frames of sideways accel ≥ CURVE_CHASE_ACCEL set the same curveDir the
+		-- prime would — early dive window, direction override, the whole v2.32
+		-- machinery — reading where the curve ARRIVES, not where it left.
+		-- v2.62: TWO TIERS. The family bar (35) needs the handler flagged
+		-- curveChase — rin/sae/yukimiya, whose kits are DOCUMENTED bends. The
+		-- INHUMANE bar (GYRO_ACCEL 55) needs nobody's permission: a ball bending
+		-- that hard is a gyro whoever fired it — the counter to "an inhumane
+		-- gyro shot" is a keeper who chases it instead of guessing at the kick.
+		local lat = accel and accel:Dot(camRight) or nil
+		if not curveDir and lat and accel and onTarget and approachSpeed > 0
+			and speed >= CONFIG.MIN_SHOT_SPEED and not isDribbling and not fakeHold then
+			local absLat = math.abs(lat)
+			local famTier = (activeMode and activeMode.curveChase) and absLat >= CONFIG.CURVE_CHASE_ACCEL
+			local inhTier = absLat >= CONFIG.GYRO_ACCEL
+			if famTier or inhTier then
+				local side = (lat > 0) and "Right" or "Left"
+				if side == ST.curveChaseSide then
+					ST.curveChaseN = (ST.curveChaseN or 0) + 1
+				else
+					ST.curveChaseSide, ST.curveChaseN = side, 1
+				end
+				if ST.curveChaseN >= 2 then
+					curveDir = side
+					if (not ST.curveChaseLogged) or (now - ST.curveChaseLogged > 3) then
+						ST.curveChaseLogged = now
+						if inhTier then
+							log(string.format("[AI-Dive] 🌀 INHUMANE BEND — %.0f studs/s² live gyro to the %s — chased it, no family row required", absLat, side))
+						else
+							log(string.format("[AI-Dive] 🌀 CURVE CHASE — live bend to the %s (%.0f studs/s²) — diving where it ARRIVES, not where it left", side, absLat))
+						end
+					end
+				end
+			else
+				ST.curveChaseN, ST.curveChaseSide = 0, nil
 			end
 		end
 		local curveInWindow = (curveDir ~= nil)
