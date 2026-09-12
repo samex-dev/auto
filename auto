@@ -1,11 +1,28 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.58 "Enum-proof leaps, OP tackles, long-read guard"
+	⚡ ZERO-LATENCY GK AI — v2.59 "The lag hunt: walk diet, 15 Hz paint, lua-cost line"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.59 in one breath: the THIRD lag report — and this time the bench was
+	exonerated by the thing it could not see: the cost was never our Lua (~46 ms
+	total), it was the WALKS. A lost ball re-searched the entire workspace tree
+	every 0.5 s (that's every restart, every kickoff), and the leaderboard hunt
+	walked FOUR service trees, twice each, every 2 s, FOREVER in a game whose
+	board the name-matcher never finds — each walk free to the bench, hundreds
+	of engine calls on a phone. Now: discover-once-and-cache (the v2.44 goal
+	doctrine, finally applied to the ball and the board), escalating backoffs
+	(2→5→15→60 s for the board, 0.5→1→2→5 s for the ball, event fast-paths
+	untouched so rediscovery stays INSTANT), 5000-visit caps, a name-map where
+	the nested node×player loop was, and paint written only when it CHANGES
+	(idle-frame hideVisuals one-shot; zone/billboard at 15 Hz). The 📟 PERF
+	line now carries measured `lua X.XXX ms/f` — one paste and we KNOW who lags.
+	S39 budgets the walks (78 → 16 in 40 idle seconds); the bench itself dropped
+	46.8 → 34.7 ms/798 frames, because the walks were the biggest bill in the
+	house. Decision logic: every frame, every tier, untouched as always.
 
 	v2.58 in one breath: written by the friend's CONSOLE, not just his complaints.
 	It carried a line none of us could ignore: `LOOP ERROR #3: Falling is not a
@@ -16,16 +33,16 @@
 	one second apart). Fixed twice over — states compare by NAME now (never by
 	enum member; clients differ), and the jump decorator runs AFTER the fire inside
 	its own pcall, so decoration can never swallow a commit again. Then the asks:
-	GK TACKLE went OP (range 9→11 where the hitbox cube does the reaching; cooldown
+	GK TACKLE went OP (range 9→10.5 — 11 was tested and rejected: it started stealing receiver gathers; cooldown
 	0.9→0.55 for chained wins; it fires on the LOOSE ball at the attacker's feet —
-	the flick-drop collect is a tackle party, not a free pass); the 🧭→🧷 LONG READ
+	the flick-drop collect is a tackle party, not a free pass); the 🧷 LONG READ
 	guard refuses soft side dives past 85 studs (his Left @95 became a goal; now
 	holding the middle becomes the play); and BACHIRA finally got what his move set
 	always deserved — WILD HANDLER: early open on his out-of-nowhere spike
 	(quickSpeed 100), +4 reach for volleys off the dribble angle, every documented
 	move live as a counter (scissor barrage, Ginga monster, bee shot, trance, the
 	Schizophrenic mid-air bend). Isagi, Rin and Reo got the same multi-signal nudge.
-	38 scenarios.
+	39 scenarios.
 
 	v2.57 in one breath: second lag report from the friend's phone, two causes the
 	v2.54 guardian could not see: his device sits around 35-40 fps — comfortably
@@ -183,7 +200,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 38 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 39 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -902,8 +919,13 @@ local function setupVisuals()
 	end
 end
 
+local visualsHidden = true
 local function hideVisuals()
-	if not impactPart then return end
+	-- v2.59: markIdle calls this on EVERY dead-ball frame — after the first,
+	-- those writes paint the same values again for nothing. One write per
+	-- visible→hidden transition (the impact paint below clears the flag).
+	if not impactPart or visualsHidden then return end
+	visualsHidden = true
 	impactPart.Transparency = 1
 	for _, dot in ipairs(pathDots) do dot.Transparency = 1 end
 end
@@ -913,6 +935,16 @@ end
 -- ==========================================
 local cachedBall   = nil
 local lastBallScan = 0
+-- v2.59 THE WALK DIET (third lag report). The bench kept saying "fast" while
+-- the friend's phone said "lag" because the cost was never our Lua — it was
+-- workspace:GetDescendants() marathons: the ball-lost fallback re-walked the
+-- ENTIRE tree every 0.5 s (every kickoff, every restart) and the leaderboard
+-- hunt walked four service trees twice each, every 2 s, FOREVER in a game with
+-- no findable board. Each walk is milliseconds of ENGINE time on mobile.
+-- Escalating backoffs now: misses double the wait, the DescendantAdded fast
+-- path (untouched) makes rediscovery instant anyway.
+local BALL_SCAN_WAITS = {0.5, 1, 2, 5}
+local ballScanMiss = 0
 
 -- Every built-in ball name contains "ball" (Ball, GK_Ball, soccer-ball,
 -- matchball…), so the DescendantAdded firehose can reject almost every name
@@ -947,7 +979,12 @@ local function resolveBallPart(inst)
 end
 
 local function findBall()
+	-- v2.59: capped walk. A missed fallback waits for the next one instead of
+	-- stalling a phone frame on a 40,000-instance list.
+	local visited = 0
 	for _, obj in ipairs(workspace:GetDescendants()) do
+		visited = visited + 1
+		if visited > 5000 then break end
 		if ballNameMatch(obj.Name) then
 			local part = resolveBallPart(obj)
 			if part then return part end
@@ -962,10 +999,13 @@ local function refreshBall()
 	end
 	-- Ball vanished: fast path is the DescendantAdded hook below;
 	-- this is the throttled fallback (at most one full scan per 0.5s).
+	ballScanMiss = ballScanMiss + 1
+	local wait = BALL_SCAN_WAITS[math.min(ballScanMiss, #BALL_SCAN_WAITS)]
 	local now = os.clock()
-	if now - lastBallScan >= 0.5 then
+	if now - lastBallScan >= wait then
 		lastBallScan = now
 		cachedBall = findBall()
+		if cachedBall then ballScanMiss = 0 end
 	end
 	return cachedBall
 end
@@ -973,6 +1013,7 @@ end
 local function scanBall()
 	cachedBall = findBall()
 	lastBallScan = os.clock()
+	ballScanMiss = 0
 end
 
 -- ==========================================
@@ -985,6 +1026,10 @@ local lbSideByName = {} -- lowercased player name -> "Home" / "Away"
 local myTeamLabel  = nil -- for the HUD
 local lastTeamScan = 0
 local lastLbScan   = 0
+-- v2.59: same diet for the leaderboard hunt — 2 s, then 5/15/60 while it keeps
+-- missing; the 1 s team pass below (the one decisions run on) is UNTOUCHED.
+local LB_SCAN_WAITS = {2, 5, 15, 60}
+local lbScanLevel, lastLbPlayers, lbFound = 1, -1, false
 
 local function sideOfName(name)
 	local n = string.lower(name)
@@ -997,17 +1042,28 @@ local function sideOfName(name)
 	return nil
 end
 
+local cachedBoard = nil
 local function findBoard(parent)
+	-- v2.59: discover ONCE, remember (goal-scan doctrine, v2.44, finally
+	-- applied here) — while the cached board's Parent lives, zero walks.
+	if cachedBoard and cachedBoard.Parent then return cachedBoard end
 	-- 1) A node whose name says leaderboard/scoreboard/teams/scores
+	local visited = 0
 	for _, inst in ipairs(parent:GetDescendants()) do
+		visited = visited + 1
+		if visited > 5000 then break end
 		local n = string.lower(inst.Name)
 		if n:find("leaderboard", 1, true) or n:find("scoreboard", 1, true)
 			or n:find("score", 1, true) or n:find("team", 1, true) then
+			cachedBoard = inst
 			return inst
 		end
 	end
 	-- 2) Fallback: any node that has BOTH a home-ish and an away-ish child
+	local visited2 = 0
 	for _, inst in ipairs(parent:GetDescendants()) do
+		visited2 = visited2 + 1
+		if visited2 > 5000 then break end
 		local hasHome, hasAway = false, false
 		for _, child in ipairs(inst:GetChildren()) do
 			local cn = string.lower(child.Name)
@@ -1036,19 +1092,22 @@ local function scanLeaderboard()
 	end
 	if not board then return end
 
-	local players = Players:GetPlayers()
+	lbFound = true -- v2.59: a found board resets the escalation even if empty
+	local byName = {} -- v2.59: O(1) name lookup, was a nested node x player loop
+	for _, plr in ipairs(Players:GetPlayers()) do
+		byName[string.lower(plr.Name)] = plr.Name
+	end
+	local seen = 0
 	for _, node in ipairs(board:GetDescendants()) do
+		seen = seen + 1
+		if seen > 3000 then break end
 		local side = sideOfName(node.Name)
 		if side then
 			for _, inst in ipairs(node:GetDescendants()) do
 				local iname = string.lower(inst.Name)
 				local itext = inst:IsA("TextLabel") and string.lower(inst.Text) or nil
-				for _, plr in ipairs(players) do
-					local pname = string.lower(plr.Name)
-					if iname == pname or itext == pname then
-						lbSideByName[pname] = side
-					end
-				end
+				local pname = byName[iname] or (itext and byName[itext])
+				if pname then lbSideByName[pname] = side end
 			end
 		end
 	end
@@ -1056,9 +1115,13 @@ end
 
 local function refreshTeams()
 	local now = os.clock()
-	if now - lastLbScan >= 2 then
+	local np = #Players:GetPlayers()
+	if np ~= lastLbPlayers then lastLbPlayers, lbScanLevel = np, 1 end -- roster moved: go hunting again
+	if now - lastLbScan >= LB_SCAN_WAITS[math.min(lbScanLevel, #LB_SCAN_WAITS)] then
 		lastLbScan = now
+		lbFound = false
 		pcall(scanLeaderboard)
+		lbScanLevel = lbFound and 1 or (lbScanLevel + 1)
 	end
 	if now - lastTeamScan < 1 then return end
 	lastTeamScan = now
@@ -2676,6 +2739,7 @@ workspace.DescendantAdded:Connect(function(inst)
 		local part = resolveBallPart(inst)
 		if part then
 			cachedBall = part
+			ballScanMiss = 0 -- v2.59: an event-found ball resets the backoff too
 			lastBallScan = os.clock()
 		end
 	end
@@ -3369,8 +3433,8 @@ RunService.Heartbeat:Connect(function(dt)
 			local tp = os.clock()
 			if tp - (ST.perfT or 0) > 20 then
 				ST.perfT = tp
-				log(string.format("[AI-Dive] 📟 PERF | ~%.0f fps | paint tier %d%s",
-					1 / math.max(emaDt, 1e-4), want,
+				log(string.format("[AI-Dive] 📟 PERF | ~%.0f fps | lua %.3f ms/f | paint tier %d%s",
+					1 / math.max(emaDt, 1e-4), (ST.luaEma or 0) * 1000, want,
 					(CONFIG.ECO_LOCK or 0) > 0 and " (ECO_LOCK)" or ""), true)
 			end
 		end
@@ -3524,14 +3588,19 @@ local function createBillboard()
 	bbRefs = { anchor = anchor, label = label }
 end
 
+local bbT, bbVis = 0, nil
 local function updateBillboard()
 	if not bbRefs or not stateInfo.rootPos then return end
 	if not stateInfo.active then
-		bbRefs.label.TextTransparency = 1
+		if bbVis ~= 1 then bbVis = 1; bbRefs.label.TextTransparency = 1 end
 		return
 	end
+	-- v2.59: decoration at 15 Hz, change-gated hide — the dive never waits on it.
+	local bt = os.clock()
+	if bt - bbT < 0.066 then return end
+	bbT = bt
 	bbRefs.anchor.CFrame = CFrame.new(stateInfo.rootPos + Vector3.new(0, 4.5, 0))
-	bbRefs.label.TextTransparency = 0
+	if bbVis ~= 0 then bbVis = 0; bbRefs.label.TextTransparency = 0 end
 	bbRefs.label.Text = string.format("%.1f %s", stateInfo.dist, DIVE_GLYPHS[stateInfo.dir] or "")
 	bbRefs.label.TextColor3 = stateInfo.color
 end
@@ -3614,13 +3683,20 @@ local function createZone()
 	zonePart.Parent = folder
 end
 
+local zoneT, zoneTrans = 0, nil
 local function updateZone()
 	if not zonePart or not stateInfo.rootPos then return end
 	if stateInfo.active and stateInfo.zoneOn then
+		-- v2.59: CFrame follows at 15 Hz (paint may ease; decisions never do),
+		-- Transparency only on change, Color every tick (it IS the state).
+		local zt = os.clock()
+		if zt - zoneT < 0.066 then return end
+		zoneT = zt
 		zonePart.CFrame = CFrame.new(stateInfo.rootPos.X, stateInfo.rootPos.Y - 1.2, stateInfo.rootPos.Z)
 		zonePart.Color = stateInfo.color
-		zonePart.Transparency = 0.82
-	else
+		if zoneTrans ~= 0.82 then zoneTrans = 0.82; zonePart.Transparency = 0.82 end
+	elseif zoneTrans ~= 1 then
+		zoneTrans = 1
 		zonePart.Transparency = 1
 	end
 end
@@ -5192,6 +5268,7 @@ local function mainStep(deltaTime)
 	end
 
 	if impactPart and (ST.ecoTier or 0) == 0 then
+		visualsHidden = false
 		impactPart.CFrame = CFrame.new(impactPos)
 		impactPart.Color  = threatColor
 		impactPart.Transparency = 0
@@ -5746,7 +5823,9 @@ RunService.Heartbeat:Connect(function(deltaTime)
 	-- 🛡️ The loop is pcall-guarded: a single nil reference mid-frame can
 	-- never kill the whole script. The FIRST THREE errors are always printed
 	-- (so you can see what broke), then throttled to one per 5 seconds.
+	local tLua = os.clock()
 	local ok, err = pcall(mainStep, deltaTime)
+	ST.luaEma = (ST.luaEma or 0) * 0.95 + (os.clock() - tLua) * 0.05
 	if not ok then
 		errCount = errCount + 1
 		if errCount <= 3 or (os.clock() - lastErrReport) > 5 then
