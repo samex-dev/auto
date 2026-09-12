@@ -1,11 +1,24 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.53 "Floor-shot plow + awakening watch"
+	⚡ ZERO-LATENCY GK AI — v2.54 "Low-spec guardian: lag-proof paint, full-rate dives"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.54 in one breath: a friend's phone LAGGED on the script, so the paint is now
+	under a governor. The brain was never the problem (~0.05 ms of Lua per
+	frame); the cost on weak devices is decoration — translucent dots (GPU
+	overdraw), billboard tags (text relayout per head per frame), HUD writes.
+	The guardian watches the REAL Heartbeat deltaTime and eases in tiers with
+	hysteresis: tier 1 ( <~33 fps) kills dots/impact marker, tag follow to 20 Hz,
+	HUD to a third speed; tier 2 ( <~22 fps) DISABLES the style billboards
+	outright and hides the zones. Frames back = paint back. PREDICTION, DIVES,
+	JUMPS, THE HITBOX CUBE AND THE DIVE REMOTE NEVER slow — a laggy phone keeps
+	saving with fewer sparkles instead of the whole AI stuttering. And every HUD
+	write is now change-gated (identical text = no relayout, on every device).
+	LOW_SPEC_GUARDIAN=false turns the whole system off.
 
 	v2.53 in one breath: field-tested against FRIENDS and it exposed the floor-ball
 	weakness — low skidders flip the side-speed the lateral read trusts, and the
@@ -116,7 +129,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 32 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 33 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -274,6 +287,17 @@ local CONFIG = {
 	                                  -- towards you or somewhere near you — FORWARDS”
 	                                  -- (plow/smother; no side can be wrong if you
 	                                  -- never pick one)
+	-- 🐢 v2.54 LOW-SPEC GUARDIAN (field report: friend's phone LAGGED with the
+	-- script). The dive brain is ~0.05 ms of pure Lua — what costs a weak device is
+	-- the PAINT: translucent path dots (GPU overdraw), billboard tags (a text
+	-- relayout per head per frame), HUD text, zone parts. The guardian watches the
+	-- real frame time (Heartbeat's own deltaTime) and eases PAINT in two tiers with
+	-- hysteresis; DECISIONS NEVER SLOW: prediction, commits, jumps, the hitbox
+	-- cube and the dive remote run at full rate in every tier.
+	--   tier 1 (sustained <~33 fps): dots/impact marker OFF, tag follow 20 Hz, HUD 3x slower
+	--   tier 2 (<~22 fps):           style billboards DISABLED (zero render cost), zones hidden
+	-- Recovery re-upgrades as soon as the frames come back. false = never intervene.
+	LOW_SPEC_GUARDIAN     = true,
 	CENTER_TOLERANCE      = 4.5,    -- |horizontal offset| below this = Middle
 	CENTER_ACTION         = "Middle",
 
@@ -2632,10 +2656,10 @@ local function updateStyleTags()
 			label.Text = "..."
 			label.Parent = bb
 
-			tag = { anchor = anchor, label = label, root = rootForTag }
+			tag = { anchor = anchor, label = label, bb = bb, root = rootForTag }
 			styleTags[plr] = tag
 			tagAnchors[#tagAnchors + 1] = {
-				player = plr, anchor = anchor,
+				player = plr, anchor = anchor, bb = bb,
 				root = rootForTag, char = char,
 			}
 		end
@@ -2670,33 +2694,6 @@ local function updateStyleTags()
 		end
 	end
 end
-
--- 🏷️ Keep the tags glued above each player's head, every frame. v2.44: the root part is found ONCE and
--- re-found only when it dies (respawn) — this ran a FindFirstChild per player
--- per FRAME before, for a lookup that changes maybe twice a match.
-RunService.Heartbeat:Connect(function()
-	local n = #tagAnchors
-	if n == 0 or not CONFIG.SHOW_STYLE_TAGS then return end
-	local lift = CONFIG.TAG_HEIGHT
-	for i = 1, n do
-		local t = tagAnchors[i]
-		local root = t.root
-		if not root or not root.Parent or t.char ~= t.player.Character then
-			-- v2.48: re-bind also when the CHARACTER identity changed even if the
-			-- old root technically survived (models recycled between matches) — the
-			-- ghost-label-after-restart case, found because the loop no longer
-			-- trusts the root it grabbed at tag-creation time.
-			local char = t.player.Character
-			t.char = char
-			root = char and char:FindFirstChild("HumanoidRootPart")
-			t.root = root
-		end
-		if root then
-			local rp = root.Position
-			t.anchor.CFrame = CFrame.new(rp.X, rp.Y + lift, rp.Z)
-		end
-	end
-end)
 
 -- 🧹 Per-player data stores. Declared HERE — before the PlayerRemoving
 -- handler below — because the handler clears them on leave. (They were
@@ -3175,10 +3172,80 @@ local function createHud()
 	hudRefs = { line1 = line1, line2 = line2, line3 = line3, flash = flash }
 	end
 
+-- 🐢 v2.54 THE GOVERNOR (see CONFIG.LOW_SPEC_GUARDIAN). It owns the tag-follow
+-- loop too (folded in from its own connection: one Heartbeat, one cadence, and
+-- the follow is the exact paint a weak phone cannot afford 60 times a second).
+local zoneFolderRef = nil   -- set by createZone at boot; hidden in tier 2
+local emaDt = 0
+RunService.Heartbeat:Connect(function(dt)
+	-- 1) paint governor (guarded: with LOW_SPEC_GUARDIAN off nothing below runs
+	--    and ST.ecoTier simply stays 0 = full paint forever)
+	if CONFIG.LOW_SPEC_GUARDIAN and aiEnabled then
+		emaDt = emaDt * 0.94 + (dt or 0.016) * 0.06
+		local tier = ST.ecoTier or 0
+		local want = tier
+		if emaDt > 0.045 then want = 2
+		elseif emaDt > 0.030 then
+			if want < 1 then want = 1 end
+		elseif emaDt < 0.026 then want = 0
+		elseif emaDt < 0.036 and want == 2 then want = 1
+		end
+		if want ~= tier then
+			ST.ecoTier = want
+			-- log EVERY tier change: the hysteresis itself is the anti-spam (a tier
+			-- flip needs seconds of sustained frame-time in the other direction, and
+			-- the EMA at 0.06 cannot oscillate across two thresholds per second)
+			if want > 0 then
+				log(want == 2 and "[AI-Dive] 🐢 LOW-SPEC GUARDIAN: deep — dots, tags and zones OFF (dives untouched)"
+					or "[AI-Dive] 🐢 LOW-SPEC GUARDIAN: easing paint (dives untouched)")
+			else
+				log("[AI-Dive] 🐢 LOW-SPEC GUARDIAN: full paint (device recovered)")
+			end
+			local show = want < 2
+			for i = 1, #tagAnchors do
+				local bb = tagAnchors[i].bb
+				if bb then pcall(function() bb.Enabled = show end) end
+			end
+			if zoneFolderRef then pcall(function() zoneFolderRef.Visible = show end) end
+			if want > 0 then hideVisuals() end
+		end
+	end
+	-- 2) tag follow (v2.44: root found ONCE, re-found when it dies; v2.48: also
+	--    re-bound on CHARACTER identity change; v2.54: tiered cadence)
+	local n = #tagAnchors
+	if n == 0 or not CONFIG.SHOW_STYLE_TAGS then return end
+	if (ST.ecoTier or 0) >= 2 then return end
+	if (ST.ecoTier or 0) == 1 then
+		local tn = os.clock()
+		if tn - (ST.tagFollowT or 0) < 0.05 then return end
+		ST.tagFollowT = tn
+	end
+	local lift = CONFIG.TAG_HEIGHT
+	for i = 1, n do
+		local t = tagAnchors[i]
+		local root = t.root
+		if not root or not root.Parent or t.char ~= t.player.Character then
+			local char = t.player.Character
+			t.char = char
+			root = char and char:FindFirstChild("HumanoidRootPart")
+			t.root = root
+		end
+		if root then
+			local rp = root.Position
+			t.anchor.CFrame = CFrame.new(rp.X, rp.Y + lift, rp.Z)
+		end
+	end
+end)
+
 local function updateHud(force)
 	if not hudRefs then return end
 	local t = os.clock()
-	if not force and (t - lastHudUpdate) < 0.1 then return end
+	-- 🐢 v2.54: every Text write re-lays the label — on a weak phone that is
+	-- often the single most expensive line in the script. 10 Hz normally, 3.5x/7x
+	-- eased under the guardian, and every write below is now gated on CHANGE.
+	local every = 0.1
+	if ST.ecoTier == 1 then every = 0.35 elseif ST.ecoTier == 2 then every = 0.7 end
+	if not force and (t - lastHudUpdate) < every then return end
 	lastHudUpdate = t
 
 	local statsStr = string.format("🧤 SAVES %d   🥅 CONC %d   (%s)",
@@ -3200,11 +3267,14 @@ local function updateHud(force)
 		end
 	end
 	local rosterStr = #rosterParts > 0 and (table.concat(rosterParts, " · ")) or "—"
-	hudRefs.line3.Text = "👥 ROSTER   " .. rosterStr
+	local l3 = "👥 ROSTER   " .. rosterStr
+	if hudRefs.line3.Text ~= l3 then hudRefs.line3.Text = l3 end
 
 	if not stateInfo.active then
-		hudRefs.line1.Text = "⚽ Auto-Dive AI  —  " .. (cachedBall and "tracking ball" or "scanning for ball...")
-		hudRefs.line2.Text = statsStr .. attackStr .. teamStr
+		local l1 = "⚽ Auto-Dive AI  —  " .. (cachedBall and "tracking ball" or "scanning for ball...")
+		if hudRefs.line1.Text ~= l1 then hudRefs.line1.Text = l1 end
+		local l2 = statsStr .. attackStr .. teamStr
+		if hudRefs.line2.Text ~= l2 then hudRefs.line2.Text = l2 end
 		hudRefs.line2.TextColor3 = Color3.fromRGB(170, 175, 185)
 	else
 		local ttiStr  = stateInfo.tti and (string.format("%.2fs", stateInfo.tti)) or "—"
@@ -3215,8 +3285,9 @@ local function updateHud(force)
 			stateInfo.poss == "own" and "OURS" or "THEIRS")) or ""
 		local commitStr = (stateInfo.commit > 0) and (string.format("   📏@%d", stateInfo.commit)) or ""
 		local bandStr = stateInfo.band and (string.format("[%s]", stateInfo.band)) or ""
-		hudRefs.line1.Text = string.format("⚽ %5.1f %s   🚀 %3d/s   ⏱ TTI %s   📶 %dms%s%s%s%s",
+		local l1 = string.format("⚽ %5.1f %s   🚀 %3d/s   ⏱ TTI %s   📶 %dms%s%s%s%s",
 			stateInfo.dist, bandStr, stateInfo.speed, ttiStr, pingMs, lineStr, striker, possStr, commitStr)
+		if hudRefs.line1.Text ~= l1 then hudRefs.line1.Text = l1 end
 		local shotStr = ""
 		if stateInfo.shoot then
 			shotStr = string.format("   📈 %d%% ◀%d/▶%d 🏹%d",
@@ -3225,8 +3296,11 @@ local function updateHud(force)
 		local modeStr = stateInfo.mode and (string.format("   ⚙️ %s", stateInfo.mode)) or ""
 		local chargeStr = stateInfo.charged and (string.format("   🎪 CHARGED: %s", string.upper(stateInfo.charged))) or ""
 		local sideStr = stateInfo.side and (string.format("   🧭 DRIVING %s", string.upper(stateInfo.side))) or ""
-		hudRefs.line2.Text = stateInfo.label .. "   " .. attackStr .. teamStr .. "   |   " .. statsStr .. shotStr .. sideStr .. modeStr .. chargeStr
-		hudRefs.line2.TextColor3 = stateInfo.color
+		local l2 = stateInfo.label .. "   " .. attackStr .. teamStr .. "   |   " .. statsStr .. shotStr .. sideStr .. modeStr .. chargeStr
+		if hudRefs.line2.Text ~= l2 then hudRefs.line2.Text = l2 end
+		if hudRefs.line2.TextColor3 ~= stateInfo.color then
+			hudRefs.line2.TextColor3 = stateInfo.color
+		end
 	end
 
 	-- Big flash: SAVE!! / GOAL...
@@ -3312,6 +3386,7 @@ local function createZone()
 	local folder = Instance.new("Folder")
 	folder.Name = folderName
 	folder.Parent = workspace
+	zoneFolderRef = folder -- 🐢 hidden in tier 2 by the governor
 
 	local r = CONFIG.COMMIT_RADIUS
 	zonePart = Instance.new("Part")
@@ -4849,7 +4924,7 @@ local function mainStep(deltaTime)
 		threatColor = Color3.fromRGB(255, 255, 50)   -- yellow: middle
 	end
 
-	if impactPart then
+	if impactPart and (ST.ecoTier or 0) == 0 then
 		impactPart.CFrame = CFrame.new(impactPos)
 		impactPart.Color  = threatColor
 		impactPart.Transparency = 0
