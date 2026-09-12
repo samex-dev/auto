@@ -1,11 +1,26 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.59 "The lag hunt: walk diet, 15 Hz paint, lua-cost line"
+	⚡ ZERO-LATENCY GK AI — v2.60 "Unblind: no cap may ever decide"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.60 in one breath: v2.59's walk cap BLINDed keepers in busy places — a
+	ball deeper than visit 5000 was never found by ANY scan, which reads as
+	"the script doesn't even work anymore" (no ball, no dives, no trajectory,
+	nothing). Caps are now MIDDLE tiers only: an O(1) remembered-parent probe,
+	an uncapped direct-children pass (where balls live), the capped walk, and
+	UNCAPPED deep hunts on boot + the long backoff steps, so "never" became
+	"within five seconds". Also fixed: the escalation counted frames, not walks
+	(v2.59's first retry ran at 5 s, not 0.5 s), the board hunt gets the same
+	tiered depth, #Players:GetPlayers() went back under the 1 s gate, and a
+	mute-proof ⚠️ BALL HUNT line prints after 7 blind seconds — that line in
+	your console means blindness (ours, now fixed); HUD "tracking ball" with no
+	dives at all means paste/version. Deep trees cost one walk per 5 s while
+	BLIND — a fair price for seeing; when the ball is in view, zero walks run,
+	so v2.59's lag wins are kept.
 
 	v2.59 in one breath: the THIRD lag report — and this time the bench was
 	exonerated by the thing it could not see: the cost was never our Lua (~46 ms
@@ -978,16 +993,45 @@ local function resolveBallPart(inst)
 	return nil
 end
 
-local function findBall()
-	-- v2.59: capped walk. A missed fallback waits for the next one instead of
-	-- stalling a phone frame on a 40,000-instance list.
+local lastBallRef, lastBallName = nil, nil
+local blindLogged = false
+local function findBall(deep)
+	-- v2.60 UNBLIND. v2.59 capped EVERY walk at 5000 visits — but in a real
+	-- place the ball can live deeper than that, and then the cap did not trim
+	-- the lag, it removed the keeper: boot walk misses, every retry misses,
+	-- no dives, no trajectory, nothing. The cap only ever makes sense as a
+	-- MIDDLE tier, never as the whole strategy. Structure: (0) the remembered
+	-- parent — an O(1) FindFirstChild, (1) workspace's DIRECT children, where
+	-- balls nearly always live (cheap, uncapped), and (2) the descendants
+	-- walk: capped on the cheap retry tiers, UNCAPPED on boot and on the two
+	-- long backoff steps, so a ball anywhere in the tree is found eventually,
+	-- always — the worst case for "never" became "within five seconds".
+	if lastBallRef and lastBallRef.Parent then
+		local hit = lastBallRef.Parent:FindFirstChild(lastBallName)
+		if hit and ballNameMatch(hit.Name) then
+			local part = resolveBallPart(hit)
+			if part then return part end
+		end
+	end
+	for _, obj in ipairs(workspace:GetChildren()) do
+		if ballNameMatch(obj.Name) then
+			local part = resolveBallPart(obj)
+			if part then
+				lastBallRef, lastBallName = obj, obj.Name
+				return part
+			end
+		end
+	end
 	local visited = 0
 	for _, obj in ipairs(workspace:GetDescendants()) do
 		visited = visited + 1
-		if visited > 5000 then break end
+		if deep ~= true and visited > 5000 then break end
 		if ballNameMatch(obj.Name) then
 			local part = resolveBallPart(obj)
-			if part then return part end
+			if part then
+				lastBallRef, lastBallName = obj, obj.Name
+				return part
+			end
 		end
 	end
 	return nil
@@ -999,19 +1043,32 @@ local function refreshBall()
 	end
 	-- Ball vanished: fast path is the DescendantAdded hook below;
 	-- this is the throttled fallback (at most one full scan per 0.5s).
-	ballScanMiss = ballScanMiss + 1
-	local wait = BALL_SCAN_WAITS[math.min(ballScanMiss, #BALL_SCAN_WAITS)]
+	-- v2.60: the escalation counts WALK MISSES, not frames (v2.59 incremented
+	-- ballScanMiss every call — by frame 4 it was already at the 5 s rung, so
+	-- the FIRST fallback scan ran at t=5 s, not t=0.5 s), and the two long
+	-- steps walk uncapped. After ~7 blind seconds one urgent telemetry line
+	-- says so — the mute-proof kind — because "no dives" with this line means
+	-- BALL BLINDNESS, and without it means paste/version.
 	local now = os.clock()
-	if now - lastBallScan >= wait then
+	if now - lastBallScan >= BALL_SCAN_WAITS[math.min(ballScanMiss + 1, #BALL_SCAN_WAITS)] then
 		lastBallScan = now
-		cachedBall = findBall()
-		if cachedBall then ballScanMiss = 0 end
+		cachedBall = findBall(ballScanMiss >= 2)
+		if cachedBall then
+			ballScanMiss = 0
+			blindLogged = false
+		else
+			ballScanMiss = ballScanMiss + 1
+			if ballScanMiss == 4 and not blindLogged then
+				blindLogged = true
+				log("[AI-Dive] ⚠️ BALL HUNT: no ball after 7 s — uncapped deep scans now running every 5 s (HUD says 'scanning for ball...')", true)
+			end
+		end
 	end
 	return cachedBall
 end
 
 local function scanBall()
-	cachedBall = findBall()
+	cachedBall = findBall(true) -- v2.60: boot gets the uncapped walk
 	lastBallScan = os.clock()
 	ballScanMiss = 0
 end
@@ -1043,15 +1100,18 @@ local function sideOfName(name)
 end
 
 local cachedBoard = nil
-local function findBoard(parent)
+local function findBoard(parent, deep)
 	-- v2.59: discover ONCE, remember (goal-scan doctrine, v2.44, finally
 	-- applied here) — while the cached board's Parent lives, zero walks.
+	-- v2.60: the cap is a MIDDLE tier only — deep hunts (long backoff steps)
+	-- walk the whole tree, so a board parked at instance #30,000 is still
+	-- found; a capped miss just waits for the next tier, it never decides.
 	if cachedBoard and cachedBoard.Parent then return cachedBoard end
 	-- 1) A node whose name says leaderboard/scoreboard/teams/scores
 	local visited = 0
 	for _, inst in ipairs(parent:GetDescendants()) do
 		visited = visited + 1
-		if visited > 5000 then break end
+		if deep ~= true and visited > 5000 then break end
 		local n = string.lower(inst.Name)
 		if n:find("leaderboard", 1, true) or n:find("scoreboard", 1, true)
 			or n:find("score", 1, true) or n:find("team", 1, true) then
@@ -1063,7 +1123,7 @@ local function findBoard(parent)
 	local visited2 = 0
 	for _, inst in ipairs(parent:GetDescendants()) do
 		visited2 = visited2 + 1
-		if visited2 > 5000 then break end
+		if deep ~= true and visited2 > 5000 then break end
 		local hasHome, hasAway = false, false
 		for _, child in ipairs(inst:GetChildren()) do
 			local cn = string.lower(child.Name)
@@ -1071,6 +1131,7 @@ local function findBoard(parent)
 			if cn:find("away", 1, true) or cn:find("guest", 1, true) then hasAway = true end
 		end
 		if hasHome and hasAway then
+			cachedBoard = inst -- v2.60: pass 2's find deserves the cache too
 			return inst
 		end
 	end
@@ -1087,7 +1148,7 @@ local function scanLeaderboard()
 
 	local board = nil
 	for _, parent in ipairs(parents) do
-		board = findBoard(parent)
+		board = findBoard(parent, lbScanLevel >= 3) -- v2.60: long steps go deep
 		if board then break end
 	end
 	if not board then return end
@@ -1115,8 +1176,6 @@ end
 
 local function refreshTeams()
 	local now = os.clock()
-	local np = #Players:GetPlayers()
-	if np ~= lastLbPlayers then lastLbPlayers, lbScanLevel = np, 1 end -- roster moved: go hunting again
 	if now - lastLbScan >= LB_SCAN_WAITS[math.min(lbScanLevel, #LB_SCAN_WAITS)] then
 		lastLbScan = now
 		lbFound = false
@@ -1125,6 +1184,10 @@ local function refreshTeams()
 	end
 	if now - lastTeamScan < 1 then return end
 	lastTeamScan = now
+	-- v2.60: the roster check belongs UNDER the 1 s gate — v2.59 called
+	-- #Players:GetPlayers() every single frame, which is its own little bill.
+	local np = #Players:GetPlayers()
+	if np ~= lastLbPlayers then lastLbPlayers, lbScanLevel = np, 1 end -- roster moved: go hunting again
 
 	-- Collect per-player candidate keys from each source
 	local cands = {} -- plr -> { team = key, lb = key, tc = key }
