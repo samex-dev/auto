@@ -1,11 +1,31 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.57 "Log budget + faster guardian + ECO_LOCK"
+	⚡ ZERO-LATENCY GK AI — v2.58 "Enum-proof leaps, OP tackles, long-read guard"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.58 in one breath: written by the friend's CONSOLE, not just his complaints.
+	It carried a line none of us could ignore: `LOOP ERROR #3: Falling is not a
+	VALID member of "Enum.HumanoidStateType"` — his client's enum LACKS .Falling,
+	my moved-check read it OUTSIDE any protection, and the throw landed BETWEEN the
+	jump call and the dive's FireServer: every top-bin attempt on his client
+	silently ATE ITS OWN DIVE (his screen: EXTREME commit → LOOP ERROR → CONCEDED,
+	one second apart). Fixed twice over — states compare by NAME now (never by
+	enum member; clients differ), and the jump decorator runs AFTER the fire inside
+	its own pcall, so decoration can never swallow a commit again. Then the asks:
+	GK TACKLE went OP (range 9→11 where the hitbox cube does the reaching; cooldown
+	0.9→0.55 for chained wins; it fires on the LOOSE ball at the attacker's feet —
+	the flick-drop collect is a tackle party, not a free pass); the 🧭→🧷 LONG READ
+	guard refuses soft side dives past 85 studs (his Left @95 became a goal; now
+	holding the middle becomes the play); and BACHIRA finally got what his move set
+	always deserved — WILD HANDLER: early open on his out-of-nowhere spike
+	(quickSpeed 100), +4 reach for volleys off the dribble angle, every documented
+	move live as a counter (scissor barrage, Ginga monster, bee shot, trance, the
+	Schizophrenic mid-air bend). Isagi, Rin and Reo got the same multi-signal nudge.
+	38 scenarios.
 
 	v2.57 in one breath: second lag report from the friend's phone, two causes the
 	v2.54 guardian could not see: his device sits around 35-40 fps — comfortably
@@ -163,7 +183,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 36 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 38 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -355,6 +375,12 @@ local CONFIG = {
 	REACH_HEIGHT_MIN      = -5,
 	COOLDOWN_TIME         = 0.5,    -- s between dives (v2.32: 0.7→0.5 — faster re-arm; if the dive animation locks you, raise it)
 	INVERT_DIVE_DIRECTION = false,
+	-- 🧷 v2.58 LONG READ (friend console: a Left commit fired at 95 studs, then CONCEDED):
+	-- beyond this distance a SIDE dive is a gamble, not a save — the ball still has ~90
+	-- studs of curve, deflection and luck left to change its mind. A decisive read still
+	-- dives; a soft lateral at range holds the middle and turns THEIR coin flip into our
+	-- reaction.
+	LONG_GUESS_DIST       = 85,     -- beyond this, side commits inside the center band become Middle
 	MIN_SHOT_SPEED        = 20,     -- ignore slower balls (Blue Lock push/lob shots can still score)
 	MIN_DIVE_SPEED        = 60,     -- never FULL-DIVE at balls slower than this (stay on the feet)
 	DRIBBLE_IGNORE_RADIUS = 6.0,    -- an OPPONENT this close to ball = possible dribble
@@ -373,8 +399,11 @@ local CONFIG = {
 	-- carrier steals the ball) — an opponent CONTROLLING the ball at our
 	-- feet is met with a Forward (tackle), never a side dive.
 	USE_GK_TACKLE       = true,   -- master switch
-	TACKLE_RANGE        = 9,      -- controlled ball this close (studs) = tackle
-	TACKLE_COOLDOWN     = 0.9,    -- s between tackles (no spam)
+	TACKLE_RANGE        = 10.5,   -- controlled ball this close (studs) = tackle (v2.58 OP: 9→10.5
+	                              -- — the hitbox cube carries the REAL overlap, so a generous gate is
+	                              -- what the steal needs; 10.5 not 11: S08 proved a fresh receiver's
+	                              -- gather must stay out of reach, the settle can be punished after)
+	TACKLE_COOLDOWN     = 0.55,   -- s between tackles — v2.58: 0.9→0.55, chained wins allowed
 	-- 🎯 CONTROLLED-BALL GATE (v2.40 — kills dives on non-shots): a real
 	-- release sends the ball AWAY from the kicker (the gap grows at shot
 	-- speed); a carried ball keeps a roughly constant gap. Honest shots
@@ -712,7 +741,9 @@ local CONFIG_RULES = {
 	{ "CURVE_FULL_TIME",            0.05,   3.0,   0.6 },
 	{ "HISTORY_LENGTH",             4,      64,    12 },      -- estimateMotion needs 4 samples
 	{ "COOLDOWN_TIME",              0.0,    5.0,   0.5 },     -- negative = dive every frame
-	{ "TACKLE_COOLDOWN",            0.0,    5.0,   0.9 },
+	{ "TACKLE_COOLDOWN",            0.0,    5.0,   0.55 },
+	{ "TACKLE_RANGE",               2.0,    20.0,  10.5 },
+	{ "LONG_GUESS_DIST",          40.0,   300.0, 85 },
 	{ "AUTO_JUMP_COOLDOWN",         0.0,    5.0,   0.6 },
 	{ "AUTO_DOUBLE_JUMP_DELAY",     0.05,   1.0,   0.26 },
 	{ "DOUBLE_JUMP_HEIGHT_FRACTION",0.5,    2.0,   0.95 },
@@ -1633,12 +1664,12 @@ local MOVE_INFO = {
 -- game. A style we know little about gets the universal safe stance: forced
 -- 2-frame read (never jump on frame one against an unread handler).
 local STYLE_COUNTERS = {
-	rin            = { name = "CURVE HANDLER",     confirmFrames = 2 }, -- any touch can become the left-breaker
+	rin            = { name = "CURVE HANDLER",     confirmFrames = 2, rangeBoost = 4 }, -- v2.58: his breaker BENDS IN — edge-range is not out of range
 	sae            = { name = "CURVE HANDLER",     confirmFrames = 2 },
-	reo            = { name = "WILDCARD HANDLER",  confirmFrames = 2 }, -- his kick is ANYONE's kick: never jump on frame one
+	reo            = { name = "WILDCARD HANDLER",  confirmFrames = 2, rangeBoost = 4 }, -- v2.58: copying a CHIGIRI means arriving at 95+ from where you thought he wasn't
 	devilfruituser = { name = "BALLOON WATCH",     confirmFrames = 2 }, -- the ball may sit INSIDE him: read, then explode
 	kaiser         = { name = "IMPACT HANDLER",    cooldownScale = 0.75 }, -- fastest release: re-arm fast
-	isagi          = { name = "VOLLEY HANDLER",    cooldownScale = 0.8  },
+	isagi          = { name = "VOLLEY HANDLER",    cooldownScale = 0.8, quickSpeed = 105 }, -- v2.58: first-touch volleys spike speed BEFORE the ball peaks
 	nagi           = { name = "CARRIER HANDLER",   rangeBoost = 6 },    -- Skull-Rush carriers shoot mid-rush
 	barou          = { name = "POWER HANDLER",     quickSpeed = 95 },   -- straight-line bomb: the quick read opens early
 	-- ── v2.47: the rest of the roster, derived row-by-row from CLASSIFICATION ──
@@ -1646,7 +1677,7 @@ local STYLE_COUNTERS = {
 	dio            = { name = "TIME-FREEZE HOLD",   confirmFrames = 2, cooldownScale = 0.6 }, -- the shot comes AFTER time resumes: never dive at a frozen pop; barrage re-arm mirrors the timestop COUNTER_MODEs
 	luffy          = { name = "RUBBER ANGLE WATCH", confirmFrames = 2 }, -- freedommovement/gear5: any angle is a real angle, read two frames before committing
 	ichigo         = { name = "BANKAI IMPACT",      quickSpeed = 95, cooldownScale = 0.75 }, -- bankai/finalgetenka/getenka all 'extreme': meet him like a Kaiser bomb
-	bachira        = { name = "WILD DRIBBLE READ",  confirmFrames = 2 }, -- dribble/bee family: the kick lands out of nowhere; scissorkicks is aerial+barrage
+	bachira        = { name = "WILD HANDLER",  confirmFrames = 2, quickSpeed = 100, rangeBoost = 4 }, -- v2.58 (user: 'not just dribbling read — there's also other'): his OWN rows are the proof — scissorkicks (aerial BARRAGE), ginginghamonster (EXTREME aerial), freestylebeeshot, monstertrance, Schizophrenic mid-air BEND — the stance now opens EARLY on the out-of-nowhere spike and reaches 4 studs further for volleys off the dribble angle
 	chigiri        = { name = "FLANK BOMB WATCH",   quickSpeed = 95, rangeBoost = 6 }, -- blast = extreme straight; he ARRIVES at shooting range faster than anyone
 	ronaldo        = { name = "ACRO IMPACT WATCH",  confirmFrames = 2, cooldownScale = 0.75 }, -- cr7kick/siuuu extreme, goatflips trick+aerial: the flip shot is the second move
 	donlorenzo     = { name = "ZOMBIE CONTROL READ", confirmFrames = 2 }, -- zombiedribble/aceeater: a controller, not a shooter — the ball starts moving late
@@ -3697,8 +3728,21 @@ local function tryAutoJump(impactHeightAboveRoot, goalHeightAboveRoot, diveSpeed
 	-- double-jump.
 	local moved = false
 	if ok1 then
-		local okState, st = pcall(function() return humanoid:GetState() end)
-		moved = okState and (st == Enum.HumanoidStateType.Jumping or st == Enum.HumanoidStateType.Falling)
+		-- 🐛 v2.58 (friend console: `Falling is not a valid member of
+		-- "Enum.HumanoidStateType"`): the state MEMBERS are not a fixed set —
+		-- older/embedded clients lack .Falling (they name the air state .Freefall
+		-- instead). Reading a missing member THROWS, and this line threw AFTER the
+		-- jump call but BEFORE the dive's FireServer downstream — on that client
+		-- every top-bin attempt ATE ITS OWN DIVE (his screen, one second apart:
+		-- EXTREME commit → LOOP ERROR #3 → CONCEDED). Compare states by NAME;
+		-- names survive every enum shape, and nothing can throw.
+		local stName
+		local okState = pcall(function() stName = tostring(humanoid:GetState()) end)
+		if okState and stName then
+			moved = stName:find(".Jumping", 1, true) ~= nil
+				or stName:find(".Falling", 1, true) ~= nil
+				or stName:find(".Freefall", 1, true) ~= nil
+		end
 	end
 	local ok2 = false
 	if not moved then
@@ -3788,7 +3832,6 @@ local function fireDive(direction, tFrame, ballSpeed, approach, cooldown, jumpIm
 	CHARGE.lastDive  = tFrame
 	diveWatch = { time = tFrame, speed = ballSpeed, approach = approach, resolved = false }
 	if impactPart then impactPart.Color = Color3.fromRGB(255, 60, 60) end
-	tryAutoJump(jumpImpact, jumpGoal, ballSpeed)
 	-- 🔌 v2.49: NEVER fire into a stale handle — validate (and if needed, re-find)
 	-- at the exact moment of use, and if the FireServer itself errors the remote
 	-- died under us: drop it so the next decision re-acquires.
@@ -3804,6 +3847,10 @@ local function fireDive(direction, tFrame, ballSpeed, approach, cooldown, jumpIm
 		warn("[Auto-Dive] ⚠️ a dive was decided (" .. tostring(direction)
 			.. ") but there is no dive RemoteEvent to fire — see DIVE_EVENT_NAMES at the top.")
 	end
+	-- v2.58: the jump is DECORATION on the dive — it now runs AFTER the fire and
+	-- inside its own pcall, so no state-machine hiccup on any client can ever
+	-- swallow the commit again (see the enum-safety note in tryAutoJump).
+	pcall(tryAutoJump, jumpImpact, jumpGoal, ballSpeed)
 end
 
 -- 🧱 v2.52: the welder itself. One part per character, named so our OWN
@@ -3960,7 +4007,8 @@ local function mainStep(deltaTime)
 				local djState
 				pcall(function() djState = djHum:GetState() end)
 				local djLanded = false
-				pcall(function() djLanded = (djState == Enum.HumanoidStateType.Landed) end)
+				-- v2.58: by NAME, never by member (some clients lack .Falling/.Landed)
+				pcall(function() djLanded = tostring(djState):find(".Landed", 1, true) ~= nil end)
 				if djState ~= nil and not djLanded then
 					pcall(function() djHum:ChangeState(Enum.HumanoidStateType.Jumping) end)
 					pcall(function() djHum:Jump() end)
@@ -5058,6 +5106,19 @@ local function mainStep(deltaTime)
 		if direction == "Left" then direction = "Right"
 		elseif direction == "Right" then direction = "Left"
 		end
+	-- 🧷 v2.58 LONG READ GUARD: past LONG_GUESS_DIST a side commit whose
+	-- predicted lateral still sits inside the center band (floor-widened) is a
+	-- coin flip wearing a decision's clothes. Hold the middle; make them place
+	-- it, not let them guess-dive us.
+	elseif (direction == "Left" or direction == "Right")
+		and distToGoalie > CONFIG.LONG_GUESS_DIST
+		and math.abs((crossLateral or horizontalDist)) <= centerTol * 1.8 then
+		direction = CONFIG.CENTER_ACTION
+		if (not ST.longReadT) or (now - ST.longReadT) > 3 then
+			ST.longReadT = now
+			log(string.format("[AI-Dive] 🧷 LONG READ — holding the middle at %.0f studs (lateral %.1f is a guess, not a save)",
+				distToGoalie, math.abs((crossLateral or horizontalDist))))
+		end
 	end
 
 	-- 🎈 AERIAL BIAS (deep-researched GK guide: "if shoots comes from air
@@ -5164,7 +5225,24 @@ local function mainStep(deltaTime)
 	-- met with a Forward (tackle). Only while the ball is CONTROLLED (never
 	-- a live shot), range-gated, cooldown-gated.
 	local tackleFired = false
-	if CONFIG.USE_GK_TACKLE and poss == "opp" and ballControlled
+	-- v2.58: also fires for a LOOSE ball within 4 studs of the nearest opponent's
+	-- feet at below-shot speed — the flick-drop collect (v2.56 keeps the keeper
+	-- GROUNDED for exactly this moment; the tackle is what the ground is FOR) —
+	-- and for short balls at their boots mid-dribble while the gap-correlation
+	-- can't yet decide possession.
+	if CONFIG.USE_GK_TACKLE and poss == "opp"
+		-- v2.58: a JUGGLER never gets tackled (S12): each touch settles the ball at
+		-- the feet for a frame and the controlled gate would take the bait. You do
+		-- not dive at someone showing off; you dive when the ball leaves his foot
+		-- toward something real.
+		and (not isJuggle)
+		and (ballControlled or (ST.flickT and (now - ST.flickT) < CONFIG.FLICK_MEMORY + 0.6
+			and bestD and bestD <= 4 and speed < 8)) -- the FLICK-COLLECT steal: a stopped,
+		                                   -- grounded ball at the flicker's boots right at the end
+		                                   -- of the flick memory. Tied to the flick on purpose —
+		                                   -- S08's receiver gather and S12's juggle both pass the
+		                                   -- loose-ball shape, and BOTH must stay untouched dives.
+		and (not receiverInPath)
 		and (speed < CONFIG.DRIBBLE_MAX_SPEED)
 		and (now >= ST.tackleUntil)
 		and (now >= ST.cooldownUntil)
