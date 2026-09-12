@@ -1,11 +1,27 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.62 "Counter doctrine: the streets' moves get answers"
+	⚡ ZERO-LATENCY GK AI — v2.63 "The SAVE and the second one — the gyro combo, fixed end to end"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
+
+	v2.63 in one breath: I misread the friend. "Add a inhumane gyro shot" was
+	never an ask to WEAPONIZE it — it is an ask to SAVE it, and his own
+	Discord says the rest: "fix the INHUMA OFF-BALL 2ND KILLER SHOT COMBO".
+	The combo is not the first shot — it is what happens after the keeper
+	commits: the gyro breaks late, the dive comes off unresolved, and Rin
+	sprints the second ball IN OFF-BALL while the keeper resets. Two fixes:
+	(1) 🌀 THE SAVE — a live inhuman chase now stretches the catch window
+	itself (+GYRO_REACH lateral, +GYRO_HEIGHT ceiling, only while the chase is
+	PROVING itself), so the keeper reaches where the bend ARRIVES, not where
+	it left — inches, not just sides. (2) 🏃 SECOND-SHOT WATCH — an expired
+	unresolved dive arms REBOUND_WINDOW (1.6s): re-arm floor drops to 0.3s
+	and the follow-up is met 6 studs EARLIER. The -save path deliberately
+	does NOT arm (a secured ball IS the win). v2.62's universal bend chase and
+	slide fence stay exactly as shipped — this version is the part of the
+	answer that catches, and the part that gets up in time.
 
 	v2.62 in one breath: "Like a counter" — the two asks this repo would not
 	BUILD became the two counters it shipped. (1) THE GYRO: an "inhumane gyro
@@ -93,7 +109,7 @@
 	(quickSpeed 100), +4 reach for volleys off the dribble angle, every documented
 	move live as a counter (scissor barrage, Ginga monster, bee shot, trance, the
 	Schizophrenic mid-air bend). Isagi, Rin and Reo got the same multi-signal nudge.
-	43 scenarios.
+	45 scenarios.
 
 	v2.57 in one breath: second lag report from the friend's phone, two causes the
 	v2.54 guardian could not see: his device sits around 35-40 fps — comfortably
@@ -251,7 +267,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 43 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 45 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -565,6 +581,22 @@ local CONFIG = {
 	-- engages for EVERY handler, no style row required. Sits above the family
 	-- bar on purpose: this tier is for physics that are not human, not wobble.
 	GYRO_ACCEL          = 55,     -- studs/s² sustained = universal gyro, handler-agnostic
+	-- 🌀 v2.63 GYRO SAVE (user's correction: "he means to SAVE the gyro shot").
+	-- Chasing the bend picks the SIDE; these pick the INCHES: a live inhuman
+	-- chase stretches the catch window itself — late breaks move the ARRIVAL
+	-- after the commit, and an "inhumane" shot is answered with inhumane reach.
+	GYRO_REACH          = 5,      -- extra lateral reach while a live-gyro chase is on
+	GYRO_HEIGHT         = 3,      -- extra ceiling: gyros dip and rise late at the top
+	-- 🏃 v2.63 OFF-BALL SECOND-SHOT COMBO (friend: "fix the inhuma off-ball 2nd
+	-- killer shot combo"). The combo is not the first shot — it is the REBOUND:
+	-- the keeper commits, the ball comes off the dive unresolved, and the
+	-- shooter sprints IN WITHOUT the ball to finish the second one while the
+	-- keeper is still resetting off the first. Counter: an unresolved dive arms
+	-- a watch window — re-arm floor REBOUND_REARM, commit REBOUND_COMMIT studs
+	-- earlier on the follow-up, and one 🏃 line so the field knows it's live.
+	REBOUND_WINDOW      = 1.6,    -- seconds of second-shot watch after an unresolved dive
+	REBOUND_REARM       = 0.3,    -- cooldown floor while watching (default 0.5)
+	REBOUND_COMMIT      = 6,      -- extra commit distance against the follow-up
 	-- 🎯 WEAK-CENTER CATCH (v2.43): a weak shot near the center is a CATCH
 	-- (forward), not a committed side dive — the "it dove left/right instead
 	-- of forward" fix. A keeper meets a weak central ball by stepping to it,
@@ -836,6 +868,11 @@ local CONFIG_RULES = {
 	{ "BAIT_SMOTHER_DIST",           4.0,  20.0,  11 },     -- beyond TACKLE_RANGE = a hole
 	{ "CURVE_CHASE_ACCEL",          30.0,  80.0,  35 },   -- at/above CURVE_DEADZONE or it never fires
 	{ "GYRO_ACCEL",                 40.0, 120.0,  55 },   -- above CURVE_CHASE_ACCEL: the universal tier is stricter
+	{ "GYRO_REACH",                  0.0,  14.0,   5 },   -- 14+ = reach claims the hitbox cube can't back
+	{ "GYRO_HEIGHT",                 0.0,   8.0,   3 },
+	{ "REBOUND_WINDOW",              0.4,   4.0, 1.6 },   -- the combo lands ~1s after the first dive
+	{ "REBOUND_REARM",               0.1,   1.0, 0.3 },   -- below REBOUND_WINDOW/2 or it's decoration
+	{ "REBOUND_COMMIT",              0.0,  20.0,   6 },
 	{ "AUTO_JUMP_COOLDOWN",         0.0,    5.0,   0.6 },
 	{ "AUTO_DOUBLE_JUMP_DELAY",     0.05,   1.0,   0.26 },
 	{ "DOUBLE_JUMP_HEIGHT_FRACTION",0.5,    2.0,   0.95 },
@@ -4794,6 +4831,11 @@ local function mainStep(deltaTime)
 			effCooldown = math.min(effCooldown, CONFIG.COOLDOWN_TIME * activeMode.cooldownScale)
 		end
 	end
+	-- 🏃 v2.63 SECOND-SHOT RE-ARM: the combo is timed to the 0.5s reset, so the
+	-- reset gets cut from under it while the rebound watch is live.
+	if ST.reboundUntil and now < ST.reboundUntil then
+		effCooldown = math.min(effCooldown, CONFIG.REBOUND_REARM)
+	end
 
 	-- 🎯 PRIME SIDE: some researched counters know which side a move favors
 	-- (Sae's Curve Shot "always goes left") — prime the read before release.
@@ -4950,6 +4992,9 @@ local function mainStep(deltaTime)
 		predSpeed = 100
 	end
 	local commitBonus = activeMode and (activeMode.commitBonus or 0) or 0
+	if ST.reboundUntil and now < ST.reboundUntil then
+		commitBonus = commitBonus + CONFIG.REBOUND_COMMIT -- 🏃 meet the SECOND one already moving
+	end
 	local commitDist = math.clamp(CONFIG.COMMIT_BASE_DIST + predSpeed * CONFIG.COMMIT_SPEED_FACTOR + commitBonus,
 		CONFIG.COMMIT_BASE_DIST, CONFIG.COMMIT_MAX_DIST)
 
@@ -5717,10 +5762,23 @@ local function mainStep(deltaTime)
 		if isExtreme or standOp then
 			activeReach = math.max(activeReach, CONFIG.EXTREME_REACH)
 		end
+		-- 🌀 GYRO SAVE (v2.63): the chase already picked the side — the extra
+		-- inches are for what a gyro DOES AFTER the commit: it keeps breaking.
+		-- The boost applies only while this script is PROVING it is chasing a
+		-- live inhuman bend (fresh 2-frame chase), never to a straight shot —
+		-- so the cost of being wrong is one toast, not a cheapened routine.
+		local gyroLive = ST.gyroT and (now - ST.gyroT) < 0.7
+		if gyroLive then
+			activeReach = activeReach + CONFIG.GYRO_REACH
+			if (not ST.gyroSaveLogged) or (now - ST.gyroSaveLogged > 2.5) then
+				ST.gyroSaveLogged = now
+				log(string.format("[AI-Dive] 🌀 INHUMANE SAVE — live-gyro window: +%d lateral reach, +%d ceiling", CONFIG.GYRO_REACH, CONFIG.GYRO_HEIGHT))
+			end
+		end
 
 		local withinReach = (math.abs(horizontalDist) <= activeReach)
 			and (verticalDist >= CONFIG.REACH_HEIGHT_MIN)
-			and (verticalDist <= effHeightMax)
+			and (verticalDist <= effHeightMax + (gyroLive and CONFIG.GYRO_HEIGHT or 0))
 
 		-- 📏 Commit gate: bombs bypass it (they must be met at full speed,
 		-- no waiting for the ball to fly in). Everything else commits inside
@@ -5790,6 +5848,7 @@ local function mainStep(deltaTime)
 				end
 				if ST.curveChaseN >= 2 then
 					curveDir = side
+					if inhTier then ST.gyroT = now end -- 🌀 v2.63: marks the live-gyro SAVE window (reach boost below)
 					if (not ST.curveChaseLogged) or (now - ST.curveChaseLogged > 3) then
 						ST.curveChaseLogged = now
 						if inhTier then
@@ -5954,6 +6013,15 @@ local function mainStep(deltaTime)
 		local age = now - diveWatch.time
 		if age > 1.5 then
 			diveWatch.resolved = true -- expired: ball was never secured
+			-- 🏃 v2.63: a dive that secured NOTHING is the EXACT frame the
+			-- off-ball runner lives for — Rin's combo times the second killer
+			-- shot to the keeper's reset. Arm the watch: feet back at
+			-- REBOUND_REARM, and the follow-up is met EARLY, not late.
+			ST.reboundUntil = now + CONFIG.REBOUND_WINDOW
+			if (not ST.reboundLogged) or (now - ST.reboundLogged > 2.5) then
+				ST.reboundLogged = now
+				log(string.format("[AI-Dive] 🏃 SECOND-SHOT WATCH — rebound live for %.1fs: fast re-arm, early commit on the follow-up", CONFIG.REBOUND_WINDOW))
+			end
 		else
 			local secured = (ballPos - rootPos).Magnitude <= CONFIG.BALL_IN_HAND_RADIUS
 				or ballOverlapsKeeper(character, ballPos)
