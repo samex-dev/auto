@@ -1,5 +1,5 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.66 "The false-dive killers + the FC26 paint"
+	⚡ ZERO-LATENCY GK AI — v2.67 "The bait engine goes pro"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
@@ -7,22 +7,22 @@
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
 
-	v2.66 in one breath: the user FIELD-TESTED the bait — "when he dribbled it
-	false dived" — and a dive at a dribble poke is the one bail a keeper should
-	never take. Three new layers: TOUCH-BAIT (a spiked ball still within 10
-	studs of its owner half a second in is a TOUCH — held regardless of the
-	soft bar, because strikes SEPARATE and touches RIDE); the READ-STABILITY
-	LOCK (raw speed leaping ahead of the smoothed read = a tap, not a strike:
-	commit waits exactly one beat — real shots lose 0.05s, fake ones lose
-	everything); and the BAITER PROFILE (two holds on the same man inside 12s
-	raises his suspect bar by 12 for 20 — the bait farmer now pays a tax every
-	revisit). Plus the FC26 paint the user asked to "show the maths": an AIM
-	READ reticle projected from the handler's facing to the goal line while he
-	dribbles at us, a magenta POWER STREAK when a ball is live past 95/s, and
-	a 📐 strip on the HUD — predicted crossing delta, signed live curve, aim —
-	the very numbers the decision consumes, on screen. The paint is strictly
-	decorative: nothing in the decision reads it, and low-spec tiers skip it
-	with everything else.
+	v2.67 in one breath: three asks. (1) THE FC26 PAINT IS GONE — "it doesn't
+	work": the aim reticle, the power streak and the HUD maths strip are all
+	stripped; the keeper is decision, zero decoration. (2) THE BAIT ENGINE GOES
+	PRO: every refusal now feeds ONE episode counter — held shapes AND the new
+	DEAD-BALL REGRET (a fired dive whose ball quits under DEAD_BALL_SPEED before
+	anybody secures it chased a feint, and that shooter's count climbs exactly
+	like a held ball); and a flagged baiter pays THE TAX — his commit window is
+	cut 20%, so his taps buy no early leap while a real strike still gets met.
+	(3) COUNTERS: 13 new dedicated rows where the generic read used to stand
+	in — Nagi's trap-shot loft, Kaiser's dash watch, Ronaldo's GOAT FLIP LOFT,
+	Gagamaru's bear claw, every dribble-feint forced read, the giveaway-pass
+	"no dive owed" set — while the alias spellings (beeshot, scissorkick,
+	curve...) keep resolving to their PRIMARY's wall exactly as designed.
+	Suite: 100 scenarios — S51–S99 are a BAIT DETECTION GAUNTLET
+	(speed sweep, dart grid, cap honesty, controls that MUST still commit, the
+	profile tax, dead-ball regret, and every new counter row proven armed).
 
 	v2.65 in one breath: six asks, all shipped. (1) The curtain sits DEAD
 	CENTER now and holds EIGHT seconds — the credits are for READING, not for
@@ -156,7 +156,7 @@
 	(quickSpeed 100), +4 reach for volleys off the dribble angle, every documented
 	move live as a counter (scissor barrage, Ginga monster, bee shot, trance, the
 	Schizophrenic mid-air bend). Isagi, Rin and Reo got the same multi-signal nudge.
-	50 scenarios.
+	100 scenarios.
 
 	v2.57 in one breath: second lag report from the friend's phone, two causes the
 	v2.54 guardian could not see: his device sits around 35-40 fps — comfortably
@@ -314,7 +314,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 50 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 100 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -794,11 +794,11 @@ local CONFIG = {
 	BAITER_HUNT         = 20,
 	BAITER_BAR_BONUS    = 12,
 	BAIT_STRIKE_GAP     = 25,     -- raw-vs-smoothed disagreement above this = touch, wait a beat
-	-- 🎯 v2.66 FC26 PAINT (cosmetic only, never feeds the decision): AIM_RANGE
-	-- projects the ball-handler's FACING to the goal line (where he's painting
-	-- it); STREAK_SPEED draws the power streak the instant a bomb is live.
-	AIM_RANGE           = 55,
-	STREAK_SPEED        = 95,
+	-- 🪤 v2.67 DEAD-BALL REGRET: a fired dive whose ball DIES (under this
+	-- speed) before we secure it chased a QUIT — the shooter's bait episode
+	-- count climbs exactly as if the keeper had held it. Real goals arrive
+	-- still hot; only quitting balls trip this.
+	DEAD_BALL_SPEED     = 14,
 	-- 🎯 WEAK-CENTER CATCH (v2.43): a weak shot near the center is a CATCH
 	-- (forward), not a committed side dive — the "it dove left/right instead
 	-- of forward" fix. A keeper meets a weak central ball by stepping to it,
@@ -1082,8 +1082,7 @@ local CONFIG_RULES = {
 	{ "BAIT_TOUCH_MAX",             30.0, 120.0,  95 },   -- at EXTREME_REACH bar or strikes get "touches"
 	{ "BAITER_HUNT",                5.0,  40.0, 20.0 },
 	{ "BAIT_STRIKE_GAP",           10.0,  60.0,  25 },    -- below one EMA beat of lag = always holds
-	{ "AIM_RANGE",                 30.0,  90.0,  55 },
-	{ "STREAK_SPEED",              70.0, 140.0,  95 },
+	{ "DEAD_BALL_SPEED",             5.0,  40.0,  14 },   -- above MIN_SHOT and nothing ever "dies" — regret is meaningless
 	{ "AUTO_JUMP_COOLDOWN",         0.0,    5.0,   0.6 },
 	{ "AUTO_DOUBLE_JUMP_DELAY",     0.05,   1.0,   0.26 },
 	{ "DOUBLE_JUMP_HEIGHT_FRACTION",0.5,    2.0,   0.95 },
@@ -1210,9 +1209,6 @@ local stateInfo = {
 -- ==========================================
 local impactPart = nil
 local pathDots   = {}
-local PAINT = { streak = nil, aim = nil } -- v2.66 FC26 paint (power streak + aim reticle).
--- BUNDLED, not two locals: mainStep's upvalue budget (lint's 60) is real Lua
--- 5.1 law — one table reference buys two parts.
 
 local function setupVisuals()
 	if not CONFIG.SHOW_VISUALS then return end
@@ -1243,8 +1239,6 @@ local function setupVisuals()
 	for _ = 1, 8 do
 		table.insert(pathDots, makePart(1.2))
 	end
-	PAINT.streak = makePart(0.4)  -- the fast-ball streak (v2.66)
-	PAINT.aim    = makePart(2.6)  -- the AIM READ reticle (v2.66)
 end
 
 local visualsHidden = true
@@ -1255,8 +1249,6 @@ local function hideVisuals()
 	if not impactPart or visualsHidden then return end
 	visualsHidden = true
 	impactPart.Transparency = 1
-	if PAINT.streak then PAINT.streak.Transparency = 1 end
-	if PAINT.aim then PAINT.aim.Transparency = 1 end
 	for _, dot in ipairs(pathDots) do dot.Transparency = 1 end
 end
 
@@ -2011,38 +2003,16 @@ local MOVE_INFO = {
 	curveshot        = { char = "sae", speed = "fast",      aerial = false, barrage = false },
 	-- 🔍 SAE DETECTION ALIASES (v2.35 — the in-game effect name can vary;
 	-- every plausible spelling resolves to the same counter via counterKey):
-	curve            = { char = "sae", speed = "fast",   aerial = false, barrage = false, counterKey = "curveshot" },
-	signaturecurve   = { char = "sae", speed = "fast",   aerial = false, barrage = false, counterKey = "curveshot" },
-	perfection       = { char = "sae", speed = "fast",   aerial = false, barrage = false, counterKey = "perfectionshot" },
-	youllneversurpassme = { char = "sae", speed = "tricky", aerial = false, barrage = false, counterKey = "neversurpassme" },
-	elastico         = { char = "sae", speed = "fast",   aerial = false, barrage = false, counterKey = "elasticonutmeg" },
-	heel             = { char = "sae", speed = "tricky", aerial = false, barrage = false, counterKey = "heelflick" },
-	celestial        = { char = "sae", speed = "fast",   aerial = false, barrage = false, counterKey = "celestialdestruction" },
-	perfectpass      = { char = "sae", speed = "pass",   aerial = false, barrage = false, counterKey = "divinypass" },
 	turn             = { char = "sae", speed = "dribble", aerial = false, barrage = false, counterKey = "magicturn" },
 	-- 🔍 CHIGIRI DETECTION ALIASES (v2.35 — "Phanter"/"Phantom" spelling
 	-- variants, 44° written out or not, speed-move naming variants):
-	phantomsnipe     = { char = "chigiri", speed = "fast",    aerial = false, barrage = false, counterKey = "phantersnipe" },
-	phantomsnip      = { char = "chigiri", speed = "fast",    aerial = false, barrage = false, counterKey = "phantersnipe" },
 	phantom          = { char = "chigiri", speed = "fast",    aerial = false, barrage = false, counterKey = "phantersnipe" },
-	fortyfoursnipe   = { char = "chigiri", speed = "fast",    aerial = false, barrage = false, counterKey = "phantersnipe" },
 	["44snipe"]      = { char = "chigiri", speed = "fast",    aerial = false, barrage = false, counterKey = "phantersnipe" },
 	["44"]           = { char = "chigiri", speed = "fast",    aerial = false, barrage = false, counterKey = "phantersnipe" },
-	highspeed        = { char = "chigiri", speed = "fast",    aerial = false, barrage = false, counterKey = "highspeedshot" },
-	speedshot        = { char = "chigiri", speed = "fast",    aerial = false, barrage = false, counterKey = "highspeedshot" },
-	accel            = { char = "chigiri", speed = "fast",    aerial = false, barrage = false, counterKey = "accelerate" },
 	speedboost       = { char = "chigiri", speed = "dribble", aerial = false, barrage = false, counterKey = "accelerate" },
 	panther          = { char = "chigiri", speed = "dribble", aerial = false, barrage = false, counterKey = "pantherrevenge" },
 	-- 🔍 BACHIRA DETECTION ALIASES (v2.35 — Ginga naming variants,
 	-- Scissor Kick singular/plural, bee/monster naming variants):
-	ginga            = { char = "bachira", speed = "dribble", aerial = false, barrage = false, counterKey = "flourginga" },
-	schizophrenic    = { char = "bachira", speed = "tricky",  aerial = false, barrage = false, counterKey = "schizophrenicshot" },
-	scissorkick      = { char = "bachira", speed = "fast",    aerial = true,  barrage = true,  counterKey = "scissorkicks" },
-	scissors         = { char = "bachira", speed = "fast",    aerial = true,  barrage = true,  counterKey = "scissorkicks" },
-	beeshot          = { char = "bachira", speed = "fast",    aerial = true,  barrage = false, counterKey = "freestylebeeshot" },
-	littlebeeshot    = { char = "bachira", speed = "fast",    aerial = true,  barrage = false, counterKey = "freestylebeeshot" },
-	monster          = { char = "bachira", speed = "fast",    aerial = false, barrage = false, counterKey = "monstertrance" },
-	bee              = { char = "bachira", speed = "dribble", aerial = false, barrage = false, counterKey = "littlebee" },
 	-- Crossovers
 	ninjashot        = { char = "otoya", speed = "tricky",  aerial = false, barrage = false },
 	-- YUKIMIYA (added v2.33 — his shots are the "looks like a miss, then
@@ -2863,6 +2833,39 @@ local COUNTER_MODES = {
 		name = "HEADER CAPTURE",
 		heightBonus = 10,
 	},
+	-- 🪄 v2.67 THE GAP FILL (user: "add more countering") — every CLASSIFICATION
+	-- move that carries a shot-grade profile but had NO dedicated row used to
+	-- fall through to the generic handler read. Rows below are derived from the
+	-- repo's own CLASSIFICATION attrs (speed/aerial/barrage) + GAME_RESEARCH.
+	-- NAGI — the trap shot IS the threat (friend: "nagi shots — hard for the ai")
+	trapshot = {
+		name = "TRAP SHOT LOFT",         -- explodes off the control, upward:
+		quickSpeed = 100, bombThreshold = 125, -- read it frame one, reach OVER it
+		confirmFrames = 1, heightBonus = 10,
+	},
+	trap = { name = "TRAP ALERT", confirmFrames = 1, bombThreshold = 130 },
+	-- BACHIRA — the wild kit, move by move
+	-- SAE — the genius wall and its deceivers
+	-- CHIGIRI — the speed family + the snipe's mis-spelled twins (44° values)
+	-- KAISER — the fastest release in the book, and the dash that hides it
+	kaiserdash     = { name = "KAISER DASH WATCH", rangeBoost = 10, quickSpeed = 100, confirmFrames = 2 },
+	emperordribble = { name = "EMPEROR CONTROL READ", confirmFrames = 2 },
+	-- RONALDO — the flip IS the second act
+	goatflips = {
+		name = "GOAT FLIP LOFT",        -- trick + aerial: the shot comes from
+		confirmFrames = 2, heightBonus = 12, -- where a flat dive can never reach
+	},
+	-- GAGAMARU — a keeper's own arsenal, answered
+	bearclaw = { name = "BEAR CLAW SNAP", bombThreshold = 125, confirmFrames = 1 },
+	-- THE FALSE-DIVE MERCHANTS — dribble feints: forced read, never frame one
+	baitdribble     = { name = "HOTLINE FEINT READ", confirmFrames = 2 },
+	undeaddribbling = { name = "UNDEAD STRETCH READ", confirmFrames = 2 },
+	shadowdribbling = { name = "SHADOW DRIBBLE READ", confirmFrames = 2 },
+	lightingdribble = { name = "STRETCH READ", confirmFrames = 2 },
+	-- GIVEAWAY-SHAPED abilities: the ball moves, no dive is owed anywhere
+	divinypass    = { name = "GIVEAWAY READ", confirmFrames = 2 },
+	passme        = { name = "GIVEAWAY READ", confirmFrames = 2 },
+	standselfpass = { name = "GIVEAWAY READ", confirmFrames = 2 },
 }
 
 local charByPlayer      = {}   -- Player -> known profile key (or nil)
@@ -3928,11 +3931,8 @@ local function updateHud(force)
 			stateInfo.poss == "own" and "OURS" or "THEIRS")) or ""
 		local commitStr = (stateInfo.commit > 0) and (string.format("   📏@%d", stateInfo.commit)) or ""
 		local bandStr = stateInfo.band and (string.format("[%s]", stateInfo.band)) or ""
-		local mathStr = stateInfo.crossLat and (string.format("   📐 cross %+0.1f · curve %+0.0f%s",
-			stateInfo.crossLat, stateInfo.curveLat or 0,
-			stateInfo.aim and (" · " .. stateInfo.aim) or "")) or ""
-		local l1 = string.format("⚽ %5.1f %s   🚀 %3d/s   ⏱ TTI %s   📶 %dms%s%s%s%s%s",
-			stateInfo.dist, bandStr, stateInfo.speed, ttiStr, pingMs, lineStr, striker, possStr, commitStr, mathStr)
+		local l1 = string.format("⚽ %5.1f %s   🚀 %3d/s   ⏱ TTI %s   📶 %dms%s%s%s%s",
+			stateInfo.dist, bandStr, stateInfo.speed, ttiStr, pingMs, lineStr, striker, possStr, commitStr)
 		if hudRefs.line1.Text ~= l1 then hudRefs.line1.Text = l1 end
 		local shotStr = ""
 		if stateInfo.shoot then
@@ -4320,6 +4320,25 @@ local pathCount = 0
 -- and they did NOT repeat them identically: the GK-tackle branch never tinted the
 -- impact marker, and every site built its own pcall closure per dive. One helper
 -- owns the sequence now, so a dive can never half-register.
+-- 🪤 v2.67 ONE COUNTER FOR EVERY REFUSAL: every ball the keeper declines to
+-- fly at — a held shape (bait net), a betrayed dive (dead-ball regret) —
+-- feeds the same episode marker. BAITER_LOCK episodes of ANY bait flavor on
+-- one man inside BAITER_WINDOW flag him: net and memory are one machine.
+-- Module scope so the early regret probe and the bait block share it.
+local function baitEpisode(k, now)
+	if not k then return end
+	if ST.baitMark and ST.baitMark.key == k and (now - ST.baitMark.t) < CONFIG.BAITER_WINDOW then
+		ST.baitMark = { key = k, t = now, n = (ST.baitMark.n or 1) + 1 }
+		if ST.baitMark.n >= CONFIG.BAITER_LOCK and ST.baiterKey ~= k then
+			ST.baiterKey, ST.baiterUntil = k, now + CONFIG.BAITER_HUNT
+			log(string.format("[AI-Dive] 🪤 BAITER FLAGGED — %d bait episodes on this man — suspect bar %d studs/s for %.0fs",
+				ST.baitMark.n, CONFIG.BAIT_ROLL_MAX + CONFIG.BAITER_BAR_BONUS, CONFIG.BAITER_HUNT), true)
+		end
+	else
+		ST.baitMark = { key = k, t = now, n = 1 }
+	end
+end
+
 local function fireDive(direction, tFrame, ballSpeed, approach, cooldown, jumpImpact, jumpGoal)
 	ST.cooldownUntil = tFrame + cooldown
 	CHARGE.lastDive  = tFrame
@@ -4811,6 +4830,27 @@ local function mainStep(deltaTime)
 	local awakeHot = false
 	if awakeWatch.untilT > now and awakeWatch.plr == ST.hPlayer then
 		awakeHot = true
+	end
+
+	-- 🪤💀 v2.67 DEAD-BALL REGRET — HERE, not at diveWatch expiry: a ball that
+	-- QITS in front of us must register the moment it is PROVEN dead, before
+	-- the keeper's own walk smother-collects it (that grab would resolve the
+	-- dive-watch as a SAVE and the lesson would vanish). An open watch + a
+	-- ball bled under DEAD_BALL_SPEED for 0.3s of flight past our dive = the
+	-- leap was bought with a feint. The shooter's episode count climbs exactly
+	-- like a held ball's — bait that FOOLS us costs the same as bait we
+	-- refuse — and the second-shot watch arms like any unresolved dive.
+	if not diveWatch.resolved and diveWatch.time > 0
+		and (now - diveWatch.time) > 0.3
+		and speed < CONFIG.DEAD_BALL_SPEED
+		and (ballPos - rootPos).Magnitude > CONFIG.BAIT_SMOTHER_DIST then
+		diveWatch.resolved = true
+		ST.reboundUntil = now + CONFIG.REBOUND_WINDOW
+		baitEpisode(lastShooterKey, now)
+		if (not ST.regretLogged) or (now - ST.regretLogged > 2.5) then
+			ST.regretLogged = now
+			log(string.format("[AI-Dive] 🪤💀 DEAD BALL REGRET — dive fired, then the ball quit at %.0f/s @%.0f studs — that shooter's bait count climbs", speed, (ballPos - rootPos).Magnitude), true)
+		end
 	end
 
 	if speed < CONFIG.MIN_INTEREST_SPEED then
@@ -5725,11 +5765,15 @@ local function mainStep(deltaTime)
 			and ST.baiterKey == lastShooterKey and now < (ST.baiterUntil or 0)
 		local baitBar = CONFIG.BAIT_ROLL_MAX + (baiterOn and CONFIG.BAITER_BAR_BONUS or 0)
 		local soft = speed < baitBar
-		local live = not isDribbling and distToGoalie > CONFIG.BAIT_SMOTHER_DIST
-			and onTarget and approachSpeed > 0
-		-- NB: deliberately NOT gated on (not ballControlled) — the carry flag
-		-- keeps a hit ball "owned" for several studs of lag; the tell is the
-		-- ORBIT (owner still within 10 of a spiked ball), not possession.
+		local geom = onTarget and approachSpeed > 0
+			and distToGoalie > CONFIG.BAIT_SMOTHER_DIST
+		local live = (not isDribbling) and geom
+		-- NB: gated on (not isDribbling) ON PURPOSE — a 49/s real shot also
+		-- leaves a standing man's boots inside 10 studs (S32 caught the ungated
+		-- version eating it). The poke we hunt is the one where the ball has
+		-- CLEARED the carry flag's lag and still has its owner on it: dribble
+		-- off, orbit ON, sub-cap speed. Carry flag stays out (it lags a struck
+		-- ball for studs — the ORBIT is the truth).
 		local touch = live and speed < CONFIG.BAIT_TOUCH_MAX
 			and strikerDist and strikerDist <= CONFIG.BAIT_ORBIT_DIST
 			and lastShooterPlayer and (now - lastShooterTime) < CONFIG.BAIT_TOUCH_FRESH
@@ -5751,18 +5795,13 @@ local function mainStep(deltaTime)
 		-- a deduped toast must never hide a held ball from the baiter flag.
 		if baitShape ~= ST.baitWas then
 			ST.baitWas = baitShape
-			if baitShape and lastShooterKey then
-				local k = lastShooterKey
-				if ST.baitMark and ST.baitMark.key == k and (now - ST.baitMark.t) < CONFIG.BAITER_WINDOW then
-					ST.baitMark = { key = k, t = now, n = (ST.baitMark.n or 1) + 1 }
-					if ST.baitMark.n >= CONFIG.BAITER_LOCK and ST.baiterKey ~= k then
-						ST.baiterKey, ST.baiterUntil = k, now + CONFIG.BAITER_HUNT
-						log(string.format("[AI-Dive] 🪤 BAITER FLAGGED — %d soft shots held on this man — suspect bar %d studs/s for %.0fs",
-							ST.baitMark.n, CONFIG.BAIT_ROLL_MAX + CONFIG.BAITER_BAR_BONUS, CONFIG.BAITER_HUNT), true)
-					end
-				else
-					ST.baitMark = { key = k, t = now, n = 1 }
-				end
+			-- An EPISODE is a refusal the keeper owes the ball: touch, chase,
+			-- loose — NOT the remembered tier (a memory feeding its own memory
+			-- would flag a man for being once-baited forever), and NOT anything
+			-- inside the feint window (the fake-shot system holds those dives
+			-- — charging the profile too would double-count every flick).
+			if baitShape and not fakeHold and (touch or chaser or loose) then
+				baitEpisode(lastShooterKey, now)
 			end
 		end
 		if baitShape and not fakeHold then
@@ -5829,61 +5868,8 @@ local function mainStep(deltaTime)
 		threatColor = Color3.fromRGB(255, 255, 50)   -- yellow: middle
 	end
 
-	-- 🎯 v2.66 AIM READ (FC26-style paint, ZERO decision influence): while an
-	-- opponent still owns a ball inside the threat zone, his FACING ray is
-	-- projected to the goal line — where the keeper thinks he's painting the
-	-- shot. It is the same maths the read runs on, shown EARLY; if the paint
-	-- ever lies, no dive changes, because nothing consumes it.
-	local aimPos, aimSide
-	if (isCarried or ballControlled) and poss == "opp" and ST.hPlayer and goal
-		and distToGoalie <= CONFIG.AIM_RANGE and (ST.ecoTier or 0) == 0 then
-		local hRoot = nil
-		pcall(function() hRoot = ST.hPlayer.Character and ST.hPlayer.Character:FindFirstChild("HumanoidRootPart") end)
-		local look = nil
-		pcall(function() look = hRoot and hRoot.CFrame and hRoot.CFrame.LookVector end)
-		if look then
-			local gN = Vector3.new(gx, gy, gz)
-			local d0 = (ballPos - Vector3.new(lgx, lgy, lgz)):Dot(gN)
-			local step = look:Dot(gN)
-			if math.abs(step) > 0.05 then
-				local tt = -d0 / step
-				if tt > 0 and tt < 200 then
-					local hit = ballPos + look * tt
-					local hx, hz = hit.X - lgx, hit.Z - lgz
-					if math.abs(hx * lax + hz * laz) <= gHalfWidth * 2.4 then
-						aimPos = hit
-						local lat = hx * krx + hz * krz
-						aimSide = (lat < -2.5) and "🎯 AIM→L" or ((lat > 2.5) and "🎯 AIM→R" or "🎯 AIM→MID")
-					end
-				end
-			end
-		end
-	end
-
 	if impactPart and (ST.ecoTier or 0) == 0 then
 		visualsHidden = false
-		--  aim reticle + ️ power streak (v2.66 paint):
-		if PAINT.aim then
-			if aimPos then
-				pcall(function() PAINT.aim.CFrame = CFrame.new(aimPos) end)
-				PAINT.aim.Color = Color3.fromRGB(191, 64, 255)
-				PAINT.aim.Transparency = 0.25
-			else
-				PAINT.aim.Transparency = 1
-			end
-		end
-		if PAINT.streak then
-			if speed >= CONFIG.STREAK_SPEED and impactPos then
-				local mid = (ballPos + impactPos) * 0.5
-				local ln = math.max((impactPos - ballPos).Magnitude, 1)
-				PAINT.streak.Size = Vector3.new(0.35, 0.35, ln)
-				pcall(function() PAINT.streak.CFrame = CFrame.lookAt(mid, impactPos) end)
-				PAINT.streak.Color = Color3.fromRGB(255, 0, 255)
-				PAINT.streak.Transparency = 0.45
-			else
-				PAINT.streak.Transparency = 1
-			end
-		end
 		impactPart.CFrame = CFrame.new(impactPos)
 		impactPart.Color  = threatColor
 		impactPart.Transparency = 0
@@ -6181,6 +6167,14 @@ local function mainStep(deltaTime)
 		-- 📏 Commit gate: bombs bypass it (they must be met at full speed,
 		-- no waiting for the ball to fly in). Everything else commits inside
 		-- the dynamic commit distance (25 for slow shots, up to 48 for Big Bang power).
+		-- 🪤 v2.67 THE TAX: a flagged baiter is met 20% LATER — his taps are
+		-- proven quits, so he buys no early leap; a real strike still gets
+		-- met, just closer (bombs bypass everything via instant). The cost
+		-- falls ONLY on the man who never strikes hard.
+		if ST.baiterKey and lastShooterKey ~= nil and ST.baiterKey == lastShooterKey
+			and now < (ST.baiterUntil or 0) then
+			commitDist = commitDist * 0.8
+		end
 		local withinCommit = (instant or (distToGoalie <= commitDist)) and (not baitHold) and (not passToMine) -- 🪤 v2.61/65: a held bait OR an inbound giveaway commits NOTHING beyond smother range
 		-- 🪤 v2.66 READ-STABILITY LOCK: raw speed far ahead of the smoothed
 		-- read means the ball was TAPPED this frame — a strike SUSTAINS, a
@@ -6525,12 +6519,6 @@ local function mainStep(deltaTime)
 	stateInfo.sideR   = sideR
 	stateInfo.commit  = math.floor(commitDist)
 	stateInfo.power   = math.floor(predSpeed)
-	-- 📐 v2.66 "SHOW THE MATHS": predicted crossing delta vs the post, the
-	-- signed LIVE curve (studs/s²), and the aim read when he still holds it.
-	-- Numbers the decision ALREADY uses, painted — the HUD never feeds back.
-	stateInfo.crossLat = crossLateral
-	stateInfo.curveLat = (accel and accel:Dot(camRight)) or nil
-	stateInfo.aim      = aimSide
 
 	updateBillboard()
 	updateZone()
