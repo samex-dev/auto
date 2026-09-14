@@ -1,5 +1,5 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.68 "The fandom taught the keeper two new smells"
+	⚡ ZERO-LATENCY GK AI — v2.69 "The newcomer protocol · awakened shots read EARLY"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
@@ -7,32 +7,26 @@
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
 
-	v2.68 in one breath: the counters, the bait and the dives all went back to
-	the SOURCE — a full fandom deep-read (mechanics wiki shot tables, the reworked
-	Aiku update guides, technique pages) — and it taught the keeper TWO NEW SMELLS
-	plus a discipline release. (1) QUIT-SHOT LEDGER: the fandom literally documents
-	the bait — "aim your camera down... it could serve as a FAKE SHOT" (Shidou's
-	Header Retreat), "fake-kick the ball and use Demon Drive to cover distance"
-	(Self-Drive), Nagi's Juggling Shot with "special feints to fool... THE
-	GOALKEEPER". A credited strike whose ball creeps toward us under the shot
-	floor is now one EPISODE per attempt, straight into the baiter profile — the
-	dive was already refused; now the SMELL is remembered. (2) CHEMISTRY
-	DISCIPLINE: the Reo→Nagi reaction is documented — "the follow-up completes AS
-	THE PASS REACHES Nagi" — so a fresh strike credited to a receiver we were
-	watching bypasses every touch/poke hold for ONE shot (the promise is consumed
-	whether used or not — a fake one-two farms it once, never twice), and the
-	pop-confirm, the read-lock and the baiter tax all stand aside: our own bait
-	net was EATING real chemical-reaction finishes. (3) RESEARCH COUNTERS: the
-	reworked Aiku gets a real stance — SNAKE FLOW READ chases his knuckle LIVE
-	(curveChase) and his Sixth Sense/Territory block zones ("near 100% block
-	chance") meet the tackle fence instead of our tackle; Otoya's Shadow Shot sway,
-	Nagi's trap-chain (Reverse-Two Stage / Trap-Dance) and Juggling Shot feints get
-	dedicated rows — CLASSIFICATION entries keyed on the wiki spellings (harmless
-	if the game replicates under another name, proven by chamaleonjump policy).
-	Suite: 106 scenarios — S100–S107 cover the quit-shot ledger, the reaction
-	release, and every new row arming. (v2.67 in one breath: paint stripped, one
-	episode ledger + dead-ball regret + the baiter commit tax; 13 real counter
-	rows; 100-scenario gauntlet — all still standing.)
+	v2.69 in one breath: three upgrades, all earned by the fandom sweep the
+	user asked for ("search naoya fandom... improve the awakenings detection and
+	bait"). (1) THE NEWCOMER PROTOCOL: Naoya is REAL in this game — added
+	2026-09-05 (the "naoya" 50k launch code), reported instant-release OP, and
+	nerfed SIX DAYS LATER (the "NaoyaNerf" apology code is literal patch-note
+	apology) — yet NO moveset is published anywhere. So he gets the Ichigo
+	playbook v2.40 proved: any "Naoya<Move>" effect self-reports to the console,
+	arms the NAOYA WALL (quick read open at 100, bomb read cheap at 125, and a
+	FORCED 2-frame read because his crossover flavor is afterimages — the first
+	picture lies), and the exact name becomes a dedicated row the moment a
+	friend's log shows it. (2) AWAKENING HARDENED: unknown effect parts that
+	announce themselves as cutscene/awakening NOW arm the awakening watch for
+	ANY character (new crossovers can't slip past the tome), the watch window
+	is a CONFIG knob, and while the promise is live the bomb bar DROPS 20/s —
+	awakened shots are the AWAKENED version of a move already announced; the
+	discount never invents speed. (3) REPEAT OFFENDER: a man flagged, un-flagged
+	and flagged AGAIN inside 60s carries +4 permanent-ish suspicion — bait that
+	keeps working keeps getting worse for its author. And the research ledger
+	keeps itself honest: Blue Lock: RIVALS fandom pages are a DIFFERENT GAME —
+	their numbers never enter this script, only shared manga-canonical behavior.
 
 	v2.65 in one breath: six asks, all shipped. (1) The curtain sits DEAD
 	CENTER now and holds EIGHT seconds — the credits are for READING, not for
@@ -803,6 +797,16 @@ local CONFIG = {
 	BAITER_WINDOW       = 12,
 	BAITER_HUNT         = 20,
 	BAITER_BAR_BONUS    = 12,
+	-- 🪤 v2.69 REPEAT OFFENDER: a man flagged, un-flagged and flagged AGAIN
+	-- inside BAITER_REPEAT_WINDOW carries a permanent-ish grudge: +4 more bar
+	-- while the history is warm. Third time is not charm; it's a pattern.
+	BAITER_REPEAT_BONUS = 4,
+	BAITER_REPEAT_WINDOW = 60,
+	-- 👑 v2.69 AWAKENING WATCH knobs: the watch window (was hardcoded 6.5s) and
+	-- how far the bomb bar DROPS while a handler's cutscene promise is live —
+	-- an awakened shot is the AWAKENED version of a move already announced.
+	AWAKE_WATCH         = 6.5,
+	AWAKE_BOMB_DISCOUNT = 20,
 	BAIT_STRIKE_GAP     = 25,     -- raw-vs-smoothed disagreement above this = touch, wait a beat
 	-- 🪤 v2.68 QUIT-SHOT + CHEMISTRY, straight from the fandom deep-read:
 	-- "Self-Drive: fake-kick the ball and cover distance", "NEL Nagi's Juggling
@@ -1100,6 +1104,10 @@ local CONFIG_RULES = {
 	{ "BAIT_STRIKE_GAP",           10.0,  60.0,  25 },    -- below one EMA beat of lag = always holds
 	{ "DEAD_BALL_SPEED",             5.0,  40.0,  14 },   -- above MIN_SHOT and nothing ever "dies" — regret is meaningless
 	{ "REACTION_WINDOW",             0.4,   2.0, 0.8 },   -- shorter than a pass's flight and chemistry reads miss
+	{ "BAITER_REPEAT_BONUS",         0.0,  20.0,  4 },   -- 0 disables the repeat-offender grudge
+	{ "BAITER_REPEAT_WINDOW",       15.0, 300.0, 60 },   -- keep it above a substitution cycle
+	{ "AWAKE_WATCH",                 3.0,  12.0, 6.5 },   -- below the longest documented cutscene+release and the promise is blind
+	{ "AWAKE_BOMB_DISCOUNT",         0.0,  60.0, 20 },   -- 60+ collapses every fast shot into a bomb — never
 	{ "BAIT_DYING_FRESH",            0.5,   3.0, 1.2 },
 	{ "AUTO_JUMP_COOLDOWN",         0.0,    5.0,   0.6 },
 	{ "AUTO_DOUBLE_JUMP_DELAY",     0.05,   1.0,   0.26 },
@@ -2142,7 +2150,7 @@ local STYLE_COUNTERS = {
 	igaguri        = { name = "LONG-THROW WATCH",    rangeBoost = 12 }, -- malicia headers arrive from a THROW, not a wind-up: start the shoot-forecast in throw range
 	kunigami       = { name = "BOMB RE-ARM",         quickSpeed = 95, cooldownScale = 0.8 }, -- joker/fallenhero both 'extreme': struck fast, met early, re-arm fast
 	hiori          = { name = "LASER LINE" }, -- one known row (fast, dead straight): awareness label only — no timing claim to make yet
-	naoya          = { name = "PERFECT IMPACT WATCH", confirmFrames = 2 }, -- 2026-09 newcomer: no published move list, so he gets the universal unknown-handler stance
+	naoya          = { name = "PERFECT IMPACT WATCH", confirmFrames = 2, quickSpeed = 105 }, -- v2.69 meta-note: added Sep 5 2026 (the "naoya" 50k launch code), reported instant-release OP, NERFED Sep 12 (the "NaoyaNerf" apology code) — so: quick read stays armed, panic does not. Moveset still UNPUBLISHED: the Naoya<Move> catch-all + the cutscene catch carry him until a friend's console line keys the real rows.
 }
 
 -- 🎮 COUNTER MODES: each known ABILITY gets its OWN keeper response —
@@ -2298,6 +2306,17 @@ local COUNTER_MODES = {
 		-- effect name is printed so it can become a dedicated counter.
 		name = "ICHIGO WALL",
 		bombThreshold = 125, confirmFrames = 1,
+	},
+	naoyamove = {
+		-- 🌠 v2.69 the newcomer wall (see the extended catch-all in the effect
+		-- scan). What the sources DO say, kept honest: his release is reported
+		-- instant (quick read opens EARLY — quickSpeed), his shots were OP
+		-- enough to earn a day-7 nerf (bomb-grade reads stay cheap — 125), and
+		-- the afterimage/feint flavor of the kit he's crossobered from says the
+		-- FIRST frame lies (confirmFrames 2: never dive the picture, dive the
+		-- ball). No numbers invented beyond our own knobs.
+		name = "NAOYA WALL",
+		bombThreshold = 125, quickSpeed = 100, confirmFrames = 2,
 	},
 	finalgetenka = {
 		-- Bankai power slash: met like a bomb, frame zero
@@ -3080,7 +3099,7 @@ local function awakeningWatch(inst)
 	if not (ok and pos) then return end
 	local plr = nearestOpponentNear(pos, 20)
 	if not plr then return end
-	awakeWatch.plr, awakeWatch.untilT = plr, os.clock() + 6.5
+	awakeWatch.plr, awakeWatch.untilT = plr, os.clock() + CONFIG.AWAKE_WATCH
 	log(string.format("[AI-Dive] 👑 AWAKENING | %s | %s — full reads until it resolves", plr.Name, tostring(inst.Name)))
 end
 
@@ -3224,7 +3243,9 @@ workspace.DescendantAdded:Connect(function(inst)
 		if info.cutscene then awakeningWatch(inst) end
 		return
 	end
-	if not lower:find("[^%a%d]") and lower:sub(1, 6) ~= "ichigo" then
+	if not lower:find("[^%a%d]") and lower:sub(1, 6) ~= "ichigo"
+		and lower:sub(1, 5) ~= "naoya" and not lower:find("cutscene", 1, true)
+		and not lower:find("awakening", 1, true) then
 		return -- plain alphanumeric name that is not a known effect: nothing to do
 	end
 
@@ -3236,15 +3257,34 @@ workspace.DescendantAdded:Connect(function(inst)
 		roleForensics(info, inst)
 		if info.cutscene then awakeningWatch(inst) end
 	else
-		-- 🥅 ICHIGO GENERIC CATCH-ALL (v2.40): his in-game move names are
-		-- unpublished, so ANY effect named "Ichigo<Move>" arms the ICHIGO
-		-- WALL. A plain character model named "Ichigo" (no move part) is
-		-- ignored — there must be a real move suffix after the prefix.
-		local rest = (key:sub(1, 6) == "ichigo") and key:sub(7) or nil
+		-- 🥅 GENERIC CATCH-ALL (v2.40, extended v2.69): a crossover whose
+		-- in-game move names are UNPUBLISHED gets the same deal — ANY effect
+		-- named "<char><Move>" arms that character's wall and the console
+		-- asks for the exact spelling. A plain character model (no move
+		-- suffix) is ignored. NAOYA joins the protocol: added to the game
+		-- 2026-09-05 ("naoya" launch code, 50k), reported instant-release OP,
+		-- and NERFED six days later (the "NaoyaNerf" apology code — the
+		-- community literally got cash for the nerf). No moveset is published
+		-- anywhere; every Naoya main's real weapon is what his EFFECT REFS
+		-- say, so the wall self-reports instead of guessing.
+		local rest, cat, wall, spd = nil
+		if key:sub(1, 6) == "ichigo" then
+			rest, cat, wall, spd = key:sub(7), "ichigo", "ichigomove", "fast"
+		elseif key:sub(1, 5) == "naoya" then
+			rest, cat, wall, spd = key:sub(6), "naoya", "naoyamove", "extreme"
+		end
 		if rest and #rest >= 4 then
-			armAbility({ char = "ichigo", speed = "fast", aerial = false, barrage = false },
-				nil, name, "ichigomove")
-			log("[AI-Dive] 🎯 " .. name .. " — send me the exact console name for a dedicated Ichigo counter")
+			armAbility({ char = cat, speed = spd, aerial = false, barrage = false },
+				nil, name, wall)
+			log("[AI-Dive] 🎯 " .. name .. " — send me the exact console name for a dedicated "
+				.. (cat == "naoya" and "Naoya" or "Ichigo") .. " counter")
+		elseif lower:find("cutscene", 1, true) or lower:find("awakening", 1, true) then
+			-- 👑 v2.69 AWAKENING CATCH: an UNKNOWN effect part that announces
+			-- itself as a cutscene/awakening is STILL a promise — any new
+			-- character's G-pose arms the awakening watch instead of sailing
+			-- past the tome. No ability armed (a promise is not a shot) — the
+			-- keeper just starts reading FULL against whoever stood in it.
+			awakeningWatch(inst)
 		end
 	end
 end)
@@ -4383,10 +4423,17 @@ local function baitEpisode(k, now)
 	if not k then return end
 	if ST.baitMark and ST.baitMark.key == k and (now - ST.baitMark.t) < CONFIG.BAITER_WINDOW then
 		ST.baitMark = { key = k, t = now, n = (ST.baitMark.n or 1) + 1 }
-		if ST.baitMark.n >= CONFIG.BAITER_LOCK and ST.baiterKey ~= k then
+		if ST.baitMark.n >= CONFIG.BAITER_LOCK
+			and (ST.baiterKey ~= k or now >= (ST.baiterUntil or 0)) then
+			local reoffense = ST.baiterKey == k
 			ST.baiterKey, ST.baiterUntil = k, now + CONFIG.BAITER_HUNT
-			log(string.format("[AI-Dive] 🪤 BAITER FLAGGED — %d bait episodes on this man — suspect bar %d studs/s for %.0fs",
-				ST.baitMark.n, CONFIG.BAIT_ROLL_MAX + CONFIG.BAITER_BAR_BONUS, CONFIG.BAITER_HUNT), true)
+			ST.baiterFlags, ST.baiterFlagsT = (ST.baiterFlags or 0) + 1, now
+			local grudge = ((ST.baiterFlags or 0) >= 2 and (now - (ST.baiterFlagsT or 0)) < CONFIG.BAITER_REPEAT_WINDOW)
+				and CONFIG.BAITER_REPEAT_BONUS or 0
+			log(string.format("[AI-Dive] 🪤 BAITER %s — %d bait episodes on this man — suspect bar %d studs/s for %.0fs",
+				reoffense and "RE-ARMED (repeat offense — the grudge adds +4 more)" or "FLAGGED",
+				ST.baitMark.n, CONFIG.BAIT_ROLL_MAX + CONFIG.BAITER_BAR_BONUS + grudge,
+				CONFIG.BAITER_HUNT), true)
 		end
 	else
 		ST.baitMark = { key = k, t = now, n = 1 }
@@ -5198,6 +5245,17 @@ local function mainStep(deltaTime)
 			effCooldown = math.min(effCooldown, CONFIG.COOLDOWN_TIME * activeMode.cooldownScale)
 		end
 	end
+	-- 👑 v2.69 AWAKENING DISCOUNT (applies to BOTH stances — a cutscene man
+	-- with no move tag is still mid-promise): while a handler's awakening
+	-- watch is live, whatever he does next is the AWAKENED version of his
+	-- move; community lore is unanimous that awakening shots arrive harder
+	-- than base (that is what the cutscene IS). The bomb bar drops
+	-- AWAKE_BOMB_DISCOUNT so a 140/s awakened bomb commits at bomb urgency
+	-- while the SAME speed from an un-awakened man reads routine. Proof, not
+	-- panic: the discount never invents speed the ball doesn't have.
+	if awakeHot then
+		effBombSpeed = math.min(effBombSpeed, CONFIG.BOMB_SPEED - CONFIG.AWAKE_BOMB_DISCOUNT)
+	end
 	-- 🏃 v2.63 SECOND-SHOT RE-ARM: the combo is timed to the 0.5s reset, so the
 	-- reset gets cut from under it while the rebound watch is live.
 	if ST.reboundUntil and now < ST.reboundUntil then
@@ -5835,7 +5893,9 @@ local function mainStep(deltaTime)
 	if CONFIG.BAIT_GUARD and not reactionStrike then
 		local baiterOn = ST.baiterKey and lastShooterKey ~= nil
 			and ST.baiterKey == lastShooterKey and now < (ST.baiterUntil or 0)
-		local baitBar = CONFIG.BAIT_ROLL_MAX + (baiterOn and CONFIG.BAITER_BAR_BONUS or 0)
+		local repeatGrudge = ((ST.baiterFlags or 0) >= 2 and (now - (ST.baiterFlagsT or 0)) < CONFIG.BAITER_REPEAT_WINDOW)
+			and CONFIG.BAITER_REPEAT_BONUS or 0
+		local baitBar = CONFIG.BAIT_ROLL_MAX + (baiterOn and (CONFIG.BAITER_BAR_BONUS + repeatGrudge) or 0)
 		local soft = speed < baitBar
 		local geom = onTarget and approachSpeed > 0
 			and distToGoalie > CONFIG.BAIT_SMOTHER_DIST
