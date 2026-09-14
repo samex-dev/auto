@@ -1,5 +1,5 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.67 "The bait engine goes pro"
+	⚡ ZERO-LATENCY GK AI — v2.68 "The fandom taught the keeper two new smells"
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
@@ -7,22 +7,32 @@
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
 
-	v2.67 in one breath: three asks. (1) THE FC26 PAINT IS GONE — "it doesn't
-	work": the aim reticle, the power streak and the HUD maths strip are all
-	stripped; the keeper is decision, zero decoration. (2) THE BAIT ENGINE GOES
-	PRO: every refusal now feeds ONE episode counter — held shapes AND the new
-	DEAD-BALL REGRET (a fired dive whose ball quits under DEAD_BALL_SPEED before
-	anybody secures it chased a feint, and that shooter's count climbs exactly
-	like a held ball); and a flagged baiter pays THE TAX — his commit window is
-	cut 20%, so his taps buy no early leap while a real strike still gets met.
-	(3) COUNTERS: 13 new dedicated rows where the generic read used to stand
-	in — Nagi's trap-shot loft, Kaiser's dash watch, Ronaldo's GOAT FLIP LOFT,
-	Gagamaru's bear claw, every dribble-feint forced read, the giveaway-pass
-	"no dive owed" set — while the alias spellings (beeshot, scissorkick,
-	curve...) keep resolving to their PRIMARY's wall exactly as designed.
-	Suite: 100 scenarios — S51–S99 are a BAIT DETECTION GAUNTLET
-	(speed sweep, dart grid, cap honesty, controls that MUST still commit, the
-	profile tax, dead-ball regret, and every new counter row proven armed).
+	v2.68 in one breath: the counters, the bait and the dives all went back to
+	the SOURCE — a full fandom deep-read (mechanics wiki shot tables, the reworked
+	Aiku update guides, technique pages) — and it taught the keeper TWO NEW SMELLS
+	plus a discipline release. (1) QUIT-SHOT LEDGER: the fandom literally documents
+	the bait — "aim your camera down... it could serve as a FAKE SHOT" (Shidou's
+	Header Retreat), "fake-kick the ball and use Demon Drive to cover distance"
+	(Self-Drive), Nagi's Juggling Shot with "special feints to fool... THE
+	GOALKEEPER". A credited strike whose ball creeps toward us under the shot
+	floor is now one EPISODE per attempt, straight into the baiter profile — the
+	dive was already refused; now the SMELL is remembered. (2) CHEMISTRY
+	DISCIPLINE: the Reo→Nagi reaction is documented — "the follow-up completes AS
+	THE PASS REACHES Nagi" — so a fresh strike credited to a receiver we were
+	watching bypasses every touch/poke hold for ONE shot (the promise is consumed
+	whether used or not — a fake one-two farms it once, never twice), and the
+	pop-confirm, the read-lock and the baiter tax all stand aside: our own bait
+	net was EATING real chemical-reaction finishes. (3) RESEARCH COUNTERS: the
+	reworked Aiku gets a real stance — SNAKE FLOW READ chases his knuckle LIVE
+	(curveChase) and his Sixth Sense/Territory block zones ("near 100% block
+	chance") meet the tackle fence instead of our tackle; Otoya's Shadow Shot sway,
+	Nagi's trap-chain (Reverse-Two Stage / Trap-Dance) and Juggling Shot feints get
+	dedicated rows — CLASSIFICATION entries keyed on the wiki spellings (harmless
+	if the game replicates under another name, proven by chamaleonjump policy).
+	Suite: 106 scenarios — S100–S107 cover the quit-shot ledger, the reaction
+	release, and every new row arming. (v2.67 in one breath: paint stripped, one
+	episode ledger + dead-ball regret + the baiter commit tax; 13 real counter
+	rows; 100-scenario gauntlet — all still standing.)
 
 	v2.65 in one breath: six asks, all shipped. (1) The curtain sits DEAD
 	CENTER now and holds EIGHT seconds — the credits are for READING, not for
@@ -156,7 +166,7 @@
 	(quickSpeed 100), +4 reach for volleys off the dribble angle, every documented
 	move live as a counter (scissor barrage, Ginga monster, bee shot, trance, the
 	Schizophrenic mid-air bend). Isagi, Rin and Reo got the same multi-signal nudge.
-	100 scenarios.
+	106 scenarios.
 
 	v2.57 in one breath: second lag report from the friend's phone, two causes the
 	v2.54 guardian could not see: his device sits around 35-40 fps — comfortably
@@ -314,7 +324,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 100 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 106 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -794,6 +804,12 @@ local CONFIG = {
 	BAITER_HUNT         = 20,
 	BAITER_BAR_BONUS    = 12,
 	BAIT_STRIKE_GAP     = 25,     -- raw-vs-smoothed disagreement above this = touch, wait a beat
+	-- 🪤 v2.68 QUIT-SHOT + CHEMISTRY, straight from the fandom deep-read:
+	-- "Self-Drive: fake-kick the ball and cover distance", "NEL Nagi's Juggling
+	-- Shot — special feints to fool the goalkeeper", "the [Reo→Nagi] reaction
+	-- follow-up completes as the pass reaches Nagi".
+	BAIT_DYING_FRESH    = 1.2,    -- a strike this recent whose ball bleeds under MIN_SHOT never deserved the leap
+	REACTION_WINDOW     = 0.8,    -- strike by the watched receiver = a chemistry finish, bait tiers stand aside
 	-- 🪤 v2.67 DEAD-BALL REGRET: a fired dive whose ball DIES (under this
 	-- speed) before we secure it chased a QUIT — the shooter's bait episode
 	-- count climbs exactly as if the keeper had held it. Real goals arrive
@@ -1083,6 +1099,8 @@ local CONFIG_RULES = {
 	{ "BAITER_HUNT",                5.0,  40.0, 20.0 },
 	{ "BAIT_STRIKE_GAP",           10.0,  60.0,  25 },    -- below one EMA beat of lag = always holds
 	{ "DEAD_BALL_SPEED",             5.0,  40.0,  14 },   -- above MIN_SHOT and nothing ever "dies" — regret is meaningless
+	{ "REACTION_WINDOW",             0.4,   2.0, 0.8 },   -- shorter than a pass's flight and chemistry reads miss
+	{ "BAIT_DYING_FRESH",            0.5,   3.0, 1.2 },
 	{ "AUTO_JUMP_COOLDOWN",         0.0,    5.0,   0.6 },
 	{ "AUTO_DOUBLE_JUMP_DELAY",     0.05,   1.0,   0.26 },
 	{ "DOUBLE_JUMP_HEIGHT_FRACTION",0.5,    2.0,   0.95 },
@@ -2044,6 +2062,19 @@ local MOVE_INFO = {
 	jetlightingdribble   = { char = "devilfruituser", speed = "tricky", aerial = false, barrage = false }, -- longer lightning zigzag
 	gigantsables         = { char = "devilfruituser", speed = "stun",   aerial = false, barrage = false }, -- knockback tornado, not a shot
 	instantconquerorshaki = { char = "luffy", speed = "stun",  aerial = false, barrage = false }, -- counter existed, ROW did not: dead code, now live
+	-- 🐍 v2.68 FANDOM DEEP-READ (the reworked Aiku + documented technique moves).
+	-- Same policy as chamaleonjump: keyed on the wiki's spelling — if the game's
+	-- replication uses another name the row simply never fires (zero cost); if it
+	-- matches, a real threat stops flying blind. No numbers invented: every flag
+	-- below follows a WRITTEN behavior from the mechanics wiki / update guides.
+	snakeshot     = { char = "aiku", speed = "fast",   aerial = false, barrage = false }, -- "slithering, knuckleball-like nature... can effectively score"
+	snakeclear    = { char = "aiku", speed = "fast",   aerial = false, barrage = false }, -- same move under its CLEAR name (the defender shoots his GK tool)
+	sixthsense    = { char = "aiku", speed = "defense", aerial = false, barrage = false }, -- "near 100% block chance... can stop ultimates" — a ZONE, not a shot
+	territory     = { char = "aiku", speed = "defense", aerial = false, barrage = false },
+	shadowshot    = { char = "otoya", speed = "fast",  aerial = false, barrage = false }, -- "moves side to side, then sneaks out a decently powered shot"
+	jugglingshot  = { char = "nagi", speed = "tricky",  aerial = true,  barrage = false }, -- "special feints to fool defenders AND THE GOALKEEPER"
+	reversetwostage = { char = "nagi", speed = "fast", aerial = false, barrage = false }, -- feeds "a volley that goes a good distance with great speed"
+	trapdance     = { char = "nagi", speed = "control", aerial = false, barrage = false },
 	-- 👑 v2.53 AWAKENING CUTSCENES — every documented G-move pose by its fandom
 	-- name (all are cutscenes: awareness only, they arm the AWAKENING WATCH, never a
 	-- bomb read, never forensics evidence):
@@ -2107,7 +2138,7 @@ local STYLE_COUNTERS = {
 	gagamaru       = { name = "LAUNCH WATCH",        confirmFrames = 2, rangeBoost = 8 }, -- an opposing keeper with springjump/ballthrow/scorpion: tricky aerials beat the flat dive; v2.61 (friend: "can u do gaga shots"): his kit launches from farther out — the shoot-forecast opens 8 studs earlier
 	yukimiya       = { name = "GYRO CURL READ",      confirmFrames = 2, curveChase = true }, -- every row tricky+aerial: the curl breaks late — the rin/sae class; v2.61: GYRO bends get chased live (the only way to answer a shot is a better SAVE)
 	otoya          = { name = "NINJA FEINT READ",    confirmFrames = 2 }, -- ninjashot is the listed threat and it is 'tricky'
-	aiku           = { name = "DEFENSIVE HOLD READ", confirmFrames = 2 }, -- field aiku: jumpingdeflect/cobraintercept are trick aerials; his kit is a hold-your-keepers kit
+	aiku           = { name = "SNAKE FLOW READ", confirmFrames = 2, curveChase = true }, -- v2.68 fandom re-read: the reworked Aiku is a DEFENDER WITH A REAL SHOT (Snake Shot/Clear — knuckle late-break), so the live curve estimator chases his bends like Rin's; his block zones get their own HOLD-TACKLE rows
 	igaguri        = { name = "LONG-THROW WATCH",    rangeBoost = 12 }, -- malicia headers arrive from a THROW, not a wind-up: start the shoot-forecast in throw range
 	kunigami       = { name = "BOMB RE-ARM",         quickSpeed = 95, cooldownScale = 0.8 }, -- joker/fallenhero both 'extreme': struck fast, met early, re-arm fast
 	hiori          = { name = "LASER LINE" }, -- one known row (fast, dead straight): awareness label only — no timing claim to make yet
@@ -2833,6 +2864,29 @@ local COUNTER_MODES = {
 		name = "HEADER CAPTURE",
 		heightBonus = 10,
 	},
+	-- 🐍 v2.68 THE RESEARCH ROWS (user: "search blue lock skibidi fandom so u can
+	-- understand better") — counters for what the fandom SAYS the kit does:
+	snakeshot  = {
+		name = "SNAKE KNUCKLE READ",      -- "slithering, knuckleball-like": a
+		confirmFrames = 2, curveChase = true, -- knuckle BREAKS late — never
+		bombThreshold = 132,                  -- commit to where it LEFT, chase
+	},
+	snakeclear = { name = "SNAKE KNUCKLE READ", confirmFrames = 2, curveChase = true, bombThreshold = 132 },
+	sixthsense = {
+		name = "BLOCK ZONE — HOLD TACKLE", -- "near 100% block chance" — the OP
+		slideWindow = true, armed = 4,       -- tackle carrying INTO it is a free
+	},                                     -- strip: the v2.62 fence holds us out
+	territory  = { name = "TERRITORY — HOLD TACKLE", slideWindow = true, armed = 5 },
+	shadowshot = {
+		name = "SHADOW SWAY READ",        -- the side-to-side lies; the shot
+		confirmFrames = 2, quickSpeed = 105, -- sneaks out AFTER the sway ends
+	},
+	jugglingshot = {
+		name = "JUGGLE FEINT — HOLD",     -- "special feints to fool the GK":
+		confirmFrames = 2, heightBonus = 6, -- every touch in the air is a MAYBE;
+	},                                    -- the bait net covers the frames between
+	reversetwostage = { name = "TRAP CHAIN — QUICK READ", quickSpeed = 100, confirmFrames = 1 },
+	trapdance       = { name = "TRAP CHAIN READ", confirmFrames = 2 },
 	-- 🪄 v2.67 THE GAP FILL (user: "add more countering") — every CLASSIFICATION
 	-- move that carries a shot-grade profile but had NO dedicated row used to
 	-- fall through to the generic handler read. Rows below are derived from the
@@ -4642,6 +4696,14 @@ local function mainStep(deltaTime)
 			lastShooterKey    = who and teamKeyOf(who) or nil
 			lastShooterPlayer = who or shooterPlayer
 			lastShooterTime   = now
+			-- ⚗️ v2.68: the man we were watching RECEIVE just kicked it — the
+			-- chemistry shot is here. ONE free strike off the bait tiers (the
+			-- promise is consumed whether or not the bypass ends up used — a
+			-- feigned one-two can farm it exactly once, then the net is back).
+			if ST.reactPlayer and lastShooterPlayer == ST.reactPlayer then
+				ST.reactStrikeT = now
+			end
+			ST.reactPlayer = nil
 			ST.lastShotReset     = now
 			ST.peakSinceShot     = 0 -- fresh credit: the fake test starts clean
 			pendingShotRecord = { player = lastShooterPlayer, t = now, maxSpeed = 0 }
@@ -5218,6 +5280,14 @@ local function mainStep(deltaTime)
 	--      so it escapes the hold and still gets dived. Self-releasing: the
 	--      moment the ball has traveled 14 studs the hold lifts.
 	local fakeHold = false
+	-- ⚗️ v2.68 REACTION STRIKE: the ball arriving at a WATCHED opponent
+	-- receiver and a fresh strike credited to that same man within
+	-- REACTION_WINDOW is the documented chemical-reaction finish (fandom, Reo→
+	-- Nagi: "the follow-up completes as the pass reaches" him — a trap-shot is
+	-- instant by definition). Every "slow ball near the boot is a poke" rule
+	-- would eat it, so the whole bait family stands aside for ONE strike,
+	-- then re-arms — the concession is single-use by construction.
+	local reactionStrike = ST.reactStrikeT and (now - ST.reactStrikeT) < CONFIG.REACTION_WINDOW
 	local freshPopConfirm = false
 	do
 		local sinceShot = now - ST.lastShotReset
@@ -5244,6 +5314,7 @@ local function mainStep(deltaTime)
 				and ST.peakSinceShot < CONFIG.FAKE_CONFIRM_PEAK
 				and (activeMode and activeMode.primeSide) == nil
 				and (not provenShot)
+				and not reactionStrike -- ⚗️ v2.68: a reaction finish is PROVEN by the pass
 			-- (2) BLEED HOLD
 			if sinceShot > 0.04
 				and sinceShot < CONFIG.FAKE_WINDOW
@@ -5568,6 +5639,7 @@ local function mainStep(deltaTime)
 							local dz = p.z - ePos.Z
 							if dx*dx + dy*dy + dz*dz <= r2 then
 								receiverInPath = true
+								ST.reactPlayer = e.player -- ⚗️ v2.68: the watched receiver
 								break
 							end
 						end
@@ -5760,7 +5832,7 @@ local function mainStep(deltaTime)
 	-- gates only decide whether it can HOLD (an edge reset between episodes must
 	-- be seen by the profile, or the second hold never counts).
 	local baitShape, shapeWhy = false, ""
-	if CONFIG.BAIT_GUARD then
+	if CONFIG.BAIT_GUARD and not reactionStrike then
 		local baiterOn = ST.baiterKey and lastShooterKey ~= nil
 			and ST.baiterKey == lastShooterKey and now < (ST.baiterUntil or 0)
 		local baitBar = CONFIG.BAIT_ROLL_MAX + (baiterOn and CONFIG.BAITER_BAR_BONUS or 0)
@@ -5793,6 +5865,25 @@ local function mainStep(deltaTime)
 		end
 		-- Episode accounting rides the SHAPE-START edge, not the log cadence —
 		-- a deduped toast must never hide a held ball from the baiter flag.
+		-- 🪤 v2.68 QUIT-SHOT LEDGER: the fake-kick pop (fandom: Shidou's
+		-- "aim down ... serves as a good fake shot", "fake-kick the ball and
+		-- use Demon Drive to cover distance"). A credited strike whose ball is
+		-- still CREEPING toward us under MIN_SHOT needs no hold — the speed
+		-- rules refuse it anyway — but it must not die uncounted: THIS is the
+		-- exact shape that bought dives before bait detection existed. One
+		-- episode per strike, straight into the profile.
+		if lastShooterPlayer and speed >= 3 and speed < CONFIG.MIN_SHOT_SPEED
+			and onTarget and approachSpeed > 0
+			and distToGoalie > CONFIG.BAIT_SMOTHER_DIST
+			and (now - lastShooterTime) < CONFIG.BAIT_DYING_FRESH
+			and ST.lastShotReset ~= ST.dyingCounted then
+			ST.dyingCounted = ST.lastShotReset
+			baitEpisode(lastShooterKey, now)
+			if (not ST.dyingLogged) or (now - ST.dyingLogged > 2.5) then
+				ST.dyingLogged = now
+				log(string.format("[AI-Dive] 🪤 QUIT SHOT — the fake-kick bled to %.0f/s before the line — his bait count climbs", speed), true)
+			end
+		end
 		if baitShape ~= ST.baitWas then
 			ST.baitWas = baitShape
 			-- An EPISODE is a refusal the keeper owes the ball: touch, chase,
@@ -6172,7 +6263,7 @@ local function mainStep(deltaTime)
 		-- met, just closer (bombs bypass everything via instant). The cost
 		-- falls ONLY on the man who never strikes hard.
 		if ST.baiterKey and lastShooterKey ~= nil and ST.baiterKey == lastShooterKey
-			and now < (ST.baiterUntil or 0) then
+			and now < (ST.baiterUntil or 0) and not reactionStrike then
 			commitDist = commitDist * 0.8
 		end
 		local withinCommit = (instant or (distToGoalie <= commitDist)) and (not baitHold) and (not passToMine) -- 🪤 v2.61/65: a held bait OR an inbound giveaway commits NOTHING beyond smother range
@@ -6181,7 +6272,7 @@ local function mainStep(deltaTime)
 		-- poke spikes then dies. While the two disagree past BAIT_STRIKE_GAP,
 		-- far from us, and under bomb speed: wait one beat (0.05s). Real shots
 		-- lose a frame; fake ones lose their entire purpose.
-		if withinCommit and not instant and speed < CONFIG.BAIT_ROLL_MAX + 25
+		if withinCommit and not instant and not reactionStrike and speed < CONFIG.BAIT_ROLL_MAX + 25
 			and math.abs(speed - ST.smoothedSpeed) > CONFIG.BAIT_STRIKE_GAP
 			and distToGoalie > commitDist * 0.55 then
 			withinCommit = false
