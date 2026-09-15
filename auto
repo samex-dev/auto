@@ -1,5 +1,11 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.69 "The newcomer protocol · awakened shots read EARLY"
+	⚡ ZERO-LATENCY GK AI — v2.71 "Read the kick, not the flight"
+	faster still: a strike CREDIT at the boot (launch ≥ the exempt bar, on
+	target, ≤70 studs) is read on its RELEASE FRAME — the flight wait is for
+	unproven pops only. Bait net closes two more shapes: RECLAIM (spike,
+	sprint, kill it at his own feet — the friend's "get it back" tell with no
+	clock to beat) and the FEINT PAIR (two credits, no ground gained — footwork
+	costs an episode before the third tap even exists).
 
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
@@ -7,26 +13,26 @@
 	gates that prediction through possession / carry / fake / receiver checks, and
 	fires the game's dive remote the frame a shot becomes saveable and reachable.
 
-	v2.69 in one breath: three upgrades, all earned by the fandom sweep the
-	user asked for ("search naoya fandom... improve the awakenings detection and
-	bait"). (1) THE NEWCOMER PROTOCOL: Naoya is REAL in this game — added
-	2026-09-05 (the "naoya" 50k launch code), reported instant-release OP, and
-	nerfed SIX DAYS LATER (the "NaoyaNerf" apology code is literal patch-note
-	apology) — yet NO moveset is published anywhere. So he gets the Ichigo
-	playbook v2.40 proved: any "Naoya<Move>" effect self-reports to the console,
-	arms the NAOYA WALL (quick read open at 100, bomb read cheap at 125, and a
-	FORCED 2-frame read because his crossover flavor is afterimages — the first
-	picture lies), and the exact name becomes a dedicated row the moment a
-	friend's log shows it. (2) AWAKENING HARDENED: unknown effect parts that
-	announce themselves as cutscene/awakening NOW arm the awakening watch for
-	ANY character (new crossovers can't slip past the tome), the watch window
-	is a CONFIG knob, and while the promise is live the bomb bar DROPS 20/s —
-	awakened shots are the AWAKENED version of a move already announced; the
-	discount never invents speed. (3) REPEAT OFFENDER: a man flagged, un-flagged
-	and flagged AGAIN inside 60s carries +4 permanent-ish suspicion — bait that
-	keeps working keeps getting worse for its author. And the research ledger
-	keeps itself honest: Blue Lock: RIVALS fandom pages are a DIFFERENT GAME —
-	their numbers never enter this script, only shared manga-canonical behavior.
+	v2.70 in one breath: the user asked for three things and got one machine.
+	(1) HOW FAST THE BALL WENT is now a first-class signal: the launch meter —
+	the ball's PEAK speed since this very strike, not just its cooled arrival
+	reading — gates the bait net itself. A 130/s rocket that bleeds to 40 by
+	the box was never a poke: the soft/touch holds stand aside for launches at
+	or above BAIT_LAUNCH_EXEMPT (110), and every dive whose launch outran its
+	arrival logs it ("⚡Launch: 132") so a friend's screenshot IS the tuning
+	data. Pokes stay caught: each dart re-credits and resets the peak, so a
+	touch NEVER launches hot. (2) BAROU FAKE SHOTS get their own nose: his
+	fandom literally documents it: "You can feint Predator Shot by looking
+	down... fool the goalkeeper into diving" — and the chop itself is
+	"a feint into a chop dribble". A SNAP promise (King's Chop class)
+	that rides out its grace with no strike credited behind it is now a FAKE
+	WIND-UP: console line, one episode on the caster, straight into the baiter
+	profile — the swing at air costs him the raised bar on the NEXT ball. (3)
+	MORE BAIT, THE GENERAL WAY: the launch gate feeds every tier (touch, chase,
+	memory, loose) with one definition of proof, and the read stays honest
+	against decay — bait is judged by what it WAS, strikes are respected for
+	what they WERE. Suite: 115 — S112–S115 cut cooled rockets, snap-window
+	air-swings, and the wind-up episode flag.
 
 	v2.65 in one breath: six asks, all shipped. (1) The curtain sits DEAD
 	CENTER now and holds EIGHT seconds — the credits are for READING, not for
@@ -160,7 +166,7 @@
 	(quickSpeed 100), +4 reach for volleys off the dribble angle, every documented
 	move live as a counter (scissor barrage, Ginga monster, bee shot, trance, the
 	Schizophrenic mid-air bend). Isagi, Rin and Reo got the same multi-signal nudge.
-	106 scenarios.
+	119 scenarios.
 
 	v2.57 in one breath: second lag report from the friend's phone, two causes the
 	v2.54 guardian could not see: his device sits around 35-40 fps — comfortably
@@ -318,7 +324,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 106 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 119 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -789,6 +795,28 @@ local CONFIG = {
 	-- refuses any commit while raw speed and the smoothed read disagree.
 	BAIT_ORBIT_DIST     = 10,     -- owner this close to a just-poked ball = still dribbling
 	BAIT_TOUCH_MAX      = 95,     -- touches rarely exceed this off the toe; strikes do
+	-- ⚡ v2.70 "HOW FAST THE BALL WENT": the launch meter. The ball's CURRENT
+	-- speed tells you where it is; its PEAK since this very strike tells you
+	-- what it was. A 130/s rocket cooled to 40 by the box was never a poke —
+	-- soft/touch holds stand aside for launches at or above this bar. A poke
+	-- never launches hot (its credit resets the peak every dart), so pokes
+	-- stay caught exactly as before.
+	BAIT_LAUNCH_EXEMPT  = 110,
+	-- ⚔️ v2.70 FAKE WIND-UP: a SNAP alert (King's Chop, Big Bang, Timestop —
+	-- moves whose whole point is the terrifying WIND-UP) that rides out with
+	-- no strike behind it is the feint per the books: "you can feint Predator
+	-- Shot by looking down. This could potentially fool the goalkeeper into
+	-- diving" (fandom, Barou's kit). The swing itself now costs him an episode.
+	SNAP_FAKE_GRACE     = 1.2,
+	-- 🪤 v2.71 RECLAIM + FEINT PAIR: the friend's original report ("get it
+	-- back triggers the AI to dive") gets its FULL shape, and Barou-style
+	-- double-taps get caught by the travel ledger, not the speed read.
+	BAIT_RECLAIM_FRESH  = 1.2,    -- spike → chase → dead must fit in this
+	BAIT_RECLAIM_SPEED  = 40,     -- he killed it under this...
+	BAIT_RECLAIM_STALL  = 2,      -- ...and forward drive is this dead
+	BAIT_FEINT_PAIR     = 1.1,    -- two credited taps inside this are footwork
+	BAIT_FEINT_GAIN     = 10,     -- gains under this (studs toward goal) seals it
+	RELEASE_LEAD_DIST   = 70,     -- the release-frame read fires this deep
 	BAIT_TOUCH_FRESH    = 0.5,    -- the tell only exists in the first half-second
 	-- 🪤 BAITER PROFILE: BAITER_LOCK holds on the same man inside BAITER_WINDOW
 	-- flags him — his suspect bar rises by BAITER_BAR_BONUS for BAITER_HUNT s.
@@ -1103,6 +1131,11 @@ local CONFIG_RULES = {
 	{ "BAITER_HUNT",                5.0,  40.0, 20.0 },
 	{ "BAIT_STRIKE_GAP",           10.0,  60.0,  25 },    -- below one EMA beat of lag = always holds
 	{ "DEAD_BALL_SPEED",             5.0,  40.0,  14 },   -- above MIN_SHOT and nothing ever "dies" — regret is meaningless
+	{ "BAIT_LAUNCH_EXEMPT",         60.0, 160.0, 110 },   -- below FAKE_CONFIRM_PEAK — else every pop is "proven" by its own spike
+	{ "SNAP_FAKE_GRACE",             0.5,   3.0, 1.2 },
+	{ "BAIT_RECLAIM_FRESH",          0.6,   3.0, 1.2 },   -- under one sprint-back and the shape never completes
+	{ "BAIT_FEINT_PAIR",             0.6,   2.5, 1.1 },   -- past a touch cadence and walking becomes a "feint"
+	{ "RELEASE_LEAD_DIST",          30.0, 110.0, 70 },   -- past commitDist + lead there is no time left to buy
 	{ "REACTION_WINDOW",             0.4,   2.0, 0.8 },   -- shorter than a pass's flight and chemistry reads miss
 	{ "BAITER_REPEAT_BONUS",         0.0,  20.0,  4 },   -- 0 disables the repeat-offender grudge
 	{ "BAITER_REPEAT_WINDOW",       15.0, 300.0, 60 },   -- keep it above a substitution cycle
@@ -2256,6 +2289,10 @@ local COUNTER_MODES = {
 	-- BAROU
 	kingschopshot = {
 		name = "CHOP WALL",
+		-- ⚡ v2.70: the chop IS a snap-mode swing — and per the fandom the
+		-- famous one is the FEINT of one ("feint Predator Shot by looking
+		-- down"), so it must feed the wind-up watchdog like its bigger siblings.
+		snap = true,
 		snap = true, bombThreshold = 125, commitBonus = 8, confirmFrames = 1,
 	},
 	-- NAGI
@@ -4754,6 +4791,30 @@ local function mainStep(deltaTime)
 			ST.lastShotReset     = now
 			ST.peakSinceShot     = 0 -- fresh credit: the fake test starts clean
 			pendingShotRecord = { player = lastShooterPlayer, t = now, maxSpeed = 0 }
+			-- 🪤 v2.71 FEINT PAIR bookkeeping: every credit leaves a fingerprint
+			-- (when, who, how far from the goalmouth it started). If the SAME man
+			-- credits again inside BAIT_FEINT_PAIR and the ball gained less than
+			-- BAIT_FEINT_GAIN studs of ground, those were not two shots — that is
+			-- one wobble. Charged as an episode on the spot; shots gain ground,
+			-- feints don't. (Raw travel beats any speed read for this: the pair
+			-- can even be all-speed and no-progress, which no single-frame gate
+			-- can see.)
+			local dNow = (ballPos - rootPos).Magnitude
+			-- Compare the PLAYER OBJECT, not the key: the roster cache can lag
+			-- the first credit after a spawn (S118 caught it — key nil on tap
+			-- one). The charge still rides the key; fall back to a live lookup.
+			local pairKey = lastShooterKey or (lastShooterPlayer and teamKeyOf(lastShooterPlayer))
+			if ST.spikeT and ST.spikePlayer and lastShooterPlayer == ST.spikePlayer
+				and (now - ST.spikeT) < CONFIG.BAIT_FEINT_PAIR
+				and (ST.spikeD - dNow) < CONFIG.BAIT_FEINT_GAIN then
+				ST.feintPairT = now
+				if pairKey then baitEpisode(pairKey, now) end
+				if (not ST.feintLogged) or (now - ST.feintLogged > 2.5) then
+					ST.feintLogged = now
+					log(string.format("[AI-Dive] 🪤 FEINT PAIR — two taps in %.2fs, %.0f studs gained — footwork, not a shot", now - ST.spikeT, ST.spikeD - dNow))
+				end
+			end
+			ST.spikeT, ST.spikePlayer, ST.spikeD = now, lastShooterPlayer, dNow
 		else
 			lastShooterKey, lastShooterPlayer = nil, nil -- nobody at the ball: clear
 		end
@@ -4960,6 +5021,39 @@ local function mainStep(deltaTime)
 			ST.regretLogged = now
 			log(string.format("[AI-Dive] 🪤💀 DEAD BALL REGRET — dive fired, then the ball quit at %.0f/s @%.0f studs — that shooter's bait count climbs", speed, (ballPos - rootPos).Magnitude), true)
 		end
+	end
+
+	-- ⚡ Consumption rides alongside the watchdog, above the quiet gate: a
+	-- feint-er stands STILL, and below this line a still ball returns before
+	-- any per-frame reading happens at all. First live frame of a SNAP-class
+	-- counter alert (deduped on the alert itself) = the PROMISE; its expiry
+	-- with no strike credited = the FAKE.
+	if abilityAlert and abilityAlert.expiresAt > now then
+		local cmW = COUNTER_MODES[abilityAlert.counterKey or abilityAlert.moveKey]
+		if cmW and cmW.snap and ST.snapAlertT ~= abilityAlert.t then
+			ST.snapAlertT, ST.snapT = abilityAlert.t, now
+			ST.snapKey = (ST.hPlayer and teamKeyOf(ST.hPlayer)) or ST.snapKey
+			ST.snapMove = tostring(abilityAlert.move or "snap move")
+		end
+	end
+	-- ⚔️ v2.70 FAKE CHOP, PER THE BOOKS ("You can feint Predator Shot by looking
+	-- down... fool the goalkeeper into diving"; the chop itself is documented as
+	-- "a feint into a chop dribble"). A snap promise — any SNAP-class counter
+	-- alert, King's Chop included — that rides out its grace with NOTHING above
+	-- shot speed credited behind it was a swing at air and momentum. This
+	-- watchdog runs ABOVE the quiet-ball return: the classic feint never
+	-- launches a ball at all, so a ball-speed gate would never see it. One
+	-- episode per cast on the caster's tab — a real follow-up strike credits
+	-- inside the grace and clears the charge, so only the empty swing is ever
+	-- punished. The raised baiter bar does the rest: his pokes die un-dived,
+	-- his real ones still get met frame-one.
+	if ST.snapT and ST.windupMarked ~= ST.snapT
+		and (now - ST.snapT) >= CONFIG.SNAP_FAKE_GRACE
+		and speed < CONFIG.MIN_SHOT_SPEED
+		and ST.lastShotReset < ST.snapT + 0.02 then
+		ST.windupMarked = ST.snapT
+		if ST.snapKey then baitEpisode(ST.snapKey, now) end
+		log(string.format("[AI-Dive] ⚔️ FAKE WIND-UP — %s rode out with no strike behind it — the swing counts against him", ST.snapMove), true)
 	end
 
 	if speed < CONFIG.MIN_INTEREST_SPEED then
@@ -5229,6 +5323,10 @@ local function mainStep(deltaTime)
 		local cm = COUNTER_MODES[abilityAlert.counterKey or abilityAlert.moveKey]
 		if cm then
 			activeMode = cm
+			-- ⚔️ v2.70 WIND-UP WATCH: the first frame this snap promise is alive,
+			-- remember WHO cast it (the handler's team key) and WHEN. If the
+			-- whole grace rides out with no strike credited after it, the swing
+			-- was the feint the fandom documents — the episode goes on his tab.
 			effBombSpeed = math.min(effBombSpeed, cm.bombThreshold or 999)
 			effHeightMax = math.max(effHeightMax, CONFIG.REACH_HEIGHT_MAX + (cm.heightBonus or 0))
 			if cm.suppressJump then
@@ -5350,7 +5448,12 @@ local function mainStep(deltaTime)
 	do
 		local sinceShot = now - ST.lastShotReset
 		if speed > 5 then
-			if sinceShot < 1.5 and speed > ST.peakSinceShot then
+			-- ⚡ v2.70 the LAUNCH METER has a ceiling: above EXTREME_SPEED a
+			-- "spike" is physics-lying noise — a respawn snap-back, a welded
+			-- part drag, a teleport — never a strike. Reading it as launch
+			-- speed would EXEMPT bait (the fixtures' own reset spikes caught
+			-- exactly this). Trust the meter only within what the game can do.
+			if sinceShot < 1.5 and speed > ST.peakSinceShot and speed <= CONFIG.EXTREME_SPEED then
 				ST.peakSinceShot = speed
 			elseif sinceShot >= 1.5 then
 				ST.peakSinceShot = 0 -- stale credit: the test starts clean
@@ -5896,7 +5999,14 @@ local function mainStep(deltaTime)
 		local repeatGrudge = ((ST.baiterFlags or 0) >= 2 and (now - (ST.baiterFlagsT or 0)) < CONFIG.BAITER_REPEAT_WINDOW)
 			and CONFIG.BAITER_REPEAT_BONUS or 0
 		local baitBar = CONFIG.BAIT_ROLL_MAX + (baiterOn and (CONFIG.BAITER_BAR_BONUS + repeatGrudge) or 0)
+		-- ⚡ v2.70: a launch at/above the exemption bar PROVES strike from this
+		-- very credit — the soft tiers stand aside no matter how slow the ball
+		-- reads at the keeper. peakSinceShot resets on every new credit and
+		-- goes stale after 1.5s, so rollers with no fresh strike behind them
+		-- keep getting caught by the loose net exactly as before.
 		local soft = speed < baitBar
+			and not (ST.peakSinceShot >= CONFIG.BAIT_LAUNCH_EXEMPT
+				and lastShooterPlayer and (now - lastShooterTime) < 1.5)
 		local geom = onTarget and approachSpeed > 0
 			and distToGoalie > CONFIG.BAIT_SMOTHER_DIST
 		local live = (not isDribbling) and geom
@@ -5907,13 +6017,35 @@ local function mainStep(deltaTime)
 		-- off, orbit ON, sub-cap speed. Carry flag stays out (it lags a struck
 		-- ball for studs — the ORBIT is the truth).
 		local touch = live and speed < CONFIG.BAIT_TOUCH_MAX
+			and ST.peakSinceShot < CONFIG.BAIT_TOUCH_MAX -- ⚡ a cooled rocket is not a poke
 			and strikerDist and strikerDist <= CONFIG.BAIT_ORBIT_DIST
-			and lastShooterPlayer and (now - lastShooterTime) < CONFIG.BAIT_TOUCH_FRESH
+			and lastShooterPlayer and ((now - lastShooterTime) < CONFIG.BAIT_TOUCH_FRESH
+				-- ⚪ v2.71: a live feint pair EXTENDS the touch window — two taps
+				-- inside a second are one continued handle, not two strikes.
+				or (ST.feintPairT and (now - ST.feintPairT) < CONFIG.BAIT_FEINT_PAIR))
 		local chaser = live and soft and lastShooterPlayer and (now - lastShooterTime) < CONFIG.SHOT_OWNER_MEMORY
 			and strikerDist and strikerDist <= CONFIG.BAIT_CHASE_DIST
 		local remembered = live and soft and ST.baitMark and lastShooterKey and ST.baitMark.key == lastShooterKey
 			and (now - ST.baitMark.t) < CONFIG.BAIT_MEMORY
 		local loose = live and soft and (not ballControlled) and distToGoalie <= CONFIG.BAIT_LOOSE_MAX
+		-- 🪤 v2.71 RECLAIM — spike, sprint, kill it at his own feet. The touch
+		-- tell survives half a second; THIS shape survives as long as it takes,
+		-- and the re-set carry flag is the POINT (re-carrying IS the tell the
+		-- friend reported), not a reason to look away. No ball speed, no forward
+		-- drive, owner on top of it: there is nothing here to dive at, and the
+		-- man who did it just spent an episode.
+		local reclaim = lastShooterPlayer
+			and (now - lastShooterTime) < CONFIG.BAIT_RECLAIM_FRESH
+			and speed < CONFIG.BAIT_RECLAIM_SPEED
+			and strikerDist and strikerDist <= CONFIG.BAIT_ORBIT_DIST + 4
+			and approachSpeed <= CONFIG.BAIT_RECLAIM_STALL
+			and distToGoalie > CONFIG.BAIT_SMOTHER_DIST
+		if reclaim and ST.reclaimMarked ~= ST.lastShotReset then
+			ST.reclaimMarked = ST.lastShotReset
+			if lastShooterKey then baitEpisode(lastShooterKey, now) end
+			log(string.format("[AI-Dive] 🪤 RECLAIMED — spiked at %.0f/s then killed it %.0f studs off his own boot — a move, not a shot",
+				ST.peakSinceShot, strikerDist or 0), true)
+		end
 		if touch then
 			baitShape, shapeWhy = true, "dribble-touch spike"
 		elseif chaser then
@@ -5922,6 +6054,8 @@ local function mainStep(deltaTime)
 			baitShape, shapeWhy = true, "bait memory on this shooter"
 		elseif loose then
 			baitShape, shapeWhy = true, "loose roller in the box"
+		elseif reclaim then
+			baitShape, shapeWhy = true, "spike he reclaimed"
 		end
 		-- Episode accounting rides the SHAPE-START edge, not the log cadence —
 		-- a deduped toast must never hide a held ball from the baiter flag.
@@ -5951,7 +6085,7 @@ local function mainStep(deltaTime)
 			-- would flag a man for being once-baited forever), and NOT anything
 			-- inside the feint window (the fake-shot system holds those dives
 			-- — charging the profile too would double-count every flick).
-			if baitShape and not fakeHold and (touch or chaser or loose) then
+			if baitShape and not fakeHold and (touch or chaser or loose or reclaim) then
 				baitEpisode(lastShooterKey, now)
 			end
 		end
@@ -6290,6 +6424,23 @@ local function mainStep(deltaTime)
 		if standOp and speed >= 90 then
 			instant = true
 		end
+		-- ⚡ v2.71 RELEASE LEAD — the fastest reaction is the one you don't have
+		-- to derive from flight at all. A strike CREDIT — still→motion AT THE
+		-- SHOOTER'S FEET — with launch at/above the exempt bar IS proof the boot
+		-- connected; the flight confirmation it used to wait for only matters for
+		-- what the meter does NOT vouch for, and sub-bar pops keep answering to
+		-- freshPopConfirm exactly as before. Every bait tier already released
+		-- anything that launched this hot (v2.70's number, same number), so this
+		-- buys time on shots only — commits on the release frame up to
+		-- RELEASE_LEAD_DIST instead of waiting for the ball to fly into range.
+		local releaseLead = ST.peakSinceShot >= CONFIG.BAIT_LAUNCH_EXEMPT
+			and onTarget and lastShooterPlayer
+			and (now - lastShooterTime) < 0.35
+			and distToGoalie <= CONFIG.RELEASE_LEAD_DIST
+			and (not baitHold) and (not freshPopConfirm)
+		if releaseLead then
+			instant = true
+		end
 
 		local activeReach = CONFIG.SAVE_EVERYTHING and CONFIG.REACH_EVERYTHING
 			or (isHyperShot and (CONFIG.REACH_LEFT_RIGHT * 2) or CONFIG.REACH_LEFT_RIGHT)
@@ -6548,12 +6699,20 @@ local function mainStep(deltaTime)
 				if standOp then
 					tag = tag .. " | 🦸 STAND OP"
 				end
+				if releaseLead then
+					tag = tag .. " | ⚡ LEAD"
+				end
 				if activeMode then
 					tag = tag .. " | 🎮 " .. activeMode.name
 				end
-				log(string.format("[AI-Dive] %s | Dir: %s | Ping: %dms | TTI: %.2fs | Speed: %d | @%d studs",
+				-- ⚡ v2.70 "how fast the ball went": when the launch reads hotter
+				-- than the arrival, say so — it is exactly the number the friend
+				-- screenshots and the number the bait net just consulted.
+				local launchStr = ST.peakSinceShot >= speed + 8
+					and string.format(" | ⚡Launch: %d", math.floor(ST.peakSinceShot)) or ""
+				log(string.format("[AI-Dive] %s | Dir: %s | Ping: %dms | TTI: %.2fs | Speed: %d | @%d studs%s",
 					tag, direction, math.floor(currentPing * 1000), timeToImpact, math.floor(speed),
-					math.floor(distToGoalie)))
+					math.floor(distToGoalie), launchStr))
 				fireDive(direction, now, speed, approachSpeed, effCooldown, jumpImpact, jumpGoal)
 			else
 				hudLabel = (isQuickShot and (not instant) and "QUICK READ " or "READING ") .. direction
