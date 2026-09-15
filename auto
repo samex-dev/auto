@@ -1,12 +1,14 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.71 "Read the kick, not the flight"
-	faster still: a strike CREDIT at the boot (launch ≥ the exempt bar, on
-	target, ≤70 studs) is read on its RELEASE FRAME — the flight wait is for
-	unproven pops only. Bait net closes two more shapes: RECLAIM (spike,
-	sprint, kill it at his own feet — the friend's "get it back" tell with no
-	clock to beat) and the FEINT PAIR (two credits, no ground gained — footwork
-	costs an episode before the third tap even exists).
-
+	⚡ ZERO-LATENCY GK AI — v2.72 "Trust the kick. Verify the side."
+	-- ⚡ v2.72 answers the friend's two reports — "keeps diving sideways" and
+	-- "still lags": (1) a LEAD commit buys early TIME, not an early SIDE. At
+	-- lead range the crossing is a half-second projection, so a side counts only
+	-- past the LONG READ band AND after one confirming frame; inside the band
+	-- the lead dives MIDDLE — hold the heart, make them place it. The hold also
+	-- UNDOES the closest-approach side read (same jitter, both readers). (2) a
+	-- TRAJECTORY CACHE re-integrates the flight only when something physical
+	-- changed — new credit, ±8/s speed, live curve accel — steady straight
+	-- flight reuses its path instead of paying ~210 sim steps a frame.
 	What this is: a client-side goalkeeper co-pilot for Blue Lock: Skibidi. It reads
 	the BALL, not the animations — a real trajectory integrator (gravity, pitch
 	bounce, roll friction, Magnus curve) predicts where the ball crosses the line,
@@ -166,7 +168,7 @@
 	(quickSpeed 100), +4 reach for volleys off the dribble angle, every documented
 	move live as a counter (scissor barrage, Ginga monster, bee shot, trance, the
 	Schizophrenic mid-air bend). Isagi, Rin and Reo got the same multi-signal nudge.
-	119 scenarios.
+	121 scenarios.
 
 	v2.57 in one breath: second lag report from the friend's phone, two causes the
 	v2.54 guardian could not see: his device sits around 35-40 fps — comfortably
@@ -324,7 +326,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 119 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 121 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -817,6 +819,17 @@ local CONFIG = {
 	BAIT_FEINT_PAIR     = 1.1,    -- two credited taps inside this are footwork
 	BAIT_FEINT_GAIN     = 10,     -- gains under this (studs toward goal) seals it
 	RELEASE_LEAD_DIST   = 70,     -- the release-frame read fires this deep
+	-- 🔒 v2.72 SIDE TRUST: a LEAD commit buys early TIME, not an early SIDE.
+	-- Out at lead range the crossing number is a half-second PROJECTION — the
+	-- lateral jitter of a struck ball (inherited run speed, network snap) is
+	-- inside the "wider than center" band, and diving sideways at it is what
+	-- the friend called "keeps diving sideways". A lead frame may only pick a
+	-- side when the crossing is past centerTol × this AND the same side held
+	-- the previous frame. Inside the band or unconfirmed: hold the middle.
+	LEAD_SIDE_TRUST     = 1.8,    -- same taper LONG READ uses at its own range
+	-- ⚙️ v2.72 TRAJECTORY CACHE: straight flight re-integrates on change, not
+	-- on clock. 0 = off (every frame re-simulates, the pre-2.72 behavior).
+	SIM_CACHE_MAX       = 0.08,   -- seconds a steady-flight path may be reused
 	BAIT_TOUCH_FRESH    = 0.5,    -- the tell only exists in the first half-second
 	-- 🪤 BAITER PROFILE: BAITER_LOCK holds on the same man inside BAITER_WINDOW
 	-- flags him — his suspect bar rises by BAITER_BAR_BONUS for BAITER_HUNT s.
@@ -1136,6 +1149,8 @@ local CONFIG_RULES = {
 	{ "BAIT_RECLAIM_FRESH",          0.6,   3.0, 1.2 },   -- under one sprint-back and the shape never completes
 	{ "BAIT_FEINT_PAIR",             0.6,   2.5, 1.1 },   -- past a touch cadence and walking becomes a "feint"
 	{ "RELEASE_LEAD_DIST",          30.0, 110.0, 70 },   -- past commitDist + lead there is no time left to buy
+	{ "LEAD_SIDE_TRUST",             1.0,   3.0, 1.8 },  -- 1.0 = "any noise is a side" — the exact bug 2.72 fixes
+	{ "SIM_CACHE_MAX",               0.0,   0.25, 0.08 }, -- 0.25+ and a 60/s ball moves 15 studs on a stale path
 	{ "REACTION_WINDOW",             0.4,   2.0, 0.8 },   -- shorter than a pass's flight and chemistry reads miss
 	{ "BAITER_REPEAT_BONUS",         0.0,  20.0,  4 },   -- 0 disables the repeat-offender grudge
 	{ "BAITER_REPEAT_WINDOW",       15.0, 300.0, 60 },   -- keep it above a substitution cycle
@@ -4790,6 +4805,7 @@ local function mainStep(deltaTime)
 			ST.reactPlayer = nil
 			ST.lastShotReset     = now
 			ST.peakSinceShot     = 0 -- fresh credit: the fake test starts clean
+			ST.leadSide = nil     -- v2.72: a new strike is a new geometry
 			pendingShotRecord = { player = lastShooterPlayer, t = now, maxSpeed = 0 }
 			-- 🪤 v2.71 FEINT PAIR bookkeeping: every credit leaves a fingerprint
 			-- (when, who, how far from the goalmouth it started). If the SAME man
@@ -5662,6 +5678,33 @@ local function mainStep(deltaTime)
 	local curveFullTime, curveDecay = CONFIG.CURVE_FULL_TIME, CONFIG.CURVE_DECAY
 	local ballMargin = CONFIG.BALL_RADIUS * 0.5
 
+	-- ⚙️ v2.72 TRAJECTORY CACHE — the friend's "still lags" answer. The loop
+	-- below integrates 3.5 seconds of flight (up to ~210 steps) EVERY frame;
+	-- for a ball in STEADY straight flight that path is the same answer 6
+	-- frames in a row. Re-simulate only when something physical changed: new
+	-- strike credit, raw speed moved > 8/s, a live lateral ACCEL (curve — and
+	-- under CURVE_DEADZONE the estimator already returns zero, so those balls
+	-- are genuinely straight and safe to reuse), or the cache's age. The
+	-- time-to-impact carries a travel correction so the commit window still
+	-- opens on the ball's REAL position, not the cached one. Decisions remain
+	-- every-frame: only the projection is reused, and SIM_CACHE_MAX = 0 puts
+	-- the old every-frame re-sim back. (pathPos rows are untouched between
+	-- misses — the receiver gate reads them consistently.)
+	local simHit = false
+	if CONFIG.SIM_CACHE_MAX > 0 and ST.simT and ST.simReset == ST.lastShotReset
+		and (now - ST.simT) < CONFIG.SIM_CACHE_MAX
+		and math.abs(speed - ST.simV) <= 8
+		and accel.X == 0 and accel.Z == 0 then
+		simHit = true
+		minDistance  = ST.simMinD
+		impactX, impactY, impactZ = ST.simIX, ST.simIY, ST.simIZ
+		timeToImpact = math.max(0, ST.simTTI
+			- math.max(0, ST.simDist - distToGoalie) / math.max(speed, 1))
+		crossY, crossLateral, crossWide = ST.simCY, ST.simCL, ST.simCW
+		crossPos, crossOnTarget = ST.simCP, ST.simCOT
+		pathCount = ST.simPathN
+	end
+	if not simHit then
 	local sx, sy, sz = ballPos.X, ballPos.Y, ballPos.Z
 	local vx, vy, vz = velocity.X, velocity.Y, velocity.Z
 	local acx, acy, acz = accel.X, accel.Y, accel.Z
@@ -5745,6 +5788,11 @@ local function mainStep(deltaTime)
 		end
 		psx, psy, psz = sx, sy, sz
 		t = t + simStep
+	end
+		ST.simT, ST.simV, ST.simReset = now, speed, ST.lastShotReset
+		ST.simMinD, ST.simIX, ST.simIY, ST.simIZ, ST.simTTI = minDistance, impactX, impactY, impactZ, timeToImpact
+		ST.simCY, ST.simCL, ST.simCW, ST.simCP, ST.simCOT = crossY, crossLateral, crossWide, crossPos, crossOnTarget
+		ST.simPathN, ST.simDist = pathCount, distToGoalie
 	end
 
 	local impactPos = Vector3.new(impactX, impactY, impactZ)
@@ -5894,6 +5942,13 @@ local function mainStep(deltaTime)
 
 	local centerTol = floorShot and (CONFIG.CENTER_TOLERANCE * CONFIG.FLOOR_CENTER_BIAS) or CONFIG.CENTER_TOLERANCE
 	local direction = CONFIG.CENTER_ACTION
+	-- ⚡ The lead predicate is computed HERE (the direction read below needs it)
+	-- and reused as the commit trigger at the urgency block — one evaluation,
+	-- one truth.
+	local leadEarly = ST.peakSinceShot >= CONFIG.BAIT_LAUNCH_EXEMPT
+		and onTarget and lastShooterPlayer
+		and (now - lastShooterTime) < 0.35
+		and distToGoalie <= CONFIG.RELEASE_LEAD_DIST
 	if horizontalDist > centerTol then
 		direction = "Right"
 	elseif horizontalDist < -centerTol then
@@ -5907,7 +5962,38 @@ local function mainStep(deltaTime)
 		-- jitter); v2.44 measures it on the keeper-right basis inside the
 		-- integrator, so there is no Cross + Dot left in the per-frame path
 		if abs(crossLateral) > centerTol then
-			direction = crossLateral > 0 and "Right" or "Left"
+			local side = crossLateral > 0 and "Right" or "Left"
+			if leadEarly then
+				-- 🔒 v2.72: at lead range a lateral reading 4.6 studs wide is
+				-- the model EXTRAPOLATING jitter for half a second, not a shot
+				-- going corner-ward. Trust it only outside the LONG READ band
+				-- (centerTol × LEAD_SIDE_TRUST) AND once the same side has held
+				-- a full frame — one frame of agreement costs 1/60s of lead and
+				-- kills the entire sideways class. Inside the band the lead
+				-- commits, but it commits the MIDDLE: hold the goal's heart and
+				-- make them place it.
+				if abs(crossLateral) > centerTol * CONFIG.LEAD_SIDE_TRUST
+					and ST.leadSide == side then
+					direction = side
+				else
+					-- The override must UNDO the horizontalDist side-set above —
+					-- the closest-approach offset carries the same far-range
+					-- jitter, so the hold has to clear both readers, not just
+					-- decline to add its own.
+					direction = CONFIG.CENTER_ACTION
+					if ST.leadSide ~= side and (not ST.sideHoldT or now - ST.sideHoldT > 2.5) then
+						ST.sideHoldT = now
+						log(string.format("[AI-Dive] 🔒 SIDE HELD — crossing %.1f at %.0f studs is a projection, not a promise — holding the middle a frame",
+							abs(crossLateral), distToGoalie), true)
+					end
+				end
+				ST.leadSide = side
+			else
+				ST.leadSide = nil
+				direction = side
+			end
+		elseif leadEarly then
+			ST.leadSide = nil
 		end
 	end
 
@@ -6433,10 +6519,7 @@ local function mainStep(deltaTime)
 		-- anything that launched this hot (v2.70's number, same number), so this
 		-- buys time on shots only — commits on the release frame up to
 		-- RELEASE_LEAD_DIST instead of waiting for the ball to fly into range.
-		local releaseLead = ST.peakSinceShot >= CONFIG.BAIT_LAUNCH_EXEMPT
-			and onTarget and lastShooterPlayer
-			and (now - lastShooterTime) < 0.35
-			and distToGoalie <= CONFIG.RELEASE_LEAD_DIST
+		local releaseLead = leadEarly
 			and (not baitHold) and (not freshPopConfirm)
 		if releaseLead then
 			instant = true
