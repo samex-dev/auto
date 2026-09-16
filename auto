@@ -1,5 +1,30 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.72 "Trust the kick. Verify the side."
+	⚡ ZERO-LATENCY GK AI — v2.74 "Dive for corners. Smother the rest."
+	--  v2.74 closes the fence into a CONTINUOUS trust curve: the reach ring
+	-- (centerTol + SIDE_NO_DIVE) holds every soft-ish near ball from diving
+	-- itself past, tricky-move alerts widen the far band to TRICKY_BAND, and
+	-- fast near corners keep their dives (S02 is the philosophy test).
+	-- ⚡ v2.73 THE SHOOTER'S PLAYBOOK (the friend, verbatim: "improve the ai
+	-- to know each shot and where to dive to — like if it's a cr7 kick dive
+	-- forward"). Move-by-move DIVE SHAPE (shape = "forward" on the MOVE_INFO
+	-- row, delivered inside the alert), applied where the crossing does not
+	-- contradict it. Also: the band-hold that killed the lead's sideways dives
+	-- generalizes to every mid-range side guess (SIDE_GUESS_DIST = 38).
+	PLAY_FWD_BAND       = 2.4,    -- "forward" shape: seam = this × centerTol
+	PLAY_FWD_MAX        = 62,     -- ...and the pounce read fires this far out
+	SIDE_GUESS_DIST     = 38,     -- past here, band-wide side commits are guesses
+	-- 🪹 v2.74 NEVER DIVE WHAT YOU CAN SMOTHER: inside SIDE_GUESS_DIST a side
+	-- commit must clear the keeper's reach ring (centerTol + this), or it is a
+	-- step-in. The friend's last sideways class: dives at balls drifting ~6
+	-- studs that hands from the feet would have collected anyway.
+	SIDE_NO_DIVE        = 3.5,
+	-- ...but the ring is only honest for balls a step can beat: past this pace
+	-- a 7-stud crossing at 30 studs is a DIVE ball (S02 is exactly that — the
+	-- v2.74 first cut ate it and the suite caught the philosophy error).
+	NEAR_SMOTHER_SPEED  = 85,
+	-- 🃏 TRICKY MOVES: wobble-heavy shots (speed = "tricky" rows) get a WIDER
+	-- hold band — their lateral read lies the most, so trust needs more proof.
+	TRICKY_BAND         = 2.6,    -- × centerTol while a tricky move's alert is live
 	-- ⚡ v2.72 answers the friend's two reports — "keeps diving sideways" and
 	-- "still lags": (1) a LEAD commit buys early TIME, not an early SIDE. At
 	-- lead range the crossing is a half-second projection, so a side counts only
@@ -168,7 +193,7 @@
 	(quickSpeed 100), +4 reach for volleys off the dribble angle, every documented
 	move live as a counter (scissor barrage, Ginga monster, bee shot, trance, the
 	Schizophrenic mid-air bend). Isagi, Rin and Reo got the same multi-signal nudge.
-	121 scenarios.
+	126 scenarios.
 
 	v2.57 in one breath: second lag report from the friend's phone, two causes the
 	v2.54 guardian could not see: his device sits around 35-40 fps — comfortably
@@ -326,7 +351,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 121 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 126 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -1126,6 +1151,12 @@ local CONFIG_RULES = {
 	{ "TACKLE_COOLDOWN",            0.0,    5.0,   0.55 },
 	{ "TACKLE_RANGE",               2.0,    20.0,  10.5 },
 	{ "LONG_GUESS_DIST",          40.0,   300.0, 85 },
+	{ "SIDE_GUESS_DIST",          20.0,    85.0, 38 },   -- ≥ where one jitter frame can still flip the read
+	{ "SIDE_NO_DIVE",              0.0,     8.0,  3.5 },  -- 0 = old behavior (dive anything past centerTol near)
+	{ "NEAR_SMOTHER_SPEED",       60.0,   140.0,  85 },   -- above it the near ring stands down
+	{ "TRICKY_BAND",               1.8,     4.0,  2.6 },  -- ≥ the standard 1.8 band; 1.8 disables the trick rule
+	{ "PLAY_FWD_BAND",              1.0,     4.0, 2.4 },  -- 1.0 = forward only on the dead-center seam
+	{ "PLAY_FWD_MAX",              30.0,   100.0, 62 },   -- past commitDist there is nothing early left to buy
 	{ "BAIT_ROLL_MAX",              10.0,  90.0,  55 },     -- 90+ would let real strikes "bait"
 	{ "BAIT_CHASE_DIST",             5.0,  40.0,  22 },
 	{ "BAIT_SMOTHER_DIST",           4.0,  20.0,  11 },     -- beyond TACKLE_RANGE = a hole
@@ -1903,7 +1934,7 @@ local MOVE_INFO = {
 	doughdonut       = { char = "devilfruituser", speed = "normal",  aerial = false, barrage = false },
 	gear5            = { char = "luffy", speed = "extreme", aerial = true,  barrage = false },
 	freedommovement  = { char = "luffy", speed = "tricky",  aerial = false, barrage = false },
-	jetkick          = { char = "luffy", speed = "extreme", aerial = false, barrage = false }, -- v2.61 (friend): "a jetkick for luffy — insanely fast"
+	jetkick          = { char = "luffy", speed = "extreme", aerial = false, barrage = false, shape = "forward" }, -- 📖 arrives flat and true -- v2.61 (friend): "a jetkick for luffy — insanely fast"
 	-- Barou
 	kingschopshot    = { char = "barou", speed = "extreme", aerial = false, barrage = false },
 	-- Nagi
@@ -2047,7 +2078,7 @@ local MOVE_INFO = {
 	cobraintercept       = { char = "aiku", speed = "tricky",  aerial = true,  barrage = false },
 	formerstriker        = { char = "aiku", speed = "fast",    aerial = false, barrage = false },
 	-- Devil Fruit User (Skibidi kit — Gomu-Gomu family is HIS)
-	jetkick              = { char = "devilfruituser", speed = "extreme", aerial = false, barrage = false },
+	jetkick              = { char = "devilfruituser", speed = "extreme", aerial = false, barrage = false, shape = "forward" }, -- 📖 (both rows: same kick name, same answer)
 	lightingtrap         = { char = "devilfruituser", speed = "fast",    aerial = true,  barrage = false },
 	lightningtrap        = { char = "devilfruituser", speed = "fast",    aerial = true,  barrage = false }, -- alt spelling
 	-- Luffy (Gear 5 Skibidi kit)
@@ -2058,9 +2089,9 @@ local MOVE_INFO = {
 	redhawk              = { char = "luffy", speed = "extreme", aerial = false, barrage = false },
 	instantconquerorshaki = { char = "luffy", speed = "stun",   aerial = false, barrage = false },
 	-- Ronaldo
-	cr7kick              = { char = "ronaldo", speed = "extreme", aerial = false, barrage = false },
+	cr7kick              = { char = "ronaldo", speed = "extreme", aerial = false, barrage = false, shape = "forward" }, -- 📖 the friend's named ask: seam cannon, dive forward
 	goatflips            = { char = "ronaldo", speed = "tricky",  aerial = true,  barrage = false },
-	ohcristiano          = { char = "ronaldo", speed = "extreme", aerial = false, barrage = false },
+	ohcristiano          = { char = "ronaldo", speed = "extreme", aerial = false, barrage = false, shape = "forward" },
 	siuuuuuu             = { char = "ronaldo", speed = "extreme", aerial = false, barrage = false },
 	-- Reo
 	copy                 = { char = "reo", speed = "fast",    aerial = false, barrage = false },
@@ -3253,6 +3284,8 @@ local function armAbility(info, moveKey, rawName, counterKey)
 		barrage = info and info.barrage,
 		move = rawName,
 		moveKey = moveKey,
+		moveShape = info and info.shape, -- 📖 v2.73: the playbook rides the alert (no per-frame table walk)
+		moveTricky = info ~= nil and info.speed == "tricky", -- 🃏 v2.74: wobble class rides the same alert
 		counterKey = info and info.counterKey,
 		t = t,
 		expiresAt = t + armed,
@@ -6006,13 +6039,32 @@ local function mainStep(deltaTime)
 	-- coin flip wearing a decision's clothes. Hold the middle; make them place
 	-- it, not let them guess-dive us.
 	elseif (direction == "Left" or direction == "Right")
-		and distToGoalie > CONFIG.LONG_GUESS_DIST
-		and math.abs((crossLateral or horizontalDist)) <= centerTol * 1.8 then
+		-- v2.73: the 85-stud coin-flip fence moves IN to 38 — the range where
+		-- one replication snap (~2 studs of jitter × remaining flight) can
+		-- still flip the side read. Live curve chases and side-PRIMED counters
+		-- carry their own lateral proof and keep committing as before.
+		-- 🪹 v2.74 makes the fence CONTINUOUS: inside 38 the band is not gone,
+		-- it is the REACH RING (centerTol + SIDE_NO_DIVE) — a ball that ends
+		-- inside it gets stepped on, not dived at. And a live TRICKY move
+		-- (backheel, balloon, wobble kit) widens the far band: its lateral
+		-- read lies more, so the trust bar is higher, not lower.
+		and not (activeMode and activeMode.primeSide)
+		and (not ST.gyroT or now - ST.gyroT > 0.7)
+		and (math.abs((crossLateral or horizontalDist)) <= (
+			distToGoalie > CONFIG.SIDE_GUESS_DIST
+				and centerTol * (abilityAlert and abilityAlert.moveTricky
+					and CONFIG.TRICKY_BAND or 1.8)
+				or speed <= CONFIG.NEAR_SMOTHER_SPEED
+					and centerTol + CONFIG.SIDE_NO_DIVE or -1)) then
 		direction = CONFIG.CENTER_ACTION
 		if (not ST.longReadT) or (now - ST.longReadT) > 3 then
 			ST.longReadT = now
-			log(string.format("[AI-Dive] 🧷 LONG READ — holding the middle at %.0f studs (lateral %.1f is a guess, not a save)",
-				distToGoalie, math.abs((crossLateral or horizontalDist))))
+			local nearHold = distToGoalie <= CONFIG.SIDE_GUESS_DIST
+			log(string.format("%s — holding the middle at %.0f studs (lateral %.1f is %s)",
+				nearHold and "🪹 IN REACH" or "🧷 LONG READ",
+				distToGoalie, math.abs((crossLateral or horizontalDist)),
+				nearHold and "inside arm's reach — step in, don't dive yourself past it"
+					or "a guess, not a save"))
 		end
 	end
 
@@ -6050,6 +6102,29 @@ local function mainStep(deltaTime)
 	if speed < CONFIG.WEAK_SHOT_SPEED
 		and math.abs(horizontalDist) <= CONFIG.WEAK_CENTER_MAX then
 		direction = "Forward"
+	end
+
+	-- 📖 v2.73 PLAYBOOK (forward): the move is KNOWN from the effect (fresh
+	-- alert, ≤2.5s), its row says shape = "forward", the crossing reads "seam"
+	-- (inside PLAY_FWD_BAND × centerTol) and we are in read range. That is all
+	-- the SHAPE needs; the timing gates still own WHEN. siuuuuuuuu stays under
+	-- the UNSAVEABLE-HOLD policy (the G row), so the playbook never dives at
+	-- the autogoal — the row has no shape, deliberately.
+	local shapeFwd = false
+	do
+		local pb = abilityAlert and (now - abilityAlert.t) < 2.5
+			and abilityAlert.moveShape or nil
+		if pb == "forward" and onTarget and speed >= CONFIG.MIN_SHOT_SPEED
+			and distToGoalie <= CONFIG.PLAY_FWD_MAX
+			and math.abs((crossLateral or horizontalDist)) <= centerTol * CONFIG.PLAY_FWD_BAND then
+			shapeFwd = true
+			direction = "Forward"
+			if (not ST.playbookT) or (now - ST.playbookT > 2.5) then
+				ST.playbookT = now
+				log(string.format("[AI-Dive] 📖 PLAYBOOK — %s: dive FORWARD for it — a seam cannon is met by coming to it, not by guessing a side",
+					tostring(abilityAlert.move)), true)
+			end
+		end
 	end
 
 	-- 🪤 v2.61 BAIT HOLD (friend meta, verbatim: "when players shoot the ball
@@ -6784,6 +6859,9 @@ local function mainStep(deltaTime)
 				end
 				if releaseLead then
 					tag = tag .. " | ⚡ LEAD"
+				end
+				if shapeFwd then
+					tag = tag .. " | 📖 FORWARD"
 				end
 				if activeMode then
 					tag = tag .. " | 🎮 " .. activeMode.name
