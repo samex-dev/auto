@@ -1,5 +1,5 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.74 "Dive for corners. Smother the rest."
+	⚡ ZERO-LATENCY GK AI — v2.75 "The roster keeps growing. The read doesn't flinch."
 	--  v2.74 closes the fence into a CONTINUOUS trust curve: the reach ring
 	-- (centerTol + SIDE_NO_DIVE) holds every soft-ish near ball from diving
 	-- itself past, tricky-move alerts widen the far band to TRICKY_BAND, and
@@ -193,7 +193,7 @@
 	(quickSpeed 100), +4 reach for volleys off the dribble angle, every documented
 	move live as a counter (scissor barrage, Ginga monster, bee shot, trance, the
 	Schizophrenic mid-air bend). Isagi, Rin and Reo got the same multi-signal nudge.
-	126 scenarios.
+	128 scenarios.
 
 	v2.57 in one breath: second lag report from the friend's phone, two causes the
 	v2.54 guardian could not see: his device sits around 35-40 fps — comfortably
@@ -351,7 +351,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 126 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 128 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -1839,11 +1839,17 @@ local CHAR_PROFILES = {
 	naoya = {
 		label = "NAOYA", danger = "SECRET · NEW (2026-09)",
 		aerial = false, heightBonus = 0,
-		-- Noel Noa kit (the manga's "Perfect Impact" ace; the game files that move
-		-- under Isagi's row until an in-game log proves otherwise). Move list
-		-- UNPUBLISHED — the DescendantAdded console line asks for exact names, and
-		-- STYLE_COUNTERS.naoya arms the universal forced read meanwhile.
-		signature = "Perfect Impact family · move list self-reports in console",
+		-- v2.75 IDENTITY UPDATE (was: hedged "Noel Noa" in v2.69). The launch
+		-- week's code TRAIL settles the flavor question: "naoya" (Sep 5),
+		-- "hidoi na" (Sep 7 — the crossover original's meme line) and
+		-- "Mugetsu" (Sep 8, an Ichigo FORM code) in one week is this game's
+		-- established crossover-drop signature (LUFFY, BANKAI, DEMON did the
+		-- same). So: treat him as the frame-feint striker the fandom's source
+		-- material describes — technique that makes the FIRST picture lie.
+		-- In-game move names REMAIN unpublished; the Naoya<Move> catch-all +
+		-- the 🃏 tricky band (v2.75: his alerts widen the far trust band) carry
+		-- him until a friend's console line keys the real rows. No numbers.
+		signature = "frame-feint kit · move list self-reports in console",
 	},
 	santaclaus = {
 		label = "SANTA CLAUS", danger = "SPECIAL · NAME REGISTER (2026-09)",
@@ -1959,6 +1965,7 @@ local MOVE_INFO = {
 	finalgetenka     = { char = "ichigo", speed = "extreme", aerial = false, barrage = false },
 	getenka          = { char = "ichigo", speed = "extreme", aerial = false, barrage = false },
 	shunpo           = { char = "ichigo", speed = "fast",    aerial = false, barrage = false },
+	mugetsu          = { char = "ichigo", speed = "extreme", aerial = false, barrage = false }, -- 🆕 v2.75: the "Mugetsu" cash code dropped 2026-09-08, same crossover-code pattern as BANKAI/DEMON — an Ichigo FORM, so an Ichigo ROW (exact effect name unverified: the ichigo<Move> catch-all still carries any other spelling)
 	-- Shidou double jump (real in-game effect names, from the console)
 	doublejump       = { char = "shidou", speed = "tricky",  aerial = true,  barrage = false },
 	doublejumpshot   = { char = "shidou", speed = "fast",    aerial = true,  barrage = false },
@@ -3285,7 +3292,7 @@ local function armAbility(info, moveKey, rawName, counterKey)
 		move = rawName,
 		moveKey = moveKey,
 		moveShape = info and info.shape, -- 📖 v2.73: the playbook rides the alert (no per-frame table walk)
-		moveTricky = info ~= nil and info.speed == "tricky", -- 🃏 v2.74: wobble class rides the same alert
+		moveTricky = info ~= nil and (info.speed == "tricky" or info.tricky == true), -- 🃏 v2.74: wobble class rides the same alert
 		counterKey = info and info.counterKey,
 		t = t,
 		expiresAt = t + armed,
@@ -3359,7 +3366,8 @@ workspace.DescendantAdded:Connect(function(inst)
 			rest, cat, wall, spd = key:sub(6), "naoya", "naoyamove", "extreme"
 		end
 		if rest and #rest >= 4 then
-			armAbility({ char = cat, speed = spd, aerial = false, barrage = false },
+			armAbility({ char = cat, speed = spd, aerial = false, barrage = false,
+				tricky = cat == "naoya" }, -- 🃏 v2.75: the newcomer's whole kit is frame-feint flavor (see the profile note) — his UNNAMED moves inherit the widened trust band while every other crossover keeps the standard one
 				nil, name, wall)
 			log("[AI-Dive] 🎯 " .. name .. " — send me the exact console name for a dedicated "
 				.. (cat == "naoya" and "Naoya" or "Ichigo") .. " counter")
@@ -6030,6 +6038,11 @@ local function mainStep(deltaTime)
 		end
 	end
 
+	-- 🃏 v2.75: one freshness gate for every tricky-band reader (the engine's
+	-- own convention — an alert past its window must not widen anything).
+	local trickyLive = abilityAlert ~= nil and (now - abilityAlert.t) < 2.5
+		and abilityAlert.moveTricky or nil
+
 	if CONFIG.INVERT_DIVE_DIRECTION then
 		if direction == "Left" then direction = "Right"
 		elseif direction == "Right" then direction = "Left"
@@ -6052,18 +6065,19 @@ local function mainStep(deltaTime)
 		and (not ST.gyroT or now - ST.gyroT > 0.7)
 		and (math.abs((crossLateral or horizontalDist)) <= (
 			distToGoalie > CONFIG.SIDE_GUESS_DIST
-				and centerTol * (abilityAlert and abilityAlert.moveTricky
-					and CONFIG.TRICKY_BAND or 1.8)
+				and centerTol * (trickyLive and CONFIG.TRICKY_BAND or 1.8)
 				or speed <= CONFIG.NEAR_SMOTHER_SPEED
 					and centerTol + CONFIG.SIDE_NO_DIVE or -1)) then
 		direction = CONFIG.CENTER_ACTION
 		if (not ST.longReadT) or (now - ST.longReadT) > 3 then
 			ST.longReadT = now
 			local nearHold = distToGoalie <= CONFIG.SIDE_GUESS_DIST
+			local trickyHold = not nearHold and trickyLive ~= nil
 			log(string.format("%s — holding the middle at %.0f studs (lateral %.1f is %s)",
-				nearHold and "🪹 IN REACH" or "🧷 LONG READ",
+				nearHold and "🪹 IN REACH" or (trickyHold and "🃏 TRICKY READ" or "🧷 LONG READ"),
 				distToGoalie, math.abs((crossLateral or horizontalDist)),
 				nearHold and "inside arm's reach — step in, don't dive yourself past it"
+					or trickyHold and "a frame, not a promise — his kit is built to sell it"
 					or "a guess, not a save"))
 		end
 	end
