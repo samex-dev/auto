@@ -1844,7 +1844,12 @@ local CHAR_PROFILES = {
 		-- "hidoi na" (Sep 7 — the crossover original's meme line) and
 		-- "Mugetsu" (Sep 8, an Ichigo FORM code) in one week is this game's
 		-- established crossover-drop signature (LUFFY, BANKAI, DEMON did the
-		-- same). So: treat him as the frame-feint striker the fandom's source
+		-- same). v2.75 research pass, from the game page itself: the Patch
+		-- EVENT (Sep 11–30) says "it will not have a new character" — Naoya
+		-- is in and stayed in; and the PENDING "NEL Update" teaser means
+		-- Noel Noa's ERA is coming to the roster eventually — if the game
+		-- ever ships "noa", that is a DIFFERENT profile, not a rebrand of
+		-- this one. Keep the two keys separate. So: treat him as the frame-feint striker the fandom's source
 		-- material describes — technique that makes the FIRST picture lie.
 		-- In-game move names REMAIN unpublished; the Naoya<Move> catch-all +
 		-- the 🃏 tricky band (v2.75: his alerts widen the far trust band) carry
