@@ -1,9 +1,43 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.75 "The roster keeps growing. The read doesn't flinch."
+	⚡ ZERO-LATENCY GK AI — v2.77 "the goal, out loud."
+	-- 🏟 v2.77 THE STADIUM, SPOKEN: "check how big stadiums and the post or
+	-- net just look every detail" — the clip could not answer this one (OCR
+	-- reads text, not geometry), so the game's own match screenshots got
+	-- pixel-measured instead: a flat pitch island in open sky, no walls, no
+	-- stands, thin-frame mesh goal (mouth aspect 1.98 ≈ 2:1, ~16-17 studs
+	-- wide × ~9 high) sitting AT THE VOID EDGE. The 16×8 fallback survives
+	-- the audit. Better: the keeper now says what it measures — one console
+	-- line per goal state, so the next video carries the true numbers itself.
+	-- 🪤 v2.76 in one breath: the user sent a 2:38 clip this tool could not
+	-- watch, so it was MINED instead — Streamable API → browser-screenshot
+	-- service → OCR, five frames deep — and the clip's own chat was the spec:
+	-- "It needs to see the bait", "make the bait detection better please",
+	-- "my friend here says it sometimes dive sideways" (— "ye it do"). The
+	-- sideways class was already shipped (v2.72→v2.74); the bait ask becomes
+	-- the REPOSITION DANCE tier: the .place-and-shoot trick dies by reading
+	-- the handler's BODY around a dead ball, charged through the shared baiter
+	-- engine. The same frames VALIDATED the published Shidou kit (Backheel
+	-- Shot / Demon Rush / Demon Wings / Big Bang Drive — rows the script
+	-- already carried) and the [Mugetsu] style tag.
 	--  v2.74 closes the fence into a CONTINUOUS trust curve: the reach ring
 	-- (centerTol + SIDE_NO_DIVE) holds every soft-ish near ball from diving
 	-- itself past, tricky-move alerts widen the far band to TRICKY_BAND, and
 	-- fast near corners keep their dives (S02 is the philosophy test).
+	-- 🪤 v2.76 REPOSITION DANCE (the user's own clip, read through the OCR
+	-- tunnel — their chat, on screen: "It needs to see the bait" and "make
+	-- the bait detection better please"). A kick that starts from a DEAD ball
+	-- while its handler prowls around it is the .place-and-shoot trick: no
+	-- speed tier can convict it, because the strike legitimately begins at
+	-- zero (the v2.70 launch-exemption can't help either — there is no
+	-- launch). So read the BODY, not the ball: ball still + nearest man inside
+	-- the dance floor + that man MOVING = dance. Accumulate; at credit, charge
+	-- the shooter through the v2.67 shared episode engine (flag → raised bar →
+	-- tax → hunt, same as any baiter — he earned it before the ball moved).
+	BAIT_DANCE_STILL   = 3.0,    -- ball speed at/below this = "dead"
+	BAIT_DANCE_RANGE   = 7,      -- studs: how close the prowler must be
+	BAIT_DANCE_DIST    = 0.6,    -- his cumulative travel inside that ring
+	BAIT_DANCE_TIME    = 0.35,   -- seconds of dance that condemns the kick
+	BAIT_DANCE_WINDOW  = 1.2,    -- credit this close to the dance's end is THE dance's shot
 	-- ⚡ v2.73 THE SHOOTER'S PLAYBOOK (the friend, verbatim: "improve the ai
 	-- to know each shot and where to dive to — like if it's a cr7 kick dive
 	-- forward"). Move-by-move DIVE SHAPE (shape = "forward" on the MOVE_INFO
@@ -193,7 +227,7 @@
 	(quickSpeed 100), +4 reach for volleys off the dribble angle, every documented
 	move live as a counter (scissor barrage, Ginga monster, bee shot, trance, the
 	Schizophrenic mid-air bend). Isagi, Rin and Reo got the same multi-signal nudge.
-	128 scenarios.
+	132 scenarios.
 
 	v2.57 in one breath: second lag report from the friend's phone, two causes the
 	v2.54 guardian could not see: his device sits around 35-40 fps — comfortably
@@ -351,7 +385,7 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 128 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 132 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
@@ -573,8 +607,8 @@ local CONFIG = {
 	-- the 2-stud ball (perspective-corrected) — the goal is ≈ 8 studs tall
 	-- × ≈ 16 studs wide. Used ONLY when the live post scan misses; the
 	-- measured in-game goal always wins over these fallback numbers.
-	NET_CROSSBAR_STUDS    = 8,      -- crossbar height above the ground (your screenshot)
-	NET_WIDTH_STUDS       = 16,     -- goal mouth width (your screenshot)
+	NET_CROSSBAR_STUDS    = 8,      -- crossbar height above the ground (screenshot-verified 2026-09-17: mesh bar ≈ 9 studs)
+	NET_WIDTH_STUDS       = 16,     -- goal mouth width (screenshot-verified 2026-09-17: 1.98 aspect, ~17 studs)
 	TOP_BIN_JUMP_FRACTION = 0.7,    -- DATA-DRIVEN: jump when the predicted
 	                                 -- impact is ≥ this FRACTION of the goal height (crossbar height) —
 	                                 -- live measured net when detected, screenshot net when not.
@@ -1151,6 +1185,11 @@ local CONFIG_RULES = {
 	{ "TACKLE_COOLDOWN",            0.0,    5.0,   0.55 },
 	{ "TACKLE_RANGE",               2.0,    20.0,  10.5 },
 	{ "LONG_GUESS_DIST",          40.0,   300.0, 85 },
+	{ "BAIT_DANCE_STILL",          0.5,    12.0,  3.0 },  -- above rest jitter, below the softest honest roll
+	{ "BAIT_DANCE_RANGE",          3.0,    15.0,    7 },   -- must stay under the carry-flag radius or honest dribbles feed it
+	{ "BAIT_DANCE_TIME",           0.15,    1.5,  0.35 },  -- ≥ ~20 frames: a placement circle is deliberate, a recoil step is not
+	{ "BAIT_DANCE_DIST",            0.2,     5.0,  0.6 },  -- cumulative travel in the ring: a stander banks zero, a jitter cannot reach a stud
+	{ "BAIT_DANCE_WINDOW",         0.3,     3.0,  1.2 },  -- longer and a stranger kick across the lot gets taxed for an old dance
 	{ "SIDE_GUESS_DIST",          20.0,    85.0, 38 },   -- ≥ where one jitter frame can still flip the read
 	{ "SIDE_NO_DIVE",              0.0,     8.0,  3.5 },  -- 0 = old behavior (dive anything past centerTol near)
 	{ "NEAR_SMOTHER_SPEED",       60.0,   140.0,  85 },   -- above it the near ring stands down
@@ -3663,9 +3702,27 @@ local function goalMeasure(keeperPos)
 	return goalInfo
 end
 
+-- 🏟 v2.77 GOAL GEOMETRY TELEMETRY: the number the keeper plays by, said
+-- out loud once per change (console only — the no-HUD-paint rule stands).
+-- If a dive ever hugs the wrong post, the console already carries the
+-- measurement that was in use; the clip's OCR tunnel can read it back.
+local goalGeomLogged = nil
+local function goalGeomLog(info, src)
+	local txt
+	if info then
+		txt = string.format("[AI-Dive] 🥅 GOAL GEOMETRY — measured: mouth %.1f studs wide, crossbar %.1f above the line", info.halfWidth * 2, info.crossbarY - info.linePos.Y)
+	else
+		txt = string.format("[AI-Dive] 🥅 GOAL GEOMETRY — fallback %.0f × %.0f studs (%s) — retune NET_WIDTH_STUDS / NET_CROSSBAR_STUDS if dives hug the wrong post", CONFIG.NET_WIDTH_STUDS, CONFIG.NET_CROSSBAR_STUDS, src or "no goal parts found")
+	end
+	if txt ~= goalGeomLogged then
+		goalGeomLogged = txt
+		log(txt, true)
+	end
+end
 local function scanGoal(keeperPos)
 	if not CONFIG.USE_GOAL_DETECTION then
 		goalInfo = nil
+		goalGeomLog(nil, "detection off")
 		return nil
 	end
 	local now = os.clock()
@@ -3681,7 +3738,9 @@ local function scanGoal(keeperPos)
 		goalFindParts()
 	end
 	lastGoalScan = now
-	return goalMeasure(keeperPos)
+	local info = goalMeasure(keeperPos)
+	goalGeomLog(info)
+	return info
 end
 
 -- 🧹 If parts vanish (goal rebuilt, map streamed out) the next scan must look
@@ -4813,6 +4872,47 @@ local function mainStep(deltaTime)
 	local speed = velocity.Magnitude
 	ST.smoothedSpeed = ST.smoothedSpeed + (speed - ST.smoothedSpeed) * 0.6
 
+	-- 🪤 v2.76 DANCE READ: while the ball is dead, watch the nearest FIELD
+	-- player (refreshPlayerRoots excludes the keeper and is 0.5s-cached). A
+	-- man inside BAIT_DANCE_RANGE whose root MOVES at BAIT_DANCE_STEP or more
+	-- is prowling the placement; the run accumulates, half-decays on any
+	-- break, and is convicted at the STRIKE charge below — never by a speed
+	-- read, because the kick legitimately starts at zero. The scan only runs
+	-- while the ball rests: seconds of cheap arithmetic, not a forever tax.
+	do
+		-- 🪤 THE DANCE (v2.76): while the ball rests, the nearest FIELD player
+		-- at it (same cached roots table the strike scan uses, ~14 reads) gets
+		-- a live root fingerprint. Two CADENCE-PROOF tallies run while the
+		-- spell holds: TIME the ball is dead with a man on it, and his TOTAL
+		-- TRAVEL inside the ring. A prowler covers studs; a stander banks time
+		-- and zero distance — and no tick-rate in the world changes how far a
+		-- body actually walked, which is why neither tally divides by frames.
+		local dtD = (deltaTime > 0 and deltaTime < 0.25) and deltaTime or 0
+		if speed <= CONFIG.BAIT_DANCE_STILL and dtD > 0 then
+			local man, manRoot, md = nil, nil, CONFIG.BAIT_DANCE_RANGE
+			for _, e in ipairs(refreshPlayerRoots()) do
+				local d = (e.root.Position - ballPos).Magnitude
+				if d < md then md, man, manRoot = d, e.player, e.root end
+			end
+			if man and manRoot then
+				if ST.danceMan ~= man then
+					-- first frame (or a hand-off at the ball): start a clean run
+					ST.danceMan, ST.danceRun, ST.danceDist = man, 0, 0
+					ST.danceRootP = manRoot.Position
+				else
+					ST.danceRun  = ST.danceRun + dtD
+					ST.danceDist = ST.danceDist + (manRoot.Position - ST.danceRootP).Magnitude
+					ST.danceRootP = manRoot.Position
+					ST.danceEnd   = now
+				end
+			else
+				ST.danceMan, ST.danceRootP = nil, nil
+			end
+		else
+			ST.danceMan, ST.danceRootP = nil, nil
+		end
+	end
+
 	-- 🎯 STRIKE RESET: charged shots start from a still ball.
 	-- When a still spell just ended, discard the mixed still/moving samples so
 	-- the sensor re-locks on the fresh shot from the very first frame.
@@ -4850,6 +4950,22 @@ local function mainStep(deltaTime)
 			end
 			ST.reactPlayer = nil
 			ST.lastShotReset     = now
+			-- 🪤 v2.76 REPOSITION charge: the kick that ends a dance is the
+			-- dance's second half. Guilty AT CREDIT, so the tax is loaded
+			-- before any commit frame runs — the read never has to trust a
+			-- velocity spike for this one; the BODY already confessed.
+			local dRun, dDist = ST.danceRun or 0, ST.danceDist or 0
+			local danceKey = lastShooterKey or (ST.danceMan and teamKeyOf(ST.danceMan))
+			if danceKey and dRun >= CONFIG.BAIT_DANCE_TIME
+				and dDist >= CONFIG.BAIT_DANCE_DIST
+				and (now - (ST.danceEnd or 0)) <= CONFIG.BAIT_DANCE_WINDOW then
+				ST.danceRun, ST.danceDist, ST.danceMan = 0, 0, nil
+				baitEpisode(danceKey, now)
+				if (not ST.danceLogT) or (now - ST.danceLogT) > 3 then
+					ST.danceLogT = now
+					log(string.format("[AI-Dive] 🪤 REPOSITION — %.1fs and %.1f studs of dancing over a dead ball before that kick — charged as a bait episode (a placement, not a wind-up)", dRun, dDist), true)
+				end
+			end
 			ST.peakSinceShot     = 0 -- fresh credit: the fake test starts clean
 			ST.leadSide = nil     -- v2.72: a new strike is a new geometry
 			pendingShotRecord = { player = lastShooterPlayer, t = now, maxSpeed = 0 }
