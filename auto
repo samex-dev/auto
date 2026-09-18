@@ -1,5 +1,21 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.77 "the goal, out loud."
+	⚡ ZERO-LATENCY GK AI — v2.78 "the half-second, reclaimed."
+	-- ⏱ v2.78 FASTER REACTIONS, ON THEIR OWN RECEIPTS: the user opened the
+	-- DEVELOPER CONSOLE mid-match and sent the log — the first time this
+	-- script's timing showed itself on camera. Three receipts, three fixes:
+	-- (1) OWN→OPP fired 4× in 2.5s — every flip wiped the commit mid-scramble,
+	-- so a 0.35s flicker guard holds the read through touch-jitter (real
+	-- passes still re-arm); (2) the paint guardian flapped easing↔full every
+	-- ~1s at 48fps (EMA too twitchy) — slowed to 0.04 and a 3s recovery dwell,
+	-- downshifts stay instant; (3) BASE_DIVE_TIME 0.32→0.26 and COMMIT_BASE
+	-- 25→27: every shot is now met ~0.06s earlier and 2 studs further out.
+	-- 🧵 More Rin: their log showed Rin carrying in on the game's own
+	-- `RinRun` cast print — his stance gains quickSpeed 108 (the quick read
+	-- opens early on sprint-finishes) and COUNTER_MODES gains a rinrun row:
+	-- stand 6 studs sooner into his run, forcing the 2-frame read on the
+	-- finisher. Everything else the console showed (BAITER FLAGGED, FEINT
+	-- PAIR, INHUMANE BEND, LATE SPIKE — INSTANT, TOP-BIN JUMP → SAVE!) is the
+	-- v2.7x chain working in a live match — 82 saves, 88% on the board.
 	-- 🏟 v2.77 THE STADIUM, SPOKEN: "check how big stadiums and the post or
 	-- net just look every detail" — the clip could not answer this one (OCR
 	-- reads text, not geometry), so the game's own match screenshots got
@@ -597,7 +613,7 @@ local CONFIG = {
 	REACH_EVERYTHING      = 120,    -- horizontal reach (studs) used in save-everything mode
 
 	-- Core dive behavior
-	BASE_DIVE_TIME        = 0.32,   -- assumed server-side dive reaction (s) — v2.32: 0.40→0.32, commit earlier (FAKE HOLD now covers the tap risk this used to guard against)
+	BASE_DIVE_TIME        = 0.26,   -- assumed server-side dive reaction (s) — v.32→v2.78: 0.40→0.32→0.26. Field report (Sep 17, "make reactions faster", 48fps phone with the dev console open): the taps this used to guard are now caught by FAKE HOLD + READ-STABILITY LOCK, so the wait is pure loss — commit 0.06s earlier.
 	-- 🦘 TOP-BIN AUTO-JUMP (v2.37): community mechanic — a keeper who JUMPS
 	-- and then DIVES reaches higher than a flat dive, which is how top-bin
 	-- (top corner) balls get saved. We jump right before the dive whenever
@@ -755,7 +771,7 @@ local CONFIG = {
 	BALL_IN_HAND_RADIUS   = 5.0,    -- ball this close to you + slow = secured
 
 	-- 📏 DYNAMIC COMMIT STUDS (how close the ball must be before the keeper commits)
-	COMMIT_BASE_DIST      = 25,     -- commit distance for a slow shot (studs)
+	COMMIT_BASE_DIST      = 27,     -- commit distance for a slow shot (studs) — v2.78: 25→27 with the dev-console match as the witness ("reactions faster"); every non-bomb read meets the ball 2 studs sooner
 	COMMIT_SPEED_FACTOR   = 0.16,   -- extra commit studs per studs/s of predicted shot power (v2.32: 0.12→0.16, commit earlier on power)
 	COMMIT_MAX_DIST       = 48,     -- hard cap on commit distance
 
@@ -1248,9 +1264,9 @@ local CONFIG_RULES = {
 	{ "NET_CROSSBAR_STUDS",         3.0,    30.0,  8 },
 	{ "NET_WIDTH_STUDS",            4.0,    60.0,  16 },
 	{ "TOP_BIN_JUMP_FRACTION",      0.2,    1.0,   0.7 },
-	{ "COMMIT_BASE_DIST",           3.0,    120.0, 25 },
+	{ "COMMIT_BASE_DIST",           3.0,    120.0, 27 },
 	{ "COMMIT_MAX_DIST",            5.0,    200.0, 48 },
-	{ "BASE_DIVE_TIME",             0.0,    2.0,   0.32 },
+	{ "BASE_DIVE_TIME",             0.0,    2.0,   0.26 },
 	{ "PING_COMPENSATION",          0.0,    3.0,   1.0 },
 	{ "GOAL_SCAN_CAP",              2000,   2000000, 20000 },
 	{ "MAX_INTEREST_DISTANCE",      30.0,   600.0, 200 },
@@ -2255,7 +2271,7 @@ local MOVE_INFO = {
 -- game. A style we know little about gets the universal safe stance: forced
 -- 2-frame read (never jump on frame one against an unread handler).
 local STYLE_COUNTERS = {
-	rin            = { name = "CURVE HANDLER",     confirmFrames = 2, rangeBoost = 4, curveChase = true }, -- v2.61 (user: "curve detection for RIN"): the LIVE estimator drives the prime too — no named move required
+	rin            = { name = "CURVE HANDLER",     confirmFrames = 2, rangeBoost = 4, quickSpeed = 108, curveChase = true }, -- v2.61 (user: "curve detection for RIN"): the LIVE estimator drives the prime too — no named move required. v2.78: quickSpeed 108 — his Sep 17 match tape is all RUN-INS (the game prints `RinRun` before every finish); the quick read opens EARLY on a sprint release, the wall still forces 2 frames
 	sae            = { name = "CURVE HANDLER",     confirmFrames = 2, curveChase = true },
 	reo            = { name = "WILDCARD HANDLER",  confirmFrames = 2, rangeBoost = 4 }, -- v2.58: copying a CHIGIRI means arriving at 95+ from where you thought he wasn't
 	devilfruituser = { name = "BALLOON WATCH",     confirmFrames = 2 }, -- the ball may sit INSIDE him: read, then explode
@@ -2702,6 +2718,16 @@ local COUNTER_MODES = {
 	},
 	quietdown = {
 		name = "STUN — HOLD",            -- head-shot freeze: no ball coming, stay set
+	},
+	rinrun = {
+		-- ⏱ v2.78: the game's OWN console print, caught in the user's dev-log
+		-- screenshots: `-- RinRun` fires the moment Rin starts his sprint.
+		-- The cast itself is movement, not a strike — but every finish in the
+		-- tape rides out of it. Counter: step 6 studs up his run-lane early
+		-- (cut the angle while he has no ball-strike yet) and keep the forced
+		-- 2-frame read so the sprint never buys him a one-frame commit.
+		name = "SPRINT READ",
+		confirmFrames = 2, commitBonus = 6,
 	},
 	-- CHIGIRI
 	phantersnipe = {
@@ -4063,7 +4089,13 @@ RunService.Heartbeat:Connect(function(dt)
 	-- 1) paint governor (guarded: with LOW_SPEC_GUARDIAN off nothing below runs
 	--    and ST.ecoTier simply stays 0 = full paint forever)
 	if CONFIG.LOW_SPEC_GUARDIAN and aiEnabled then
-		emaDt = emaDt * 0.90 + (dt or 0.016) * 0.10
+		-- v2.78: the match log showed easing↔full FLIPPING every ~1s on a
+		-- steady 48fps phone — 1/48 = 0.0208 sits INSIDE the 0.019/0.0245
+		-- deadband, so only frame-time NOISE was crossing the edges, at the
+		-- old 0.10 alpha (~6-frame memory) that noise moves a full threshold
+		-- per second. Slower EMA + a recovery dwell: downshifts remain
+		-- instant (protect the phone first), upshifts need calm frames.
+		emaDt = emaDt * 0.96 + (dt or 0.016) * 0.04
 		local tier = ST.ecoTier or 0
 		local want = tier
 		if emaDt > 0.040 then want = 2
@@ -4073,12 +4105,19 @@ RunService.Heartbeat:Connect(function(dt)
 		elseif emaDt < 0.031 and want == 2 then want = 1
 		end
 		if CONFIG.ECO_LOCK and CONFIG.ECO_LOCK > want then want = CONFIG.ECO_LOCK end
+		-- 3s RECOVERY DWELL: climbing back to a richer tier must be earned —
+		-- three calm seconds since the last flip. Sliding down never waits.
+		local gnow = os.clock()
+		if want < tier and ST.ecoFlipT and (gnow - ST.ecoFlipT) < 3.0 then
+			want = tier
+		end
 		if want ~= tier then
 			ST.ecoTier = want
+			ST.ecoFlipT = gnow
 			ecoLogTier = want -- the log budget tightens with the paint (see log())
-			-- log EVERY tier change: the hysteresis itself is the anti-spam (a tier
-			-- flip needs seconds of sustained frame-time in the other direction, and
-			-- the EMA at 0.06 cannot oscillate across two thresholds per second)
+			-- log EVERY tier change: the EMA at 0.04 (~1s memory) plus the
+			-- recovery dwell are the anti-spam — a flip now needs sustained
+			-- frame-time in the other direction, not one jittery second
 			if want > 0 then
 				log(want == 2 and "[AI-Dive] 🐢 LOW-SPEC GUARDIAN: deep — dots, tags and zones OFF (dives untouched)"
 					or "[AI-Dive] 🐢 LOW-SPEC GUARDIAN: easing paint (dives untouched)", true)
@@ -5115,10 +5154,27 @@ local function mainStep(deltaTime)
 		ST.wasOwn = true
 	elseif ST.wasOwn and poss ~= "own" then
 		ST.wasOwn = nil
-		ST.commitDir, ST.commitFrames = nil, 0
-		ST.baitMark, ST.baitLogged = nil, nil
-		ST.curveChaseN, ST.curveChaseSide = 0, nil
-		log("[AI-Dive] 🔄 OWN→OPP — teammate's touch ended: read re-armed fresh")
+		-- ⏱ v2.78 FLICKER GUARD (their dev console, Sep 17): OWN→OPP fired
+		-- FOUR times in 2.5s — a loose ball at a 50/50 keeps flipping
+		-- own→opp→own frame to frame, and every flip zeroed commitFrames and
+		-- forced the read to restart from scratch. That is not re-arming; it
+		-- is self-inflicted amnesia mid-dive. A flip that lands <0.35s after
+		-- the last WIPE is flicker — hold the read, mute the wipe. A real
+		-- pass still re-arms: the first flip of a sequence always passes the
+		-- gate, and sustained opponent possession re-triggers after 0.35s.
+		local flipNow = now
+		if ST.ownFlipT and (flipNow - ST.ownFlipT) < 0.35 then
+			if (not ST.ownFlickLogged) or (flipNow - ST.ownFlickLogged) > 1.0 then
+				ST.ownFlickLogged = flipNow
+				log("[AI-Dive] 🔄 OWN→OPP flicker — read held under 0.35s, no wipe")
+			end
+		else
+			ST.ownFlipT = flipNow
+			ST.commitDir, ST.commitFrames = nil, 0
+			ST.baitMark, ST.baitLogged = nil, nil
+			ST.curveChaseN, ST.curveChaseSide = 0, nil
+			log("[AI-Dive] 🔄 OWN→OPP — teammate's touch ended: read re-armed fresh")
+		end
 	end
 
 	-- 🎭 HANDLER READ (v2.46): the dangerous man is whoever HAS the ball —
