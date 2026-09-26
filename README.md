@@ -26,6 +26,192 @@ threat — refused at both commit gates — and every own→opp flip re-arms the
 style detection meets every name like it belongs: tuned row where the book has one,
 announced universal 2-frame stance where it doesn't (Santa Claus edition).
 
+**v2.66, the false-dive killers**: the friend's field test was literal — "when he
+dribbled it false dived" — and the net learned the physics of it: a poked ball that is
+still riding with its owner (10 studs, half a second, under 95/s) is a TOUCH no matter
+how loud the speed spike is; a read that disagrees with itself by one strike is a TAP and
+buys exactly one beat of patience; and a man who baits twice gets flagged — his soft-shot
+bar raised for twenty seconds, because a bait farmer should pay a tax, not win the
+rematch. The keeper also stopped hiding its maths: the handler's AIM is projected onto
+the goal line as a reticle while he dribbles, fast balls get their magenta streak across
+the pitch, and line 1 of the HUD carries the predicted crossing delta, the live curve and
+the aim — the same numbers the decision runs on, painted on the field. (v2.67
+postscript: the FIELD PAINT did not earn its keep on phone screens — the reticle, the
+streak and the HUD maths strip were stripped out. The wider net and the tax stayed.
+What replaced the paint is stronger than paint: every refusal — held OR betrayed — now
+feeds one counter.)
+
+**v2.67, the bait engine goes pro**: bait detection stopped being a list of shapes and
+became a ledger. A dive whose ball QUITS before anyone touches it — the 60/s "shot" that
+bleeds to a stop at the edge of the box — now counts against its shooter exactly like a
+held ball (DEAD-BALL REGRET, armed before the keeper's own walk can "save" the evidence
+and before the idle sleep closes the case). A flagged baiter pays THE TAX: his window for
+buying an early leap shrinks by 20%, so his taps arrive at a set keeper while a real
+strike still gets met — the tax delays, never denies. The fake-shot system's holds no
+longer double-charge the ledger, a memory can never feed itself, and the touch tier keeps
+its orbit rule (pokes ride with the foot; strikes separate). Thirteen moves that used to
+meet the generic read got dedicated walls — the trap-shot loft, the flip that IS the
+second act, every feint dribble, the giveaway passes — while the alias spellings were
+proven to route to their primary's wall by design. And the suite went to 100 scenarios:
+a full BAIT DETECTION GAUNTLET — every soft speed, every dart length, every shape that
+must STILL be dived on, so "more bait detection" never means less goalkeeping.
+
+**v2.68, the fandom-taught smells**: the research pass came back with the game's OWN words for
+the friend's complaints — fake-kick pops that "serve as a good fake shot, trick goalkeepers", a
+juggling kit with "feints to fool the goalkeeper", a two-man reaction whose shot "completes AS the
+pass reaches" the striker. The keeper learned both noses: every fake kick that dies short now
+enters the baiter's ledger (one episode per attempt — bait that ALMOST worked costs the same as
+bait that did), and the one-two into a first-touch volley is no longer eaten by the bait net: the
+watched receiver gets exactly ONE reaction strike, met frame-one, promise consumed forever after —
+farm it with a fake and the net is back on the next touch. The reworked snake defender got his
+knuckle chased LIVE and his "100% block" territory answered the only honest way a keeper can: the
+tackle fence holds the charge OUT of the zone built to eat it. 106 scenarios, all green — and the
+count is the TRUE one, audited against the runner, not the other way round.
+
+**v2.69, the newcomer protocol**: Naoya came, Naoya got nerfed — nine days from launch code to apology
+code, and not one wiki has his Skibidi moveset. The keeper doesn't guess at ghosts: every "Naoya<Move>"
+the game spawns self-reports to the console and arms the NAOYA WALL — quick read OPEN (his release is
+instant), first frame NEVER trusted (his kit is afterimages, and frame one of an afterimage man is a
+lie). Awakening got the same discipline-from-proof: an unknown part that calls itself a cutscene wakes
+the watch for ANYONE, and while a handler's promise is live his next 140+ rocket reads BOMB — awakened
+shots are the strengthened version of the move the cutscene just announced, and the keeper commits a
+full beat early on nothing more than that promise. And the ledger got teeth for regulars: get flagged
+twice inside a minute and the grudge stacks — a +4 bar that never fully forgets. 110 scenarios, bench
+faster than v2.66's, and one research rule carved in stone: Blue Lock Rivals and Blue Lock Skibidi are
+different games — shared souls, separate numbers, and only THIS game's console lines key the rows.
+
+**v2.70, how fast the ball WENT**: a dive decision that only reads the ball's
+speed TODAY can be fooled the way every striker in the game already fools it —
+wind up huge, let the ball bleed across the pitch, arrive soft. The engine now
+carries a launch meter: the hardest raw speed since THIS exact strike, ceiling
+guarded (a 300+/s teleport snap-back is physics noise, never a "rocket"),
+reset on every new credit. A ball that LEFT the boot at 110+ is a shot forever,
+no matter how cool it reads at the keeper — every soft bait tier stands aside,
+and the number itself prints on the dive line (`⚡Launch: 130`) so the friend
+can finally see what the keeper saw. Barou's documented feint — "you can feint
+Predator Shot by looking down... fool the goalkeeper into diving", his chop is
+"a feint into a chop dribble" — became a catchable shape of its own: a SNAP
+promise that rides out 1.2s with no strike credited behind it is a FAKE WIND-UP,
+logged on the spot and charged as one bait episode to the caster's tab. Two
+air-swings and his next 62/s roller meets a 67 bar instead of 55 — the farmer
+bankrupts himself, while his REAL chop still gets met frame-one. 115 scenarios,
+bench unchanged, and the meter's ceiling keeps the fixtures' own reset spikes
+from ever being read as launches.
+
+**v2.71, read the KICK, not the flight**: faster reactions, bought where the
+evidence is already in hand. A strike credit — the ball going still→motion AT
+the shooter's feet at or above the launch-exempt bar, on target, inside 70
+studs — IS proof the boot connected, so the keeper commits on the RELEASE
+FRAME instead of waiting for the flight to enter the commit window: a 130/s
+rocket is now read @57 studs out, eleven studs earlier, at zero added risk
+(every ball that hot has already escaped the bait net — same meter, same
+number). Sub-bar pops answer to the pop-confirm exactly as before. Two more
+bait shapes close in: **RECLAIM** — spike, sprint, kill it dead at his own
+feet, the friend's original "get it back" tell as a complete shape with no
+clock to beat (one episode, once per strike, and the stall holds regardless
+of what the speed read says); and the **FEINT PAIR** — two credited taps from
+the same man inside 1.1s that gained less than ten studs of ground is not two
+shots, it's one wobble, charged before the third tap even exists. Travel, not
+speed, sees it: no single-frame gate can. 119 scenarios, bench unchanged, and
+the friend's paste check just got a new tell — dives on proven launches now
+carry `| ⚡ LEAD` in the log.
+
+**v2.72, trust the kick — verify the side**: the friend tested and reported
+both wins and the one new flaw: "keeps diving sideways." The release lead had
+been buying an early SIDE as well as an early dive — but at lead range the
+crossing number is a half-second PROJECTION of jitter (Roblox balls inherit
+their shooter's lateral motion for a frame or two), and a keeper guessing
+corners from a guess is how you let in shots you read. Now a lead commit may
+only pick a side once the crossing sits past the LONG READ band AND the same
+side held a full confirming frame; inside the band the lead dives MIDDLE —
+same early beat, goal-heart protected, make the striker place it. A true
+corner still gets its early left/right dive (S122 guards the canary in both
+directions). The lag answer is a TRAJECTORY CACHE: the integrator no longer
+re-simulates 3.5 seconds of flight every frame — steady straight flight reuses
+its path (new credit, ±8/s speed, or a live curve accel re-integrates), which
+is exactly the frames the "still lags" devices were paying ~210 steps a frame
+for nothing. Decisions stay every-frame; only the redundant projection is
+skipped, and `SIM_CACHE_MAX = 0` puts the old cadence back if a future tuning
+ever needs it. 121 scenarios.
+
+**v2.73, the shooter's playbook**: the friend asked for shot-by-shot knowledge
+in the words he'd use in a Discord — "know each shot and where to dive to —
+like if it's a cr7 kick dive forward" — and the game handed it over: the
+effect literally spawns as `cr7kick`. Per-move DIVE SHAPE now rides the move
+table (`shape = "forward"` rows for the CR7 kick, Oh-Cristiano, and the Jet
+Kick — straight seam cannons all three) and lands in the decision *through the
+alert itself*: no new per-frame lookup, no upvalue tax. When the named move is
+live and the crossing reads seam (inside PLAY_FWD_BAND × the center tolerance,
+under PLAY_FWD_MAX studs), the keeper POUNCES — forward, both arms, goal-heart
+protected — instead of gambling a side on a projection; the dive line carries
+`| 📖 FORWARD`. Ronaldo's autogoal G keeps its unsaved-anyway HOLD policy —
+the playbook refuses to dive at it, by design. And the band-hold that killed
+the lead's sideways dives is no longer lead-only: the coin-flip fence moved
+from 85 studs IN to `SIDE_GUESS_DIST = 38` — mid-range side guesses inside
+the center band are holds everywhere now, with live curve chases and
+side-primed counters exempt (they carry their own lateral proof). The
+trajectory cache keeps compounding: bench **30 ms**, down from 45. 124
+scenarios, three of them written from the friend's own sentences.
+
+**v2.74, the reach ring**: "It still dives sideways — also improve the diving
+too," the friend said, and the last honest source was the NEAR zone itself: a
+78/s ball drifting 5–7 studs inside forty gets a side dive by v2.73's rules,
+and that dive is the goal you nearly gift — hands from the feet had it. The
+fence is now a continuous trust curve: past SIDE_GUESS_DIST the band is
+centerTol×1.8 (centerTol×2.6 while a trick-shot alert is live — backheels and
+balloons lie about their lateral); inside it, any ball at or below
+NEAR_SMOTHER_SPEED whose crossing stays within centerTol+SIDE_NO_DIVE gets
+`🪹 IN REACH` and a step, never a dive. Above that pace the ring stands down —
+S02's fast near corner keeps its dive to the letter, and the suite enforced
+that philosophy the day it was written (first cut ate S02; the test was right,
+the feature was wrong). 126 scenarios; S126 fails the v2.73 build in exactly
+the way the friend described — sideways, at a ball that was already parked in
+front of the keeper.
+
+**v2.75, the roster keeps growing**: "check if Naoya is there now" — he is.
+The code trail dates him exactly: `naoya` 50k launch code Sep 5, `hidoi na`
+Sep 7, then `NaoyaNerf` + `PATCH` Sep 12; the script had carried his wall
+since v2.69 on a hedged guess, and this week's evidence retires it — the
+launch-week code pattern (same week as `Mugetsu`, an Ichigo FORM, echoing
+`BANKAI`/`DEMON`) marks him as the game's next crossover striker, a kit whose
+whole identity is selling frames that lie. So v2.75 wires him into the
+TRICKY_BAND machinery built for exactly this: his alerts — even the unnamed
+effects caught by the `Naoya<Move>` catch-all — widen the far trust band from
+centerTol×1.8 to ×2.6, logged `🃏 TRICKY READ — his kit is built to sell it`,
+with the engine's freshness convention (2.5s) gating it. The hold is patience,
+not panic: S128 shows the keeper waiting nine more studs, then diving the
+CONFIRMED corner anyway. `mugetsu` joins MOVE_INFO pre-keyed off the code
+trail (effect names still self-report in console). And the scale audit the
+ask implied — net, posts, stadium: the fandom publishes ZERO dimensions for
+any of them (checked again; the wiki is codes and tiers), which is precisely
+why the script never hardcodes the goal: it measures the real posts, crossbar
+and mouth from Workspace every 2 seconds, sanity-bounded and self-healing.
+128 scenarios; S128–S129 fail the v2.74 build.
+
+**v2.76, "it needs to see the bait"**: the user's own gameplay clip got read at
+the pixel level (screenshot-API + OCR, no video tools anywhere near it), and the
+chat typing inside it — *make the bait detection better* — became the feature.
+The `.place-and-shoot` farmer dances around a DEAD ball before tapping it: no
+speed tier can convict that, because the kick honestly starts from zero. So the
+keeper now watches the BODY: while the ball rests, the nearest field man inside
+seven studs gets his time-and-distance tallied, and a dance that ends in a
+credited kick is charged as a bait episode on the spot. A stander banks seconds
+but zero studs of travel — the distance floor is the part nobody can fake.
+130 scenarios; S130–S131 fail the v2.75 build.
+
+**v2.79, "the habit, priced"**: bait detection got its two prices — a GRADUATED commit tax by episode count (14% / 20% / 28% later, replacing the flat 20%) and a SPIKE-SUSTAIN gate: three bait episodes in the window and the man's one-frame launch no longer buys an instant leap from beyond 60 studs (their console's `DEAD BALL REGRET @125` x2 was this exact theft). A full re-sweep for Naoya found… no Naoya: the wiki's 24 pages carry zero hits and the Sep 11-12 rework published no moveset, so the dated catch-all stands; press-kit overviews measured the whole pitch island (goals at the void edge, ~1.5:1 — v2.77's model confirmed, fallback 16×8 kept). 138/138 scenarios green.
+
+**v2.78, "the half-second, reclaimed"**: the user opened the dev console mid-match and photographed the script's own log — it confessed two faults (OWN→OPP wiping the read 4× in 2.5 s at a loose ball; the paint guardian flapping every second on their 48 fps phone), and both are fixed: a 0.35 s flicker guard, a 3 s recovery dwell, plus `BASE_DIVE_TIME 0.32→0.26` and `COMMIT_BASE_DIST 25→27` so every shot is met earlier. "More counters for Rin": the game prints its cast names to the console, so his `RinRun` sprint is now keyed — stance gains `quickSpeed 108`, and a new SPRINT READ steps 6 studs up his run-lane with the forced 2-frame read on the finisher. 136/136 scenarios green.
+
+**v2.77, "the goal, out loud"**: asked to check how big the stadium and the
+posts are, the clip's limits met reality — OCR reads text, not geometry — so
+the game's own match screenshots got pixel-audited instead (crop, upscale,
+luminance-variance bands). Verdict: a flat pitch island in open sky, goal at
+the void edge, mouth ≈2:1 at ~16×9 studs — the 16×8 fallback survives,
+validated. And the keeper now says what it measures: one console line per goal
+state, measured or fallback, so the next video carries the numbers itself.
+132 scenarios; S132–S133 fail the v2.76 build.
+
 ## What it does, in order
 
 | Step | What happens |
