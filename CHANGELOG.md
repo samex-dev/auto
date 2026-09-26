@@ -7,6 +7,333 @@ fixed, so they double as the design rationale for the thresholds in `CONFIG`.
 
 ---
 
+## v2.79 — "the habit, priced." · graduated bait tax + spike-sustain gate, after a full Naoya sweep that found… no Naoya (2026-09-26)
+
+- 🪤 USER: "improve the bait detection" — and their own dev console named
+  the exploit: `DEAD BALL REGRET — dive fired, then the ball quit at 2/s
+  @125 studs`, twice. A launch spike past the READ gates rode the bomb
+  bypass and bought an instant leap from anywhere. Two prices now: the
+  commit tax is GRADUATED by episode count (2 eps = met 14% later, 3 = 20%,
+  4+ = 28%; flat 0.80 over-punished the single-suspect, under-punished the
+  farmer) and `BAITER_SPIKE_N = 3`: a habitual baiter's spike beyond 60
+  studs must SUSTAIN one more frame before the leap — quits die inside the
+  beat, real shots lose 16 ms. FLAGGED/RE-ARMED lines announce the tax.
+  Point-blank, EXTREME, true bombs, Big-Bang heat and SNAP counters are
+  never gated. S138/S139 lock it (138 scenarios green).
+- 🔍 NAOYA: full wiki sweep (allpages = 24 pages, search "Naoya"/"Mugetsu"
+  = zero hits, recentchanges silent since 2026-09-10) + press/shop hunt:
+  the Sep 5 launch (50k code), Sep 11-12 rework and the `NaoyaNerf` apology
+  shipped NO PUBLISHED MOVESET anywhere. The v2.69 catch-all + nerf-aware
+  stance continue to carry him; the row's note is dated with this check.
+  Nagi's Sep 10 wiki edit was cross-read move by move — every row was
+  already keyed (fakeshot/fivestagevolley/skullrush/legacy skulrush/heavyshot/
+  jumpingdeflect + the Reo chemical).
+- 🏟 STADIUM, MEASURED FROM ORBIT: two press-kit overviews show the whole
+  island at once — flat pitch ~1.5:1, 8 stripes, both goals at the VOID EDGE
+  with the net wedges hanging over water, zero stands/walls: v2.77's model,
+  confirmed. Cropped at 1.7×, the oblique crossbar/player ratio agrees with
+  the video frames (apparently taller than the 16×8 fallback) — and again
+  loses to the ruling: oblique pixels don't fund a retune, the live scan
+  owns the numbers, fallback stays. Shop roll ladder recorded (Secret 0.01%
+  · Rin 0.5% · Nagi/Sae 1.5% · Reo/Chigiri 10% · Isagi/Gagamaru 88%): an
+  unclassified style is statistically the safe multi-signal crowd — no
+  invented priors confirmed as the right default.
+- 🧱 Upvalue wall (9th victim): a file-local tax helper pushed mainStep to
+  61/60 and Lua 5.1 refused to compile — moved into CONFIG as a table;
+  "pure-data to CONFIG, state to ST" is now the documented pattern.
+
+## v2.78 — "the half-second, reclaimed." · faster reactions + a real Rin counter, from the user's own dev-console photos (2026-09-18)
+
+- ⏱ USER: "make reactions faster please and more counters for Rin" — and
+  handed over the receipts: ten screenshots of the iOS client with the
+  Roblox DEVELOPER CONSOLE open, `[AI-Dive]` lines printing live mid-match.
+  The log named the latency itself: `OWN→OPP … read re-armed fresh` ×4 in
+  2.5 s at a loose ball (each flip zeroing the commit mid-scramble) and the
+  🐢 LOW-SPEC GUARDIAN flipping easing↔full every second on a steady 48 fps
+  phone. Fixes: a 0.35 s FLICKER GUARD (real passes still re-arm; jitter
+  holds the read and logs `OWN→OPP flicker`), a 0.04-alpha EMA + 3 s
+  recovery dwell for the paint governor (downshifts stay instant),
+  `BASE_DIVE_TIME 0.32→0.26` and `COMMIT_BASE_DIST 25→27` (RULES defaults
+  follow) — shots are met ~0.06 s earlier, 2 studs further out.
+- 🧵 RIN: the game's own console prints its cast names, and his sprint is
+  `RinRun` — the stance gains `quickSpeed = 108` (quick read opens early on
+  sprint-finishes) and `COUNTER_MODES.rinrun` ("SPRINT READ": +6 studs
+  early up his run-lane, forced 2-frame read on the finisher). The rest of
+  the console was confirmation: the strip renders `⚔️ SHIDOU (AERIAL)` —
+  literally our attacker-modifier code — the bait engine the friends asked
+  for in the video logs working end to end, a TOP-BIN JUMP turns into
+  `SAVE! (ball secured)`, and the 17 red errors are the game's own
+  MuchachoHitbox/Moonlite path bugs, not this script. Docs-only truth:
+  the GAME does paint plain team-colored name labels (red AIKU/YUKIMIYA
+  in-world) — addendum 17 over-corrected; ours is the ★ layer on top.
+- 🧪 Scenarios 132→136: S134 flicker guard, S135/S136 guardian dwell (old
+  S32's calm window extended past the dwell), S137 Rin stance arm. Suite
+  green on both trees; header v2.78.
+
+## v2.77 — "the goal, out loud." · the stadium gets measured, audited, announced (2026-09-17)
+
+- 🏟 USER: "check how big stadiums and the post or net just look every detail"
+  — the clip can't answer geometry (OCR reads TEXT), so the game's own match
+  screenshots got pixel-audited: Pillow crops + a luminance-variance profile
+  (the net's mesh texture is the only thing separating gray-on-gray from sky).
+  Method, numbers and the full stadium picture live in addendum 15.
+- ✅ THE 16×8 FALLBACK STANDS: measured mouth ≈16–17 studs, aspect 1.98:1,
+  crossbar ≈9, thin frame + mesh — the screenshot-era `NET_WIDTH_STUDS=16 /
+  NET_CROSSBAR_STUDS=8` survived its first independent audit UNCHANGED. The
+  yardstick was a runner's blocky height (~5.5 studs) at goal depth; ~6.4 px
+  per stud agreed from three independent directions.
+- 🏟 STADIUM TRUTH: it is a flat pitch island in open sky — no walls, no
+  stands, and the goal sits AT THE VOID EDGE (the net's back panel overhangs
+  where the grass ends). A second pitch behind the lobby confirms maps rotate,
+  so the v2.44 dirty-rescan is not paranoia — it is the only defense.
+- 🥅 THE GOAL, SPOKEN: scanGoal now emits ONE console line per goal state —
+  `measured: mouth X wide, crossbar Y above the line` / `fallback 16 × 8 (no
+  goal parts found)` / `detection off` — deduped by text, urgent-flagged, and
+  strictly console (the v2.67 no-HUD-paint rule holds forever). If a dive ever
+  hugs the wrong post, the number the keeper trusted is already on screen —
+  and the next clip's OCR can read the stadium back out of the script itself.
+-  ROSTER NOTE: the audited screenshot's hotbar showed `Direct Shot / Dash /
+  Two Gun Volley / MOVE IT.` — MOVE IT. already keyed (validated), Two Gun
+  Volley is a name with no behavior yet: catch-all covers it, no row.
+- 🧪 S132 (mock goal present → measured announcement) and S133 (noGoal →
+  fallback announcement, never silence). 132 scenarios; both fail a build
+  without the telemetry because there is nothing to read.
+
+## v2.76 — "It needs to see the bait." · the reposition dance gets charged (2026-09-17)
+
+- 🎬 THE CLIP GOT READ, not just watched: the user's 2:38 Streamable session was
+  mined frame-by-frame through a GET-only tunnel (Streamable API → microlink
+  screenshot at any `t=` → ocr.space engine 2; recipe preserved in
+  GAME_RESEARCH addendum 14). What the chat said on screen IS the spec: `It
+  needs to see the bait` … `make the bait detection better please`. The
+  sideways-dive half of the ask was already buried (v2.72–74); Shidou's visible
+  hotbar (`Backheel Shot / Demon Rush / Big Bang Drive / [G] My Ball`) validated
+  the existing move rows — zero new ones. `[Mugetsu]` tags on TWO players
+  confirmed [tag] = equipped character style, vindicating the v2.75 pre-key.
+- 🪤 REPOSITION DANCE: the tier no speed read can convict, so v2.76 reads the
+  BODY. While the ball is DEAD (≤ `BAIT_DANCE_STILL`) the nearest field player
+  inside `BAIT_DANCE_RANGE` studs of it is fingerprinted every frame and tallied
+  two ways: TIME the ball sits with a man on it, and his cumulative TRAVEL
+  inside the ring. At strike credit, a run of `BAIT_DANCE_TIME` s carrying
+  `BAIT_DANCE_DIST` studs, finishing within `BAIT_DANCE_WINDOW` of the kick, is
+  charged as a bait episode — the .place-and-shoot farmer now pays the v2.67
+  engine's price (2 episodes → flag → raised bar → tax → hunt) BEFORE his kick
+  even leaves his foot. Log: `🪤 REPOSITION — 1.5s and 4.2 studs of dancing over
+  a dead ball before that kick — charged as a bait episode (a placement, not a
+  wind-up)`.
+- 🧮 Why tallies and not speed: the strike frame is 32ms after the last calm
+  frame, so a "prowl speed ≥ X" gate died on ENGINE CADENCE (the loop ticks at
+  whatever rate the host gives; per-frame root deltas smear across it). Distance
+  walked and time elapsed are cadence-proof — a stander banks seconds but zero
+  studs, and no jitter fakes a stud of travel. The keeper is excluded BY
+  CONSTRUCTION (the scan reuses the cached opponent-roots table — which also
+  skips adding `nearestOpponentNear` as a 61st mainStep upvalue; the budget is
+  60, and v2.73 learned that the hard way).
+- 🎯 Attribution falls back to the DANCE itself: the touch-radius scan can miss
+  a shooter on a dead ball (`key=nil` in the fixture), so the credit uses
+  `lastShooterKey or teamKeyOf(ST.danceMan)` — the man who danced is the man who
+  gets the episode whether or not the touch read caught him.
+- 🧯 Plumbing lesson, enshrined: `CONFIG` defaults flow from the RULES table —
+  the header's ⚡-v2.7N "config" lines sit INSIDE the opening block comment
+  (it runs to line ~389) and are pure decoration, true since v2.73. Missing two
+  of five rows = `attempt to compare nil with number` at 4860 with the whole
+  suite burning; the fix was rows, not the config block.
+- 🧪 S130 (2s of prowling over a parked ball then a real shot — REPOSITION
+  must fire) and S131 (a planted striker's set shot — the dance must NEVER
+  convict an honest hold) both fail the v2.75 build by construction: there was
+  nothing there to fire. 130 scenarios.
+
+## v2.75 — the roster keeps growing · Naoya reads confirmed (2026-09-17)
+
+- USER: "check again if naoya is there now… check blue lock fandom how long
+  far it can dive, how big is the net or post, how big stadium is, check
+  basically everything and improve script." (Blue Lock Skibidi only — the
+  other games' wikis are flavor, never truth.)
+- ✅ NAOYA IS IN: place 77021749781226 code history is the primary source —
+  `naoya` (50k, Sep 5), `hidoi na` (Sep 7), `NaoyaNerf` + `PATCH` (Sep 12).
+  The v2.69 profile had hedged "maybe Noel Noa"; the LAUNCH-WEEK PATTERN
+  settles it — crossover forms get codes named after their signature lines
+  (`Mugetsu` Sep 8 = an Ichigo FORM, echoing BANKAI/DEMON), so the frame-feint
+  kit is the working read. Move names remain UNPUBLISHED — the catch-all
+  self-report stays the keying mechanism.
+- 🃏 TRICKY_ROOKIE WIRING: the Naoya catch-all alert carries `tricky = true` →
+  his unnamed moves widen the FAR trust band to centerTol × TRICKY_BAND(2.6)
+  for 2.5s. A latent v2.74 bug died on the way: the tricky branch read the
+  alert UNGATED — now `trickyLive` uses the engine's freshness convention, so
+  a stale alert can never widen anything. Telemetry: `🃏 TRICKY READ — holding
+  the middle at 47 studs (lateral 8.9 is a frame, not a promise)`.
+- 🆕 `mugetsu` PRE-KEYED as an ichigo/extreme row; S129 proves a bare
+  "Mugetsu" effect now self-reports instead of early-returning in silence.
+- 📏 SCALE AUDIT, ANSWERED HONESTLY: no wiki publishes GK dive reach, net
+  size, post dimensions or field size — the fandom is codes/tiers. The script
+  already measures goal geometry live (posts/crossbar/mouth from Workspace,
+  re-measured every 2s, sanity-bounded, GOAL_SCAN_CAP); reach-family knobs
+  stay OUR documented choices. S128 keeps the hold HONEST: nine extra studs
+  of patience, then the dive when the corner CONFIRMS — patience, not
+  paralysis.
+- SCENARIOS: S128, S129 — both fail v2.74; 128 green on v2.75 + site copy.
+  Bench 42 ms: noise band, no claim.
+- 🧱 HISTORY NOTE: a sandbox reset mid-version lost the changelog's v2.66→
+  v2.72 entries; they are RECONSTRUCTED above from the surviving README
+  paragraphs and in-code anchors, flagged as such — gist faithful, prose
+  rebuilt. The zips on the site always carried `auto` (the truth); the
+  changelog is commentary.
+
+---
+
+## v2.74 — the reach ring · dive for corners, smother the rest (2026-09-15)
+
+- USER (relaying the friend's follow-up screenshot, verbatim): "It still dives
+  sideways also improve the diving too". The sideways part came from the NEAR
+  zone — the one place v2.73's band-hold did not reach (inside 38 studs any
+  crossing past centerTol was dive-legitimate). The diving part became the
+  answer to it: a dive is a commitment; don't commit for a ball your feet
+  already beat.
+- 🪹 REACH RING: the hold fence became continuous — far zone keeps centerTol ×
+  1.8, the NEAR zone (dist ≤ SIDE_GUESS_DIST) holds every side commit whose
+  crossing stays inside centerTol + SIDE_NO_DIVE(3.5) whenever speed ≤
+  NEAR_SMOTHER_SPEED(85). Log tell `🪹 IN REACH` shares the LONG READ dedupe
+  clock. First cut applied the ring at ALL paces — S02 (105/s into the near
+  corner) came back dive-less in spirit: the ring is for balls a STEP beats;
+  fast near corners dive, now and forever (S127 locks it, S02 guards it).
+- 🃏 TRICKY-MOVE BAND: 28 `speed = "tricky"` rows (backheel, balloon, wobble
+  kit) ride the alert as moveTricky and widen the FAR band to centerTol ×
+  TRICKY_BAND(2.6) while live — moves whose lateral read wobbles need more
+  proof, not the same proof. Zero per-frame cost; the flag ships in the alert.
+- SCENARIOS: S126 (78/s drift inside forty studs — v2.73 dove Left at 24,
+  v2.74 steps; the friend's exact complaint in fixture form), S127 (105/s
+  near corner must still dive — ring speed gate). 126 green, 126 on the site
+  copy; S126 fails the v2.73 build with `dives=1 [Forwardx1]` at 23 studs.
+- ⚙️ Bench: 38.1 ms this run (30.1 the last) — machine noise ±2 ms, no perf
+  claim either way; the ring is a comparison, not a loop.
+
+---
+
+## v2.73 — the shooter's playbook · mid-range side guesses are holds (2026-09-15)
+
+- USER (friend, screenshot): "can u like improve the ai to know each shot and
+  where to dive to — like if it's a cr7 kick dive forward — yk what i mean",
+  plus a fresh "it keeps diving side ways idk why" (from a client still on a
+  pre-2.72 build — the mid-range half of that complaint was real for every
+  version until today).
+- 📖 SHOOTER'S PLAYBOOK: move-specific DIVE SHAPE. `shape = "forward"` lives on
+  the MOVE_INFO row and rides the ability alert (`moveShape`) into the decision
+  — zero new per-frame lookups (the 60-upvalue budget claims another victim if
+  you get clever here; TWO tables both carry `jetkick`, and the LATER row wins
+  — shape had to be added to both). The rule: known-forward move (alert <2.5s)
+  + crossing inside PLAY_FWD_BAND(2.4) × centerTol + dist ≤ PLAY_FWD_MAX(62) →
+  direction FORWARD over any side gamble, `📖 PLAYBOOK — cr7kick: dive FORWARD
+  for it` on the console and `| 📖 FORWARD` on the dive line. Timing gates keep
+  full ownership of WHEN. Entries only where the dossiers justify a straight-
+  line read: cr7kick / ohcristiano (Ronaldo "high-impact finishing") and
+  jetkick (friend: "insanely fast", arrives flat). `siuuuuuuuu` deliberately
+  has NO shape — the G row is the documented autogoal: hold, never dive.
+- 🧷 SIDE HOLD, GENERALIZED: v2.72's band-hold only guarded LEAD commits; the
+  coin-flip fence moved from 85 studs IN to `SIDE_GUESS_DIST = 38` — mid-range
+  side guesses inside the center band are holds everywhere now, with live
+  curve chases and side-PRIMED counters exempt (they carry their own proof).
+  S124: 105/s, band-wide drift, v2.72 dove a side at 41 studs, v2.73 holds.
+  S125 guards the honest corner (a fixture tuned to 10.1 was tuning a MISS:
+  the mouth is ±8 + ball margin; the keeper was right to stand).
+- ⚙️ The trajectory cache keeps compounding: bench 45.6 → 30.1 ms.
+- SCENARIOS: S123 (cr7 kick → forward pounce, the friend's literal ask), S124,
+  S125. 124 green; all three fail the v2.72 build.
+
+---
+
+## v2.72 — trust the kick, verify the side · trajectory cache (2026-09-15)
+
+- USER (friend): "it keeps diving side ways idk why" + "still lags". Both real.
+- 🔒 SIDE TRUST: a LEAD commit buys early TIME, not an early SIDE. A lead-frame
+  side read must clear centerTol × LEAD_SIDE_TRUST(1.8) AND agree with the
+  previous lead frame's side (ST.leadSide), or the keeper holds Middle with
+  `🔒 SIDE HELD` — and the hold UNDOES any side horizontalDist had already set
+  (declining to add a side is not removing one). S121 reproduces the friend's
+  exact dive (Leftx1 on the old build) and proves the fix.
+- ⚙️ TRAJECTORY CACHE: straight flight re-integrates on change, not every
+  frame — a hit requires same shot-reset epoch, age < SIM_CACHE_MAX(0.08s),
+  |Δspeed| ≤ 8 and zero accel; TTI is corrected by the studs actually
+  travelled. S21 bench ~43.5 vs 45.6 uncached (machine noise honest);
+  decisions still run every frame — the cache reuses PREDICTION only.
+- SCENARIOS: S121–S122; 121 green.
+
+---
+
+## v2.71 — read the KICK, not the flight (2026-09-14)
+
+- USER (friend's v2.61 meta revisited): "when players shoot the ball slowly and
+  get it back — it triggers the AI to dive". v2.66–v2.70 built the bait
+  counters; v2.71 closed the last door: RECLAIM — the ball coming BACK to the
+  shooter's possession after a declined slow "shot" is the feint's SECOND
+  beat: the dive window stays shut while its owner chases, and the FEINT PAIR
+  (spike → collect → spike again) extends the tax instead of resetting it.
+- (reconstructed 2026-09-17 from the README paragraph and in-code notes after
+  a sandbox reset lost the mid-history changelog entries; gist faithful)
+
+---
+
+## v2.70 — how fast the ball WENT (2026-09-14)
+
+- USER: three asks, one machine. ⚡ THE LAUNCH METER: what matters at commit
+  is not the ball's CURRENT speed but how fast it LEFT the foot — the release
+  frame's peak velocity is carried forward, so late deceleration can't talk
+  the keeper out of a dive the kick earned. ⚔️ FAKE WIND-UP: a SNAP alert
+  (King's Chop, Big Bang, Timestop) that never fires a strike is a swing, not
+  a shot — the quick-read arm decays instead of re-arming forever. Plus the
+  per-shooter SPEED SAMPLING: learned bomb thresholds (LEARNED_SPEEDS) carry
+  across shots with a forgetting tail.
+- (reconstructed 2026-09-17 — see v2.71's note; anchors: the script's own
+  "v2.70 in one breath" header block and CONFIG comments)
+
+---
+
+## v2.69 — the newcomer protocol (2026-09-13)
+
+- A new character without published data gets: profile + alias + a WALL
+  counter keyed off the EFFECT scan, and the `<Char><Move>` catch-all — any
+  unknown effect named after him arms the wall and the console asks for the
+  exact spelling ("send me the exact console name for a dedicated Naoya
+  counter"). NAOYA (Sep 5 launch code, day-7 NaoyaNerf apology cash) and the
+  AWAKENING CATCH (any unknown cutscene/awakening effect arms FULL-read
+  against whoever stood in it) land here.
+- (reconstructed 2026-09-17 — see v2.71's note)
+
+---
+
+## v2.68 — the fandom-taught smells (2026-09-13)
+
+- Deep-read pass over the whole fandom dossier: the REWORKED AIKU is a
+  defender with a real late-break shot (Snake) → live curve chase; QUIT-SHOT
+  (a ball left moving by a fleeing player) and the Reo/Nagi CHEMISTRY read
+  got real stances. Doctrine line made permanent: fandom pages are BEHAVIOR,
+  never NUMBERS.
+- (reconstructed 2026-09-17 — see v2.71's note)
+
+---
+
+## v2.67 — the bait engine goes pro (2026-09-13)
+
+- USER: "remove the fc 26 paint since it doesn't work" — ALL telemetry moved
+  to console/log only (permanent no-HUD-paint rule). THE GAP FILL (user: "add
+  more countering"): ONE COUNTER FOR EVERY REFUSAL — a declined ball flags its
+  owner; THE TAX (a flagged baiter is met 20% LATER); DEAD-BALL REGRET: a
+  fired dive whose ball dies under it re-credits the keeper mid-dive.
+- (reconstructed 2026-09-17 — see v2.71's note)
+
+---
+
+## v2.66 — the false-dive killers (2026-09-12)
+
+- USER field test: "when he dribbled it and shoots, my gk dives when the ball
+  is still 10+ studs away" → THE WIDE NET, four bait tiers: TOUCH-BAIT (a poke
+  spikes raw speed far above the smoothed velocity → the SPIKE-READ calls it
+  fake), then a memory with teeth — READ-STABILITY LOCK: raw speed running
+  ahead of the smoothed curve means the direction frame is not trusted. The
+  .onetwo counter keeps the ABILITY path; this is the same trick with NO
+  ability.
+- (reconstructed 2026-09-17 — see v2.71's note)
+
+---
 ## v2.65 — wider bait net, teammate discipline, a stance for every style (2026-09-12)
 
 - SIX asks in one message; all six shipped.
