@@ -1,6 +1,23 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.78 "the half-second, reclaimed."
-	-- ⏱ v2.78 FASTER REACTIONS, ON THEIR OWN RECEIPTS: the user opened the
+	⚡ ZERO-LATENCY GK AI — v2.79 "the habit, priced."
+	-- 🪤 v2.79 THE BAITER, PRICED BY HABIT: another full web + wiki sweep (the
+	-- user: "search if there's naoya in the site") — the Skibidi wiki is 24
+	-- pages deep and has ZERO Naoya hits: his moveset is still UNPUBLISHED, so
+	-- the v2.69 catch-all + nerf-aware note stand, now dated. What the sweep
+	-- DID find: press-kit OVERVIEWS of the whole pitch island — goals sit at
+	-- the void edge with the net wedge hanging over it (addendum 19 measured;
+	-- oblique again, so the live scan still owns the numbers, fallback 16×8
+	-- untouched), plus the shop's roll ladder (Secret 0.01% · Rin/Lorenzo/
+	-- Kaiser 0.5% · Nagi/Sae 1.5% · Reo/Chigiri 10% · Isagi/Gagamaru 88%).
+	-- Bait detection got the two upgrades their own console asked for:
+	-- (1) the tax is now GRADUATED — first flag 14% later, third episode 20%,
+	-- fourth+ 28% (flat 0.80 was over-punishing the single-suspect and
+	-- under-punishing the farmer); (2) SPIKE SUSTAIN — a 3+-episode baiter
+	-- can no longer buy an instant leap with a one-frame launch: from BEYOND
+	-- 60 studs the spike must SUSTAIN one beat first. Their DEAD BALL REGRET
+	-- lines (dive fired, ball quit at 2/s @125) were this exact theft.
+	-- ⏱ v2.78 "the half-second, reclaimed." RECEIPTS: the user opened the
+	-- FASTER REACTIONS, ON THEIR OWN RECEIPTS: the user opened the
 	-- DEVELOPER CONSOLE mid-match and sent the log — the first time this
 	-- script's timing showed itself on camera. Three receipts, three fixes:
 	-- (1) OWN→OPP fired 4× in 2.5s — every flip wiped the commit mid-scramble,
@@ -910,6 +927,16 @@ local CONFIG = {
 	-- flags him — his suspect bar rises by BAITER_BAR_BONUS for BAITER_HUNT s.
 	-- A bait farmer gets a tax, not a rematch every time.
 	BAITER_LOCK         = 2,
+	-- ⚖️ v2.79 GRADUATED TAX + SPIKE SUSTAIN (their dev console, Sep 17-18):
+	-- `DEAD BALL REGRET — dive fired, then the ball quit at 2/s @125 studs`
+	-- TWICE — a spike-then-quit rode the bomb bypass and bought a full dive.
+	-- Past BAITER_SPIKE_N episodes in the window, his spikes must SUSTAIN one
+	-- beat before the leap; and the commit tax now scales with the habit
+	-- (2 eps = met 14% later, 3 = 20%, 4+ = 28%) instead of a flat 20%.
+	BAITER_SPIKE_N      = 3,      -- episodes before a flagged baiter's long-range spike waits the extra beat
+	-- (in CONFIG, not a file-local: mainStep lives under Lua 5.1's 60-upvalue
+	-- budget and one helper cost the 61st slot — the wall is real, v2.79)
+	BAITER_TAX          = { [2] = 0.86, [3] = 0.80, [4] = 0.72 }, -- commitDist multipliers by episode count
 	BAITER_WINDOW       = 12,
 	BAITER_HUNT         = 20,
 	BAITER_BAR_BONUS    = 12,
@@ -1239,6 +1266,7 @@ local CONFIG_RULES = {
 	{ "SIM_CACHE_MAX",               0.0,   0.25, 0.08 }, -- 0.25+ and a 60/s ball moves 15 studs on a stale path
 	{ "REACTION_WINDOW",             0.4,   2.0, 0.8 },   -- shorter than a pass's flight and chemistry reads miss
 	{ "BAITER_REPEAT_BONUS",         0.0,  20.0,  4 },   -- 0 disables the repeat-offender grudge
+	{ "BAITER_SPIKE_N",              2.0,   6.0,  3 },   -- v2.79: 2 = punish every flag; 6 = effectively off
 	{ "BAITER_REPEAT_WINDOW",       15.0, 300.0, 60 },   -- keep it above a substitution cycle
 	{ "AWAKE_WATCH",                 3.0,  12.0, 6.5 },   -- below the longest documented cutscene+release and the promise is blind
 	{ "AWAKE_BOMB_DISCOUNT",         0.0,  60.0, 20 },   -- 60+ collapses every fast shot into a bomb — never
@@ -2296,7 +2324,7 @@ local STYLE_COUNTERS = {
 	igaguri        = { name = "LONG-THROW WATCH",    rangeBoost = 12 }, -- malicia headers arrive from a THROW, not a wind-up: start the shoot-forecast in throw range
 	kunigami       = { name = "BOMB RE-ARM",         quickSpeed = 95, cooldownScale = 0.8 }, -- joker/fallenhero both 'extreme': struck fast, met early, re-arm fast
 	hiori          = { name = "LASER LINE" }, -- one known row (fast, dead straight): awareness label only — no timing claim to make yet
-	naoya          = { name = "PERFECT IMPACT WATCH", confirmFrames = 2, quickSpeed = 105 }, -- v2.69 meta-note: added Sep 5 2026 (the "naoya" 50k launch code), reported instant-release OP, NERFED Sep 12 (the "NaoyaNerf" apology code) — so: quick read stays armed, panic does not. Moveset still UNPUBLISHED: the Naoya<Move> catch-all + the cutscene catch carry him until a friend's console line keys the real rows.
+	naoya          = { name = "PERFECT IMPACT WATCH", confirmFrames = 2, quickSpeed = 105 }, -- v2.69 meta-note: added Sep 5 2026 (the "naoya" 50k launch code), reported instant-release OP, NERFED Sep 12 (the "NaoyaNerf" apology code) — so: quick read stays armed, panic does not. Moveset still UNPUBLISHED — RE-VERIFIED 2026-09-26 against the wiki (24 pages, allpages dump, ZERO Naoya/Mugetsu hits; last content edit 2026-09-10 was Nagi) — the Naoya<Move> catch-all + the cutscene catch carry him until a friend's console line keys the real rows.
 }
 
 -- 🎮 COUNTER MODES: each known ABILITY gets its OWN keeper response —
@@ -4615,6 +4643,15 @@ local pathCount = 0
 -- feeds the same episode marker. BAITER_LOCK episodes of ANY bait flavor on
 -- one man inside BAITER_WINDOW flag him: net and memory are one machine.
 -- Module scope so the early regret probe and the bait block share it.
+-- v2.79: the commit-distance tax lives in CONFIG.BAITER_TAX — priced by the
+-- habit. First flag is 6 studs-lighter than the old flat cut (one spiky
+-- touch should not brand a man); a farmer pays 28% later and the baiterUntil
+-- clock keeps re-arming. Lookup is clamp-by-index so mainStep adds no
+-- upvalues.
+local function baitTaxN(n)
+	return CONFIG.BAITER_TAX[math.min(math.max(n or 2, 2), 4)]
+end
+
 local function baitEpisode(k, now)
 	if not k then return end
 	if ST.baitMark and ST.baitMark.key == k and (now - ST.baitMark.t) < CONFIG.BAITER_WINDOW then
@@ -4626,10 +4663,10 @@ local function baitEpisode(k, now)
 			ST.baiterFlags, ST.baiterFlagsT = (ST.baiterFlags or 0) + 1, now
 			local grudge = ((ST.baiterFlags or 0) >= 2 and (now - (ST.baiterFlagsT or 0)) < CONFIG.BAITER_REPEAT_WINDOW)
 				and CONFIG.BAITER_REPEAT_BONUS or 0
-			log(string.format("[AI-Dive] 🪤 BAITER %s — %d bait episodes on this man — suspect bar %d studs/s for %.0fs",
+			log(string.format("[AI-Dive] 🪤 BAITER %s — %d bait episodes on this man — suspect bar %d studs/s for %.0fs — met %.0f%% later",
 				reoffense and "RE-ARMED (repeat offense — the grudge adds +4 more)" or "FLAGGED",
 				ST.baitMark.n, CONFIG.BAIT_ROLL_MAX + CONFIG.BAITER_BAR_BONUS + grudge,
-				CONFIG.BAITER_HUNT), true)
+				CONFIG.BAITER_HUNT, (1 - baitTaxN(ST.baitMark.n)) * 100), true)
 		end
 	else
 		ST.baitMark = { key = k, t = now, n = 1 }
@@ -6767,6 +6804,24 @@ local function mainStep(deltaTime)
 		local quickThresh = activeMode and (activeMode.quickSpeed or CONFIG.QUICK_SPEED) or CONFIG.QUICK_SPEED
 		local isQuickShot = (speed >= quickThresh) and (distToGoalie < CONFIG.BOMB_FAR_DIST)
 		local instant     = pointBlank or isExtreme or (speed >= CONFIG.BIG_BANG_SPEED) or isBomb or speedSpike
+		-- ⚖️ v2.79 SPIKE SUSTAIN: a habitual baiter's launch spike (0→110 in a
+		-- frame, then "quit at 2/s") used to buy the bomb bypass and a full
+		-- leap from beyond 60 studs — their console's DEAD BALL REGRET x2. Past
+		-- BAITER_SPIKE_N episodes, the spike must SUSTAIN one beat: the second
+		-- frame still spiked gets the instant as before; the quit loses it.
+		-- point-blank, true bombs and BIG-BANG heat keep the bypass, and SNAP
+		-- counters below are never gated — the gate only eats speedSpike.
+		if instant and speedSpike and distToGoalie > 60
+			and not (pointBlank or isExtreme or isBomb or speed >= CONFIG.BIG_BANG_SPEED)
+			and ST.baiterKey and lastShooterKey ~= nil and ST.baiterKey == lastShooterKey
+			and now < (ST.baiterUntil or 0)
+			and (ST.baitMark and (ST.baitMark.n or 0) >= CONFIG.BAITER_SPIKE_N) then
+			if (not ST.spikeGateT) or (now - ST.spikeGateT) > 0.05 then
+				ST.spikeGateT = now
+				instant = false
+				log("[AI-Dive] ⚖️ SPIKE SUSTAIN — habitual baiter: one beat before the leap", true)
+			end
+		end
 		-- SNAP counters (Timestop just ended, Big Bang, Flame Shot, King's Chop):
 		-- anything moving fast is met on the very frame, no matter what.
 		if activeMode and activeMode.snap and speed >= 80 then
@@ -6824,7 +6879,7 @@ local function mainStep(deltaTime)
 		-- falls ONLY on the man who never strikes hard.
 		if ST.baiterKey and lastShooterKey ~= nil and ST.baiterKey == lastShooterKey
 			and now < (ST.baiterUntil or 0) and not reactionStrike then
-			commitDist = commitDist * 0.8
+			commitDist = commitDist * CONFIG.BAITER_TAX[math.min(math.max(ST.baitMark and ST.baitMark.n or 2, 2), 4)] -- ⚖️ v2.79 graduated (was flat 0.80); CONFIG-inline to spare an upvalue
 		end
 		local withinCommit = (instant or (distToGoalie <= commitDist)) and (not baitHold) and (not passToMine) -- 🪤 v2.61/65: a held bait OR an inbound giveaway commits NOTHING beyond smother range
 		-- 🪤 v2.66 READ-STABILITY LOCK: raw speed far ahead of the smoothed
