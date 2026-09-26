@@ -1,23 +1,37 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.79 "the habit, priced."
-	-- 🪤 v2.79 THE BAITER, PRICED BY HABIT: another full web + wiki sweep (the
-	-- user: "search if there's naoya in the site") — the Skibidi wiki is 24
-	-- pages deep and has ZERO Naoya hits: his moveset is still UNPUBLISHED, so
-	-- the v2.69 catch-all + nerf-aware note stand, now dated. What the sweep
-	-- DID find: press-kit OVERVIEWS of the whole pitch island — goals sit at
-	-- the void edge with the net wedge hanging over it (addendum 19 measured;
-	-- oblique again, so the live scan still owns the numbers, fallback 16×8
-	-- untouched), plus the shop's roll ladder (Secret 0.01% · Rin/Lorenzo/
-	-- Kaiser 0.5% · Nagi/Sae 1.5% · Reo/Chigiri 10% · Isagi/Gagamaru 88%).
-	-- Bait detection got the two upgrades their own console asked for:
-	-- (1) the tax is now GRADUATED — first flag 14% later, third episode 20%,
-	-- fourth+ 28% (flat 0.80 was over-punishing the single-suspect and
-	-- under-punishing the farmer); (2) SPIKE SUSTAIN — a 3+-episode baiter
-	-- can no longer buy an instant leap with a one-frame launch: from BEYOND
-	-- 60 studs the spike must SUSTAIN one beat first. Their DEAD BALL REGRET
-	-- lines (dive fired, ball quit at 2/s @125) were this exact theft.
+	⚡ ZERO-LATENCY GK AI — v2.80 "know thy man."
+	-- 📈 v2.80 KNOW THY MAN: the keeper now STUDIES the opponents, per name,
+	-- all match long. Every shot he faces, every dribble he survives, every
+	-- pass he watches, every strike that beats or bounces off him is filed
+	-- against that player's name in a slowly-decaying ledger — ST.prof. From
+	-- the ledger a class falls out, in plain words, announced ONCE per man
+	-- per class change (throttled, console-only — never FC26 HUD paint):
+	--   📈 PROFILE BAROU — FINISHER · 4 shots av 96/s from 30 studs · 29/min
+	--     · 6 dribbles · 0 passes · 0% in our third · 2 saved, 0 conceded
+	-- FINISHER (a quarter of his touches are SHOTS) and SNIPER (same, but
+	-- averaging past 55 studs) get read EARLIER on purpose: the price of
+	-- facing a known shooter is the one step you didn't take — a small thrust
+	-- bonus the physics already obeys (×1.03 / ×1.06). DRIBBLER (60% of his
+	-- touches are carried runs, and his runs REACH our third) gets his long
+	-- spikes SUSPECT until the flight sustains a beat — the fake-pull-back
+	-- lives off the first kick's violence, and a man whose whole match is
+	-- dribble-and-pull has EARNED that suspicion; his strikes also commit 6%
+	-- later (×0.94). FULLBACK (carries, never shoots, stays out of our box)
+	-- prices his rare late launch exactly like a baiter spike plus ×0.92.
+	-- Point-blank, EXTREME and true-bomb shots are NEVER gated, no matter
+	-- what a profile says — the ledger adjusts reading distance, it does not
+	-- overrule the physics. Decay is ×0.995 per 2s tick (a form half-life of
+	-- ~45s), the ledger never resets mid-match, and every number it speaks
+	-- is telemetry you can watch in the dev console. Knowing them changes
+	-- exactly ONE multiplier per commit and one extra OR-clause on the v2.79
+	-- spike gate — the physics, the archetypes, every earlier lesson stay.
+	-- v2.79: the baiter tax went GRADUATED (14/20/28% by repeat episodes) and
+	-- SPIKE SUSTAIN began (3+-episode baiters must hold a long launch one beat
+	-- before the leap buys it); the stadium's goalmouth got its own live
+	-- measurement pass (fallback 16×8 intact); and the wiki sweep confirmed
+	-- Naoya was never in the game — his named style lives as a comment, and
+	-- the read that generalizes is exactly what v2.80 builds on.
 	-- ⏱ v2.78 "the half-second, reclaimed." RECEIPTS: the user opened the
-	-- FASTER REACTIONS, ON THEIR OWN RECEIPTS: the user opened the
 	-- DEVELOPER CONSOLE mid-match and sent the log — the first time this
 	-- script's timing showed itself on camera. Three receipts, three fixes:
 	-- (1) OWN→OPP fired 4× in 2.5s — every flip wiped the commit mid-scramble,
@@ -937,6 +951,30 @@ local CONFIG = {
 	-- (in CONFIG, not a file-local: mainStep lives under Lua 5.1's 60-upvalue
 	-- budget and one helper cost the 61st slot — the wall is real, v2.79)
 	BAITER_TAX          = { [2] = 0.86, [3] = 0.80, [4] = 0.72 }, -- commitDist multipliers by episode count
+	-- ⚙️ v2.80 MAN-LEDGER (ST.prof) tuning. Classes are plain words: a
+	-- FINISHER is a man whose touches are mostly shots, a SNIPER only from
+	-- far, a DRIBBLER a carrier who reaches our third, a FULLBACK a carrier
+	-- who neither shoots nor boxes in. Share bars, not absolute counts — a
+	-- midfielder with 3 shots in 40 touches is not a finisher.
+	PROFILE = {
+		tick = 2.0,              -- cadence of the ledger's quiet recount
+		logGap = 8,              -- min seconds between a man's class change
+		arm = 1.4,               -- seconds a shot must stay un-cancelled
+		boxDist = 34,            -- studs from our line that is 'our third'
+		minShot = 2,             -- shots before a shooting class can speak
+		shotShare = 0.25,        -- a quarter of his touches are shots
+		sniperDist = 55,         -- avg shot distance past this is a SNIPER
+		minTouch = 5,            -- ball-events before a carrying class speaks
+		dribShare = 0.60,        -- 60% of his touches are carried runs
+		dribBoxShare = 0.25,     -- and a quarter of them reach OUR third
+		fbTouch = 4,             -- FULLBACK: this many touches...
+		fbBoxShare = 0.20,       -- ...with under this share in our box
+		decay = 0.995,           -- per tick: form half-life ~45s of frames
+		mSniper = 1.06,          -- thrust multipliers by class — knowing a
+		mFinisher = 1.03,        -- shooter is worth STEPS, not new physics
+		mDrib = 0.94,            -- DRIBBLER strikes: read him 6% later
+		mDef = 0.92,             -- FULLBACK strikes: priced like baiter's
+	},
 	BAITER_WINDOW       = 12,
 	BAITER_HUNT         = 20,
 	BAITER_BAR_BONUS    = 12,
@@ -1267,6 +1305,8 @@ local CONFIG_RULES = {
 	{ "REACTION_WINDOW",             0.4,   2.0, 0.8 },   -- shorter than a pass's flight and chemistry reads miss
 	{ "BAITER_REPEAT_BONUS",         0.0,  20.0,  4 },   -- 0 disables the repeat-offender grudge
 	{ "BAITER_SPIKE_N",              2.0,   6.0,  3 },   -- v2.79: 2 = punish every flag; 6 = effectively off
+	-- (v2.80) the man-ledger’s own tuning lives in CONFIG.PROFILE — a TABLE, so it
+	-- rides outside this list, exactly like BAITER_TAX above, and is RULES-safe.
 	{ "BAITER_REPEAT_WINDOW",       15.0, 300.0, 60 },   -- keep it above a substitution cycle
 	{ "AWAKE_WATCH",                 3.0,  12.0, 6.5 },   -- below the longest documented cutscene+release and the promise is blind
 	{ "AWAKE_BOMB_DISCOUNT",         0.0,  60.0, 20 },   -- 60+ collapses every fast shot into a bomb — never
@@ -4005,6 +4045,189 @@ local ST = {
 	pausedParked      = false,   -- the paused frame already parked the visuals/HUD
 }
 
+-- 📈 v2.80 THE MAN LEDGER — everything a named opponent has done to this
+-- keeper, counted per name, decaying slowly, read BEFORE the next strike. It
+-- lives on ST (like ST.bait, ST.keeperState) rather than on new locals: the
+-- frame function is near Lua's upvalue wall (60/60 — no new file-scoped names
+-- may be referenced from inside it), so every hook into the loop is a SINGLE
+-- line calling into this object.
+ST.prof = (function()
+	local c = CONFIG.PROFILE
+	local P = { p = {}, car = {}, pend = {}, tickAt = 0, lastH = nil }
+	local function row(k)
+		local pr = P.p[k]
+		if not pr then
+			pr = { key = k, shots = 0, spAvg = 0, distAvg = 0, drib = 0,
+				touch = 0, pass = 0, box = 0, saved = 0, conceded = 0,
+				cls = nil, clsT = 0 }
+			P.p[k] = pr
+		end
+		return pr
+	end
+	-- a shot attempt was just CREDITED to `who` (hooked at the still→motion
+	-- attribution, BEFORE the release gate — a baiter's quit-shots are part of
+	-- HIS pattern too). It only enters the ledger once it ages un-cancelled:
+	-- a two-frame tap that never left the foot is footwork, not a shot.
+	function P:arm(who, spd, dist, now)
+		if not who then return end
+		local pd = P.pend[who]
+		if pd then
+			if now - pd.t0 < 0.25 then
+				-- same man, one blink apart: the double-count is ONE shot with
+				-- a hotter speed, not two
+				pd.speed = math.max(pd.speed or 0, spd or 0)
+				pd.dist  = math.max(pd.dist or 0, dist or 0)
+				return
+			end
+			-- his last attempt is old enough to stand on its own: settle it
+			-- into the ledger BEFORE the new arm replaces the pending slot —
+			-- the per-frame flush only reaches the pending while the shooter is
+			-- still attributed, and mid-flight he is NOT (a ball far from
+			-- every man clears the attribution; the feed's flush would starve)
+			if now - pd.t0 >= c.arm then P:flush(who, now) end
+		end
+		P.pend[who] = { t0 = now, speed = spd, dist = dist }
+	end
+	function P:flush(who, now)
+		if not who then return end
+		local pd = P.pend[who]
+		if not pd then return end
+		if now - pd.t0 < c.arm then return end
+		P.pend[who] = nil
+		local pr = row(who)
+		local cnt = pr.shots + 1
+		pr.spAvg = ((pr.spAvg * pr.shots) + (pd.speed or 0)) / cnt
+		pr.distAvg = ((pr.distAvg * pr.shots) + (pd.dist or 0)) / cnt
+		pr.shots = cnt
+		pr.touch = pr.touch + 1
+	end
+	-- a carry segment: the frame loop names who HAS the ball right now
+	-- (speed under DRIBBLE_MAX, within the carrier radius). Open on first
+	-- frame; track how deep it gets; feed() closes it when it goes stale.
+	function P:carrier(name, dGoal, now)
+		if not name then return end
+		local cd = P.car[name]
+		if not cd then
+			cd = { t = now, last = now, box = false }
+			P.car[name] = cd
+			row(name).touch = row(name).touch + 1
+		end
+		cd.last = now
+		if dGoal < c.boxDist then cd.box = true end
+	end
+	-- the handler flip at the attack side: whoever HELD before the flip just
+	-- passed it — the only pass telemetry that exists without a humanoid
+	-- physically carrying (a loose ball ping-pong never flips the handler).
+	function P:handle(name, now)
+		local prev = P.lastH
+		if prev ~= nil and name ~= nil and prev ~= name then
+			row(prev).pass = row(prev).pass + 1
+			row(name).touch = row(name).touch + 1
+		end
+		P.lastH = name
+	end
+	-- the ledger's own consequences, kept next to the class it produced:
+	function P:result(scored, who)
+		if not who then return end
+		local pr = row(who)
+		if scored then pr.conceded = pr.conceded + 1 else pr.saved = pr.saved + 1 end
+	end
+	local function classify(pr)
+		local shots = math.floor(pr.shots + 0.5)
+		local t = math.floor(pr.touch)
+		if shots >= c.minShot and shots / (t + 1) >= c.shotShare then
+			return pr.distAvg >= c.sniperDist and "SNIPER" or "FINISHER"
+		end
+		if t >= c.minTouch and pr.drib / (t + 1) >= c.dribShare then
+			-- carries that REACH our third are a threat; carries that circle
+			-- the halfway line are a fullback doing a fullback's job
+			if pr.box / math.max(1, pr.drib) > c.dribBoxShare then
+				return "DRIBBLER"
+			end
+		end
+		if t >= c.fbTouch and shots == 0
+			and pr.box / math.max(1, t) <= c.fbBoxShare then
+			return "FULLBACK"
+		end
+		return nil
+	end
+	function P:tick(now)
+		-- a tick is a fair moment to settle aged pendings: a streak that
+		-- PAUSES still shows its true count at the next beat
+		for k in pairs(P.pend) do P:flush(k, now) end
+		for _, pr in pairs(P.p) do
+			pr.shots, pr.drib, pr.pass, pr.box =
+				pr.shots * c.decay, pr.drib * c.decay,
+				pr.pass * c.decay, pr.box * c.decay
+			pr.touch = pr.touch * c.decay
+			local cls = classify(pr)
+				if cls ~= pr.cls and (now - pr.clsT) >= c.logGap then
+				pr.cls, pr.clsT = cls, now
+				if cls then
+					log(string.format("📈 PROFILE %s — %s · %d shots av %.0f/s from %.0f studs · %.1f/min · %d dribbles · %d passes · %d%% in our third · %d saved, %d conceded",
+						tostring(pr.key):upper():sub(1, 12), cls,
+						math.floor(pr.shots + 0.5),
+						pr.shots > 0 and pr.spAvg or 0,
+						pr.shots > 0 and pr.distAvg or 0,
+						pr.shots * 60 / math.max(1, now),
+						math.floor(pr.drib + 0.5), math.floor(pr.pass + 0.5),
+						math.floor(100 * pr.box / math.max(1, pr.touch) + 0.5),
+						pr.saved, pr.conceded), true)
+				end
+			end
+		end
+	end
+	-- every ball-state frame: flush the armed shot when it ages, close stale
+	-- carrier segments, keep the pending strike's live speed warm, tick.
+	function P:feed(now)
+		local shooter = lastShooterPlayer and lastShooterPlayer.Name
+		if shooter then
+			P:flush(shooter, now)
+			local pd = P.pend[shooter]
+			if pd and ST.commitDir ~= nil then
+				-- the commit is riding on this flight: keep the estimate hot
+				pd.speed = math.max(pd.speed or 0, ST.smoothedSpeed or 0)
+			end
+		end
+		for nm, cd in pairs(P.car) do
+			if now - cd.last > 0.15 then
+				local pr = P.p[nm]
+				if pr then
+					-- a quarter-second of continuous carry is a dribble; a
+					-- one-frame graze on the bounce is not
+					if cd.last - cd.t >= 0.25 then pr.drib = pr.drib + 1 end
+					if cd.box then pr.box = pr.box + 1 end
+				end
+				P.car[nm] = nil
+			end
+		end
+		if now >= P.tickAt then
+			P.tickAt = now + c.tick
+			P:tick(now)
+		end
+	end
+	-- thrust adjustment for a shot about to be committed: the ledger nudges
+	-- the physics' own knob, never the rules themselves
+	function P:thrust(who)
+		if not who then return nil end
+		local pr = P.p[who]
+		if not pr or not pr.cls then return nil end
+		if pr.cls == "SNIPER" then return c.mSniper end
+		if pr.cls == "FINISHER" then return c.mFinisher end
+		if pr.cls == "DRIBBLER" then return c.mDrib end
+		if pr.cls == "FULLBACK" then return c.mDef end
+		return nil
+	end
+	-- is this man's spike the kind we now distrust while it is still one
+	-- frame old? (a classified DRIBBLER's, exactly like a baiter's)
+	function P:gated(who)
+		if not who then return false end
+		local pr = P.p[who]
+		return (pr ~= nil and pr.cls == "DRIBBLER") and true or false
+	end
+	return P
+end)()
+
 local function statsRateStr()
 	local total = matchStats.saves + matchStats.conceded
 	return total > 0 and (string.format("%.0f%%", (matchStats.saves / total) * 100)) or "—"
@@ -4947,6 +5170,7 @@ local function mainStep(deltaTime)
 
 	local speed = velocity.Magnitude
 	ST.smoothedSpeed = ST.smoothedSpeed + (speed - ST.smoothedSpeed) * 0.6
+	ST.prof:feed(now) -- 📈 v2.80 the man-ledger breathes with the ball
 
 	-- 🪤 v2.76 DANCE READ: while the ball is dead, watch the nearest FIELD
 	-- player (refreshPlayerRoots excludes the keeper and is 0.5s-cached). A
@@ -5017,6 +5241,7 @@ local function mainStep(deltaTime)
 			lastShooterKey    = who and teamKeyOf(who) or nil
 			lastShooterPlayer = who or shooterPlayer
 			lastShooterTime   = now
+			ST.prof:arm(lastShooterPlayer and lastShooterPlayer.Name, speed, (ballPos - rootPos).Magnitude, now) -- 📈 v2.80
 			-- ⚗️ v2.68: the man we were watching RECEIVE just kicked it — the
 			-- chemistry shot is here. ONE free strike off the bait tiers (the
 			-- promise is consumed whether or not the bypass ends up used — a
@@ -5157,6 +5382,7 @@ local function mainStep(deltaTime)
 			carrierDist, carrierKey, carrierPlayer, carrierPos = d, k, e.player, ePos
 		end
 	end
+	ST.prof:carrier(carrierPlayer and carrierPlayer.Name, (ballPos - rootPos).Magnitude, now) -- 📈 v2.80
 
 	-- 🎯 Who owns the ball right now?
 	--   1) NETWORK OWNERSHIP (v2.34, authoritative): the server sets the
@@ -5254,6 +5480,7 @@ local function mainStep(deltaTime)
 						st and (" — " .. st.name) or ""))
 				end
 				ST.hChar = hKey
+				ST.prof:handle(attackerPlayer.Name, now) -- 📈 v2.80 pass ledger
 			end
 			ST.hUntil = now + 1.2
 			ST.hPlayer = attackerPlayer
@@ -6813,9 +7040,10 @@ local function mainStep(deltaTime)
 		-- counters below are never gated — the gate only eats speedSpike.
 		if instant and speedSpike and distToGoalie > 60
 			and not (pointBlank or isExtreme or isBomb or speed >= CONFIG.BIG_BANG_SPEED)
-			and ST.baiterKey and lastShooterKey ~= nil and ST.baiterKey == lastShooterKey
-			and now < (ST.baiterUntil or 0)
-			and (ST.baitMark and (ST.baitMark.n or 0) >= CONFIG.BAITER_SPIKE_N) then
+			and ((ST.baiterKey and lastShooterKey ~= nil and ST.baiterKey == lastShooterKey
+				and now < (ST.baiterUntil or 0)
+				and (ST.baitMark and (ST.baitMark.n or 0) >= CONFIG.BAITER_SPIKE_N))
+				or ST.prof:gated(lastShooterPlayer and lastShooterPlayer.Name)) then
 			if (not ST.spikeGateT) or (now - ST.spikeGateT) > 0.05 then
 				ST.spikeGateT = now
 				instant = false
@@ -6880,6 +7108,13 @@ local function mainStep(deltaTime)
 		if ST.baiterKey and lastShooterKey ~= nil and ST.baiterKey == lastShooterKey
 			and now < (ST.baiterUntil or 0) and not reactionStrike then
 			commitDist = commitDist * CONFIG.BAITER_TAX[math.min(math.max(ST.baitMark and ST.baitMark.n or 2, 2), 4)] -- ⚖️ v2.79 graduated (was flat 0.80); CONFIG-inline to spare an upvalue
+		end
+		-- 📈 v2.80: the man-ledger nudges this man's read distance — a known
+		-- shooter is met a touch EARLIER; a feint-dribbler's long cannon and a
+		-- fullback's rare launch a touch LATER. One multiplier, physics intact.
+		do
+			local pm = ST.prof:thrust(lastShooterPlayer and lastShooterPlayer.Name)
+			if pm then commitDist = commitDist * pm end
 		end
 		local withinCommit = (instant or (distToGoalie <= commitDist)) and (not baitHold) and (not passToMine) -- 🪤 v2.61/65: a held bait OR an inbound giveaway commits NOTHING beyond smother range
 		-- 🪤 v2.66 READ-STABILITY LOCK: raw speed far ahead of the smoothed
@@ -7154,6 +7389,7 @@ local function mainStep(deltaTime)
 				ST.lastSaveTime = now
 				ST.pendingFlash = { text = "SAVE!!", color = Color3.fromRGB(80, 255, 120), t = now }
 				log("[AI-Dive] 🧤 SAVE! (ball secured)")
+				ST.prof:result(false, lastShooterPlayer and lastShooterPlayer.Name) -- 📈 v2.80
 			end
 		end
 	end
@@ -7188,6 +7424,7 @@ local function mainStep(deltaTime)
 				log("[AI-Dive] ⚽ OUR GOAL!")
 			else
 				matchStats.conceded = matchStats.conceded + 1
+				ST.prof:result(true, lastShooterPlayer and lastShooterPlayer.Name) -- 📈 v2.80
 				diveWatch.resolved = true
 				ST.pendingFlash = { text = "GOAL...", color = Color3.fromRGB(255, 60, 60), t = now }
 				log("[AI-Dive] 🥅 CONCEDED")
