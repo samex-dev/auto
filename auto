@@ -1,36 +1,53 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.80 "know thy man."
-	-- 📈 v2.80 KNOW THY MAN: the keeper now STUDIES the opponents, per name,
-	-- all match long. Every shot he faces, every dribble he survives, every
-	-- pass he watches, every strike that beats or bounces off him is filed
-	-- against that player's name in a slowly-decaying ledger — ST.prof. From
-	-- the ledger a class falls out, in plain words, announced ONCE per man
-	-- per class change (throttled, console-only — never FC26 HUD paint):
-	--   📈 PROFILE BAROU — FINISHER · 4 shots av 96/s from 30 studs · 29/min
-	--     · 6 dribbles · 0 passes · 0% in our third · 2 saved, 0 conceded
-	-- FINISHER (a quarter of his touches are SHOTS) and SNIPER (same, but
-	-- averaging past 55 studs) get read EARLIER on purpose: the price of
-	-- facing a known shooter is the one step you didn't take — a small thrust
-	-- bonus the physics already obeys (×1.03 / ×1.06). DRIBBLER (60% of his
-	-- touches are carried runs, and his runs REACH our third) gets his long
-	-- spikes SUSPECT until the flight sustains a beat — the fake-pull-back
-	-- lives off the first kick's violence, and a man whose whole match is
-	-- dribble-and-pull has EARNED that suspicion; his strikes also commit 6%
-	-- later (×0.94). FULLBACK (carries, never shoots, stays out of our box)
-	-- prices his rare late launch exactly like a baiter spike plus ×0.92.
-	-- Point-blank, EXTREME and true-bomb shots are NEVER gated, no matter
-	-- what a profile says — the ledger adjusts reading distance, it does not
-	-- overrule the physics. Decay is ×0.995 per 2s tick (a form half-life of
-	-- ~45s), the ledger never resets mid-match, and every number it speaks
-	-- is telemetry you can watch in the dev console. Knowing them changes
-	-- exactly ONE multiplier per commit and one extra OR-clause on the v2.79
-	-- spike gate — the physics, the archetypes, every earlier lesson stay.
+	⚡ ZERO-LATENCY GK AI — v2.81 "read the swing."
+	-- 🎭 v2.81 READ THE SWING: the friend's list, all four, off their own
+	-- words. (1) "the barou fakes are easy to know, by the animation" — the
+	-- game SPAWNS a named effect the frame a skill's animation starts, so a
+	-- shot-shaped announcement over a ball that then never moved (SWING_HOLD
+	-- 1.0s at SWING_DEAD speed — 0.35s was false on legit wind-ups: S128's
+	-- Naoya holds the pose a beat BEFORE the real shot) is a FAKE caught on
+	-- the animation itself: the man banks a bait episode (his tax upgrades by
+	-- itself) and the v2.80 ledger counts a SWING — theatre is a touch, and
+	-- share bars price it. The alert is NEVER voided: the swing was real, the
+	-- counter stays ready for the follow-up (the v2.70 FAKE WIND-UP already
+	-- bills snap-class swings, and the watch dedupes against them).
+	-- (2) "IT NEVER SAVES BACKHEEL SHOTS" — the same announcement runs the
+	-- OTHER way: a NAMED tricky strike (the backheel family) stamps a trust
+	-- keyed on the SHOOTER'S NAME, and for SWING_TRUST seconds neither the
+	-- fresh-pop confirm, the fake-bleed hold, the soft-roller net nor the
+	-- dribble-touch tier may eat a real 50/s heel flick: an announced strike
+	-- is a strike even when it creeps. (3) "when the ai see someone rainbow
+	-- flick he auto dive and then the scorpion hits — make it not dive for
+	-- gaga mains when they flick, cuz the cd is bad": v2.56's flick memory
+	-- already killed the lunge and the leap; SCORPION DISCIPLINE kills the
+	-- DIVE too — while an aerial-kit man (profile aerial=true, read LIVE so a
+	-- late style tag still counts) still owns his own popped ball below
+	-- strike speed, nothing commits past smother range; the hold outranks the
+	-- soft tiers, because a flick drop LOOKS exactly like a dribble-touch
+	-- spike — and a scorpion is a STRUCK ball, so striking clears the window
+	-- the frame it flies. (4) "and also still the fats shots": a low hard
+	-- drive is the one ball that cannot fake its crossing late — no air to
+	-- bend in — so at lead range FLAT STANCE commits to its own crossing
+	-- instead of the middle the "projection, not a promise" guard would hold.
+	-- Physics untouched, HUD paint none, and every clause is a gate
+	-- TIGHTENING on bait or a commit TRUSTING its own proof — point-blank,
+	-- EXTREME and bomb shots keep every door they ever had.
+	-- 🧹 one buried bomb from v2.79's surgery defused: a stray "end" had
+	-- leaked the whole decision tail OUT of mainStep (the 200-local compile
+	-- wall was that, not the upvalues) — removed, and every read from the
+	-- flick site down now runs where it was always meant to.
+	-- v2.80 KNOW THY MAN, one breath: the man-ledger ST.prof files every
+	-- shot, carry, pass, save and goal against him per NAME — FINISHER and
+	-- SNIPER (shots are a quarter of his touches, past 55 studs for the
+	-- sniper) are read a step earlier (×1.03/×1.06), DRIBBLER (60% carries
+	-- that reach our third) pays the spike-sustain gate by CLASS and 6%
+	-- later reads, FULLBACK (carries, no shots, no box) pays like a baiter
+	-- plus 8%; one console line per man per class change, decay 0.995/tick.
 	-- v2.79: the baiter tax went GRADUATED (14/20/28% by repeat episodes) and
 	-- SPIKE SUSTAIN began (3+-episode baiters must hold a long launch one beat
 	-- before the leap buys it); the stadium's goalmouth got its own live
 	-- measurement pass (fallback 16×8 intact); and the wiki sweep confirmed
-	-- Naoya was never in the game — his named style lives as a comment, and
-	-- the read that generalizes is exactly what v2.80 builds on.
+	-- Naoya was never in the game — his named style lives as a comment.
 	-- ⏱ v2.78 "the half-second, reclaimed." RECEIPTS: the user opened the
 	-- DEVELOPER CONSOLE mid-match and sent the log — the first time this
 	-- script's timing showed itself on camera. Three receipts, three fixes:
@@ -975,6 +992,16 @@ local CONFIG = {
 		mDrib = 0.94,            -- DRIBBLER strikes: read him 6% later
 		mDef = 0.92,             -- FULLBACK strikes: priced like baiter's
 	},
+	-- 🎭 v2.81 SWING READ (ST.swing): the game announces a skill by spawning
+	-- a named effect — the SAME wiring the counters ride. A shot-shaped
+	-- announcement whose ball then never moved is a FAKE, caught off the
+	-- animation itself (friend: "the barou fakes are easy to know, by the
+	-- animation"). And a NAMED tricky strike (the backheel family) buys a
+	-- trust stamp: an announced backheel is a strike even at 50/s, and the
+	-- soft-ball nets must not eat it.
+	SWING_HOLD          = 1.0,    -- s of dead ball after the swing = fake, confirmed (shorter = false on wind-ups)
+	SWING_DEAD          = 8,      -- studs/s at/below which the ball "never moved"
+	SWING_TRUST         = 1.1,    -- s a named tricky strike is trusted through the soft nets
 	BAITER_WINDOW       = 12,
 	BAITER_HUNT         = 20,
 	BAITER_BAR_BONUS    = 12,
@@ -1307,6 +1334,9 @@ local CONFIG_RULES = {
 	{ "BAITER_SPIKE_N",              2.0,   6.0,  3 },   -- v2.79: 2 = punish every flag; 6 = effectively off
 	-- (v2.80) the man-ledger’s own tuning lives in CONFIG.PROFILE — a TABLE, so it
 	-- rides outside this list, exactly like BAITER_TAX above, and is RULES-safe.
+	{ "SWING_HOLD",               0.30,   2.00, 1.0 },    -- v2.81: dead-ball seconds that confirm a swing fake
+	{ "SWING_DEAD",               2.0,   20.0,   8 },     -- v2.81: "the ball never moved" speed ceiling
+	{ "SWING_TRUST",              0.4,    3.0,  1.1 },    -- v2.81: life of the named-tricky trust stamp
 	{ "BAITER_REPEAT_WINDOW",       15.0, 300.0, 60 },   -- keep it above a substitution cycle
 	{ "AWAKE_WATCH",                 3.0,  12.0, 6.5 },   -- below the longest documented cutscene+release and the promise is blind
 	{ "AWAKE_BOMB_DISCOUNT",         0.0,  60.0, 20 },   -- 60+ collapses every fast shot into a bomb — never
@@ -4058,7 +4088,7 @@ ST.prof = (function()
 		local pr = P.p[k]
 		if not pr then
 			pr = { key = k, shots = 0, spAvg = 0, distAvg = 0, drib = 0,
-				touch = 0, pass = 0, box = 0, saved = 0, conceded = 0,
+				touch = 0, pass = 0, box = 0, swings = 0, saved = 0, conceded = 0,
 				cls = nil, clsT = 0 }
 			P.p[k] = pr
 		end
@@ -4126,6 +4156,16 @@ ST.prof = (function()
 		end
 		P.lastH = name
 	end
+	-- 🎭 v2.81: a named SWING that never moved the ball — footwork theatre,
+	-- banked against the man. Not a shot (the ball stayed dead), but it IS a
+	-- touch, and a fake-artist's touches are mostly theatre: the share bars
+	-- read him honest with the swing counted as a touch, not as fire.
+	function P:swing(who, now)
+		if not who then return end
+		local pr = row(who)
+		pr.swings = pr.swings + 1
+		pr.touch = pr.touch + 1
+	end
 	-- the ledger's own consequences, kept next to the class it produced:
 	function P:result(scored, who)
 		if not who then return end
@@ -4156,21 +4196,22 @@ ST.prof = (function()
 		-- PAUSES still shows its true count at the next beat
 		for k in pairs(P.pend) do P:flush(k, now) end
 		for _, pr in pairs(P.p) do
-			pr.shots, pr.drib, pr.pass, pr.box =
+			pr.shots, pr.drib, pr.pass, pr.box, pr.swings =
 				pr.shots * c.decay, pr.drib * c.decay,
-				pr.pass * c.decay, pr.box * c.decay
+				pr.pass * c.decay, pr.box * c.decay, pr.swings * c.decay
 			pr.touch = pr.touch * c.decay
 			local cls = classify(pr)
 				if cls ~= pr.cls and (now - pr.clsT) >= c.logGap then
 				pr.cls, pr.clsT = cls, now
 				if cls then
-					log(string.format("📈 PROFILE %s — %s · %d shots av %.0f/s from %.0f studs · %.1f/min · %d dribbles · %d passes · %d%% in our third · %d saved, %d conceded",
+					log(string.format("📈 PROFILE %s — %s · %d shots av %.0f/s from %.0f studs · %.1f/min · %d dribbles · %d passes · %d swings · %d%% in our third · %d saved, %d conceded",
 						tostring(pr.key):upper():sub(1, 12), cls,
 						math.floor(pr.shots + 0.5),
 						pr.shots > 0 and pr.spAvg or 0,
 						pr.shots > 0 and pr.distAvg or 0,
 						pr.shots * 60 / math.max(1, now),
 						math.floor(pr.drib + 0.5), math.floor(pr.pass + 0.5),
+						math.floor(pr.swings + 0.5),
 						math.floor(100 * pr.box / math.max(1, pr.touch) + 0.5),
 						pr.saved, pr.conceded), true)
 				end
@@ -4227,6 +4268,80 @@ ST.prof = (function()
 	end
 	return P
 end)()
+
+-- 🎭 v2.81 THE SWING READ — the animation announces; the ball testifies.
+-- The game's skill effect appears (DescendantAdded — the same wiring the
+-- counters ride) the frame a move's ANIMATION starts, shot or fake. A
+-- shot-shaped announcement followed by a ball that never moved is footwork
+-- theatre: the alert is VOIDED (the counter must not pre-dive at a ghost
+-- shot), the man banks a bait episode (his tax and his gate upgrade
+-- themselves), and the ledger counts a swing. The same watch hands the
+-- backheel family the opposite favor: a NAMED tricky strike announces at the
+-- kick, and its trust stamp keeps the soft-ball nets (fake bleed, bait
+-- roller) from eating a real ~50/s heel flick — "IT NEVER SAVES BACKHEEL
+-- SHOTS LIKE BRUH" ends here.
+ST.swing = {}
+function ST.swing:check(now, alert, episode)
+	if alert and alert.t and self.at ~= alert.t then
+		self.at = alert.t
+		self.done = nil
+		local s = alert.speed
+		-- the v2.70 SNAP watchdog already bills snap-class swings (chop & co.)
+		-- — the watch must not double-count the same air-punch
+		local cm = COUNTER_MODES[alert.counterKey or alert.moveKey or ""]
+		if cm and cm.snap then
+			self.t0, self.done = nil, true
+			return
+		end
+		-- shot-shaped rows only: dribble/steal/defense/cutscene announcements
+		-- swing arms that never swing — no watch, no trust.
+		if s == "extreme" or s == "fast" or s == "tricky" then
+			self.t0 = alert.t
+		else
+			self.t0 = nil
+		end
+		if s == "tricky" or (alert.moveKey and tostring(alert.moveKey):find("backheel")) then
+			-- the trust stamp keys on the man on the ball RIGHT NOW (the
+			-- strike's own credit lands the same frame or a hair later)
+			local bp = cachedBall and cachedBall.Position
+			if bp then
+				for _, e in ipairs(refreshPlayerRoots()) do
+					if (e.root.Position - bp).Magnitude <= 12 then
+						ST.trickyT, ST.trickyName = now, e.player.Name
+						break
+					end
+				end
+			end
+		end
+	end
+	if self.t0 and not self.done then
+		local v = estimateMotion()
+		local sp = v and v.Magnitude or 0
+		if sp <= CONFIG.SWING_DEAD then
+			-- who is on it: the swing needs a NAME to bill
+			local nm, key = nil, nil
+			local bp = cachedBall and cachedBall.Position
+			if bp then
+				for _, e in ipairs(refreshPlayerRoots()) do
+					if (e.root.Position - bp).Magnitude <= 10 then
+						nm = e.player and e.player.Name
+						key = teamKeyOf(e.player)
+						break
+					end
+				end
+			end
+			if nm and now - self.t0 >= CONFIG.SWING_HOLD then
+				self.done, self.t0 = true, nil
+				ST.prof:swing(nm, now)
+				if episode and key then episode(key, now) end
+				log(string.format("🎭 SWING FAKE — %s played the shot animation (%s); the ball never moved — episode banked, the counter stays ready for the follow-up",
+					tostring(nm):upper():sub(1, 12), tostring(alert and alert.move or "?")), true)
+			end
+		elseif sp >= CONFIG.SWING_DEAD + 14 then
+			self.t0 = nil -- the swing MOVED something: a strike, judged by every other rule
+		end
+	end
+end
 
 local function statsRateStr()
 	local total = matchStats.saves + matchStats.conceded
@@ -5171,6 +5286,7 @@ local function mainStep(deltaTime)
 	local speed = velocity.Magnitude
 	ST.smoothedSpeed = ST.smoothedSpeed + (speed - ST.smoothedSpeed) * 0.6
 	ST.prof:feed(now) -- 📈 v2.80 the man-ledger breathes with the ball
+	ST.swing:check(now, abilityAlert, baitEpisode) -- 🎭 v2.81 the swing read rides the same breath
 
 	-- 🪤 v2.76 DANCE READ: while the ball is dead, watch the nearest FIELD
 	-- player (refreshPlayerRoots excludes the keeper and is 0.5s-cached). A
@@ -5382,6 +5498,8 @@ local function mainStep(deltaTime)
 			carrierDist, carrierKey, carrierPlayer, carrierPos = d, k, e.player, ePos
 		end
 	end
+	
+
 	ST.prof:carrier(carrierPlayer and carrierPlayer.Name, (ballPos - rootPos).Magnitude, now) -- 📈 v2.80
 
 	-- 🎯 Who owns the ball right now?
@@ -5696,6 +5814,9 @@ local function mainStep(deltaTime)
 		flickRise = true
 		local was = ST.flickT
 		ST.flickT = now
+		-- 🌈 v2.81 SCORPION DISCIPLINE bookkeeping: WHO popped it (the kit
+		-- itself is read at the hold, because the style tag can land later).
+		ST.flickKey = nearPlayer and nearPlayer.Name or nil
 		if not was or now - was > 1.5 then
 			log("[AI-Dive] 🌈 FLICK RESPECT | " .. (styleNameByPlayer[nearPlayer] or nearPlayer.Name)
 				.. " popped it up at his own feet — no lunge, no leap, let it land")
@@ -5934,6 +6055,13 @@ local function mainStep(deltaTime)
 	--      so it escapes the hold and still gets dived. Self-releasing: the
 	--      moment the ball has traveled 14 studs the hold lifts.
 	local fakeHold = false
+	-- 🃏 v2.81 TRICKY TRUST: the backheel family STRUCK the ball with a NAME
+	-- on it (the effect announced at the kick) — an announced ~50/s heel flick
+	-- is a shot, and neither the fresh-pop confirm nor the bleed hold may eat
+	-- it. The stamp is fresh, shooter-matched, and short: theatre gets no
+	-- pass, only named fire does.
+	local trickyTrust = ST.trickyT ~= nil and (now - ST.trickyT) < CONFIG.SWING_TRUST
+		and lastShooterPlayer ~= nil and ST.trickyName == lastShooterPlayer.Name
 	-- ⚗️ v2.68 REACTION STRIKE: the ball arriving at a WATCHED opponent
 	-- receiver and a fresh strike credited to that same man within
 	-- REACTION_WINDOW is the documented chemical-reaction finish (fandom, Reo→
@@ -5973,6 +6101,7 @@ local function mainStep(deltaTime)
 				and ST.peakSinceShot < CONFIG.FAKE_CONFIRM_PEAK
 				and (activeMode and activeMode.primeSide) == nil
 				and (not provenShot)
+				and not (trickyTrust) -- 🃏 v2.81: named heel flick, confirmed by its own effect
 				and not reactionStrike -- ⚗️ v2.68: a reaction finish is PROVEN by the pass
 			-- (2) BLEED HOLD
 			if sinceShot > 0.04
@@ -5984,7 +6113,8 @@ local function mainStep(deltaTime)
 				local sChar = lastShooterPlayer and lastShooterPlayer.Character
 				local sRoot = sChar and sChar:FindFirstChild("HumanoidRootPart")
 				local travel = sRoot and (ballPos - sRoot.Position).Magnitude or 0
-				fakeHold = (not sRoot) or (travel <= CONFIG.FAKE_TRAVEL)
+				fakeHold = ((not sRoot) or (travel <= CONFIG.FAKE_TRAVEL))
+					and not trickyTrust -- 🃏 a named backheel that "bleeds" is STILL coming
 			end
 		end
 	end
@@ -6454,9 +6584,21 @@ local function mainStep(deltaTime)
 				-- kills the entire sideways class. Inside the band the lead
 				-- commits, but it commits the MIDDLE: hold the goal's heart and
 				-- make them place it.
-				if abs(crossLateral) > centerTol * CONFIG.LEAD_SIDE_TRUST
-					and ST.leadSide == side then
+				-- 📐 v2.81 FLAT STANCE (friend: "and also still the fats shots"):
+				-- a LOW, FAST drive is the one ball that cannot fake its
+				-- crossing late — it has no air to bend in. At lead range the
+				-- "projection, not a promise" excuse is exactly what lets it
+				-- sail past the keeper's chest, so a hard floor ball commits
+				-- to its own crossing, not the middle.
+				local flatCross = floorShot and speed > CONFIG.NEAR_SMOTHER_SPEED
+				if flatCross
+					or (abs(crossLateral) > centerTol * CONFIG.LEAD_SIDE_TRUST
+						and ST.leadSide == side) then
 					direction = side
+					if flatCross and ((not ST.flatLogged) or (now - ST.flatLogged > 3)) then
+						ST.flatLogged = now
+						log(string.format("📐 FLAT STANCE — low and fast at %.0f/s: no air to fake the crossing — committing to %s, not the middle", speed, side), true)
+					end
 				else
 					-- The override must UNDO the horizontalDist side-set above —
 					-- the closest-approach offset carries the same far-range
@@ -6514,10 +6656,18 @@ local function mainStep(deltaTime)
 			ST.longReadT = now
 			local nearHold = distToGoalie <= CONFIG.SIDE_GUESS_DIST
 			local trickyHold = not nearHold and trickyLive ~= nil
+			-- 📐 v2.81 FLAT STANCE (friend: "and also still the fats shots"):
+			-- a low hard drive is the one ball a dive LOSES to — the hands leave
+			-- the ground plane and the ball arrives under the body. The wide
+			-- floor band already refuses to GUESS at it; the near ring now
+			-- refuses to DIVE at it: stand, spread, let the welded catch-cube do
+			-- what the hands can't reach.
+			local flatStance = nearHold and floorShot and speed > CONFIG.NEAR_SMOTHER_SPEED
 			log(string.format("%s — holding the middle at %.0f studs (lateral %.1f is %s)",
-				nearHold and "🪹 IN REACH" or (trickyHold and "🃏 TRICKY READ" or "🧷 LONG READ"),
+				flatStance and "📐 FLAT STANCE" or (nearHold and "🪹 IN REACH" or (trickyHold and "🃏 TRICKY READ" or "🧷 LONG READ")),
 				distToGoalie, math.abs((crossLateral or horizontalDist)),
-				nearHold and "inside arm's reach — step in, don't dive yourself past it"
+				flatStance and "low, and UNDER the dive — the body is the save here"
+					or nearHold and "inside arm's reach — step in, don't dive yourself past it"
 					or trickyHold and "a frame, not a promise — his kit is built to sell it"
 					or "a guess, not a save"))
 		end
@@ -6623,6 +6773,7 @@ local function mainStep(deltaTime)
 		local soft = speed < baitBar
 			and not (ST.peakSinceShot >= CONFIG.BAIT_LAUNCH_EXEMPT
 				and lastShooterPlayer and (now - lastShooterTime) < 1.5)
+			and not trickyTrust -- 🃏 v2.81: an announced heel flick is not a roller
 		local geom = onTarget and approachSpeed > 0
 			and distToGoalie > CONFIG.BAIT_SMOTHER_DIST
 		local live = (not isDribbling) and geom
@@ -6632,7 +6783,35 @@ local function mainStep(deltaTime)
 		-- CLEARED the carry flag's lag and still has its owner on it: dribble
 		-- off, orbit ON, sub-cap speed. Carry flag stays out (it lags a struck
 		-- ball for studs — the ORBIT is the truth).
-		local touch = live and speed < CONFIG.BAIT_TOUCH_MAX
+		-- 🌈 v2.81 SCORPION DISCIPLINE (friend, verbatim: "when the ai see someone
+		-- rainbow flick he auto dive and then the scorpion hits — make it not
+		-- dive for gaga mains when they flick, cuz the cd is bad"). v2.56's
+		-- flick memory kills the lunge and the leap; this kills the DIVE. While
+		-- an AERIAL-KIT man still owns his own popped ball, nothing commits
+		-- beyond smother range: the drop is his to collect, the strike is the
+		-- real read — and a scorpion IS a struck ball (DRIBBLE_MAX clears the
+		-- window the frame it flies, and inside smother range hands still beat
+		-- pride). It must outrank the soft-ball tiers: a flick drop LOOKS
+		-- exactly like a dribble-touch spike, and the whole point is that it
+		-- is a strike's preface, not a poke.
+		if (not baitHold) and ST.flickT
+			and (now - ST.flickT) < CONFIG.FLICK_MEMORY
+			and speed < CONFIG.DRIBBLE_MAX_SPEED
+			and distToGoalie > CONFIG.BAIT_SMOTHER_DIST
+			and ST.flickKey and nearPlayer and nearPlayer.Name == ST.flickKey then
+			-- the style tag can land AFTER the pop, so read the kit here, not
+			-- at flick time: an AERIAL profile (gagamaru-shidou-ichigo family)
+			-- is the one that pops low to hide a backflip strike.
+			local fp = charByPlayer[nearPlayer]
+			if fp and CHAR_PROFILES[fp] and CHAR_PROFILES[fp].aerial then
+				baitHold, baitWhy = true, "post-flick aerial kit — scorpion discipline"
+				if (not ST.scorpLogged) or (now - ST.scorpLogged > 3) then
+					ST.scorpLogged = now
+					log("[AI-Dive] 🌈 SCORPION DISCIPLINE — the flicker owns an aerial kit: feet until the pop is STRUCK, never dive at the drop", true)
+				end
+			end
+		end
+		local touch = live and not baitHold and speed < CONFIG.BAIT_TOUCH_MAX and not trickyTrust
 			and ST.peakSinceShot < CONFIG.BAIT_TOUCH_MAX -- ⚡ a cooled rocket is not a poke
 			and strikerDist and strikerDist <= CONFIG.BAIT_ORBIT_DIST
 			and lastShooterPlayer and ((now - lastShooterTime) < CONFIG.BAIT_TOUCH_FRESH
