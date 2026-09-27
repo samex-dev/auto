@@ -1,5 +1,38 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.81 "read the swing."
+	⚡ ZERO-LATENCY GK AI — v2.82 "the keeper who adapts."
+	-- 🎛️ v2.82 ADAPTIVE CLOCK: the keeper breathes with the device. One
+	-- scale (×1.0 on a healthy rig, ×1.5 worst case, ×0.75 best) is sampled
+	-- once per frame from THREE live signals — getNetworkPing(), the
+	-- alert→motion gap off every shot credit (the measured link, not a
+	-- guess), and the frame rate off the paint governor — and applied at
+	-- every time window: the fake confirm widens on lag, tightens at 60.
+	--  BAIT 2.0 — the two fakes the v2.81 net still let through, both
+	-- caught on the ball's own motion history (no stat, just timing):
+	-- (a) APPROACH STALL — the sprint that quits: the true ball speed is
+	-- tracked while the ball moves at us; a dead ball in the 11–26 band
+	-- with a man still at it inside 0.8 s of the stop is a fake run — one
+	-- episode, the net stays home. (b) WHIP FEINT — the 180° turn over a
+	-- dead ball: two clean heading samples (the 0.5 s root refresh is the
+	-- sampler, so weak straddle samples never chase the heading) reversing
+	-- inside 0.45–1.2 s with dot < −0.8 is footwork, not a shot. Both
+	-- needed the interest gate to open for quiet balls — the exception is
+	-- shaped, not a hole: feint-speed man at the dead ball, the stall
+	-- shape itself, or a high-speed drop — everything else idles as before.
+	-- 📈 PATTERN LEAD — the ledger learns the man's CORNER: every aimed
+	-- crossing banks per name, and three-in-a-house is a habit the stance
+	-- consults on the fresh-strike coin flip ("goes right 67% of the time —
+	-- the heart is right-biased until the crossing proves otherwise").
+	-- 🖼️ RESEARCH — every Blue Lock Skibidi character and pose the fandom
+	-- wiki carries is inventoried (addendum 22; the binaries stay out of
+	-- the sandbox — no egress — the URLs and the quest census are in).
+	-- 🐛 TWO LUA TRUTHY-ZERO BUGS — a "never happened" stamp of 0 is a
+	-- TRUTH in Lua: baitHeatT=0 read as "heated one second ago" for the
+	-- first second of every scenario (the gate exception leaked Speed-0
+	-- dead balls into the cascade — S05/S91–S96/S103/S104), and
+	-- stallEpT/whipEpT/whipLogged=0 read as "always happened" (the brand
+	-- new detectors could never log before t=1.0). The sentinel is -1e9:
+	-- clocks count up, "never" is negative infinity.
+	--
 	-- 🎭 v2.81 READ THE SWING: the friend's list, all four, off their own
 	-- words. (1) "the barou fakes are easy to know, by the animation" — the
 	-- game SPAWNS a named effect the frame a skill's animation starts, so a
@@ -1002,6 +1035,21 @@ local CONFIG = {
 	SWING_HOLD          = 1.0,    -- s of dead ball after the swing = fake, confirmed (shorter = false on wind-ups)
 	SWING_DEAD          = 8,      -- studs/s at/below which the ball "never moved"
 	SWING_TRUST         = 1.1,    -- s a named tricky strike is trusted through the soft nets
+	-- 🎛️ v2.82 THE ADAPTIVE CLOCK: the device and the link are measured, not
+	-- assumed. One scale (×1.0 on a healthy rig, up to CLOCK_MAX on a
+	-- struggling one) widens every time window in the file — swing
+	-- conviction, flick memory, bait memory, the prediction lead, the
+	-- loft-catch window. Lag comes from the ping AND the alert→motion gap
+	-- (the game spawns the move's effect the frame the shot is announced —
+	-- the gap to first motion is exactly the lag the keeper lives in); fps
+	-- comes off the paint governor's frame EMA.
+	ADAPTIVE_CLOCK      = true,
+	CLOCK_LAG_MAX       = 0.6,    -- s of link lag (ping or alert→motion) that saturates the link term
+	CLOCK_FPS_LOW       = 40,     -- fps at/above which the frame term is zero
+	CLOCK_FPS_FLOOR     = 25,     -- fps at/below which the frame term maxes out
+	CLOCK_MAX           = 1.5,    -- hard ceiling: no window ever doubles
+	CLOCK_MIN           = 0.75,   -- hard floor: a healthy rig tightens, never below
+	CLOCK_SAMPLE        = 0.25,   -- EMA alpha for the alert→motion lag sample
 	BAITER_WINDOW       = 12,
 	BAITER_HUNT         = 20,
 	BAITER_BAR_BONUS    = 12,
@@ -1337,6 +1385,12 @@ local CONFIG_RULES = {
 	{ "SWING_HOLD",               0.30,   2.00, 1.0 },    -- v2.81: dead-ball seconds that confirm a swing fake
 	{ "SWING_DEAD",               2.0,   20.0,   8 },     -- v2.81: "the ball never moved" speed ceiling
 	{ "SWING_TRUST",              0.4,    3.0,  1.1 },    -- v2.81: life of the named-tricky trust stamp
+	{ "CLOCK_LAG_MAX",              0.2,    1.5,   0.6 }, -- v2.82: link term saturation
+	{ "CLOCK_FPS_LOW",              25,     60,    40 },  -- above this fps the frame term is 0
+	{ "CLOCK_FPS_FLOOR",            10,     40,    25 },
+	{ "CLOCK_MAX",                  1.0,    2.0,   1.5 }, -- 2.0 would double every conviction
+	{ "CLOCK_MIN",                  0.5,    1.0,   0.75 },
+	{ "CLOCK_SAMPLE",               0.05,   1.0,   0.25 },
 	{ "BAITER_REPEAT_WINDOW",       15.0, 300.0, 60 },   -- keep it above a substitution cycle
 	{ "AWAKE_WATCH",                 3.0,  12.0, 6.5 },   -- below the longest documented cutscene+release and the promise is blind
 	{ "AWAKE_BOMB_DISCOUNT",         0.0,  60.0, 20 },   -- 60+ collapses every fast shot into a bomb — never
@@ -4073,7 +4127,58 @@ local ST = {
 	groundT         = 0,     -- when that was last recomputed
 	jumpBlockedWarned = false, -- the "game owns the humanoid states" notice, once
 	pausedParked      = false,   -- the paused frame already parked the visuals/HUD
+	-- 🎛️ v2.82 adaptive clock + bait-2.0 + pattern lead memory
+	netLag          = 0,       -- EMA of the alert→motion gap (s) — the measured link
+	fpsAvg          = 60,      -- EMA of the frame rate off the paint governor's dt
+	approachPeak    = 0,       -- hottest ball-toward-keeper speed of the current burst
+	approachT       = 0,       -- when that approach was last moving
+	stallEpT        = -1e9,    -- last APPROACH STALL episode (dedupe)
+	stallLogged     = -1e9,    -- last APPROACH STALL log
+	whipDir         = nil,     -- last carrier heading (unit) for the WHIP FEINT dot test
+	whipT           = -1e9,    -- when that heading was sampled
+	whipEpT         = -1e9,    -- last WHIP FEINT episode (dedupe)
+	whipLogged      = -1e9,    -- last WHIP FEINT log
+	cornerShot      = 0,       -- lastShotReset already banked into the corner ledger
+	patternLogged   = 0,       -- last PATTERN LEAD log
+	baitHeatT       = -1e9,    -- last time a feint-speed man sat at a dead ball's feet (0 = LUA TRUTH — sentinel, not a clock)
 }
+
+-- 🎛️ v2.82 THE ADAPTIVE CLOCK. The windows this script thinks in were tuned
+-- on a healthy desktop; a 25 fps phone samples the world in stuttering
+-- chunks and a 400 ms link delivers a ball that left the foot half a second
+-- ago. Both make the same tuned window convict fakes that were strikes and
+-- commit to where the ball WAS. So the clock measures — ping off
+-- getNetworkPing, the alert→motion gap off the shot credit, fps off the
+-- paint governor — and returns ONE scale applied at every time window.
+ST.clock = (function()
+	local c = CONFIG
+	return {
+		scale = function(self, now)
+			if not c.ADAPTIVE_CLOCK then return 1 end
+			local frame = math.floor((now or 0) * 60)
+			if self.frame == frame and self.s then return self.s end
+			local pingMs = getNetworkPing() * 1000
+			local linkMs = math.max(pingMs, (ST.netLag or 0) * 1000)
+			local lagT = math.clamp(linkMs / 1000 / c.CLOCK_LAG_MAX, 0, 1)
+			local fps = ST.fpsAvg or 60
+			local frameT = fps >= c.CLOCK_FPS_LOW and 0
+				or math.clamp((c.CLOCK_FPS_LOW - fps) / math.max(1, c.CLOCK_FPS_LOW - c.CLOCK_FPS_FLOOR), 0, 1)
+			local s = math.clamp(1 + 0.5 * lagT + 0.2 * frameT, c.CLOCK_MIN, c.CLOCK_MAX)
+			self.s, self.frame = s, frame
+			if math.abs(s - (self.last or 1)) > 0.08 and (now or 0) - (self.logT or -1e9) > 12 then
+				self.last, self.logT = s, now or 0
+				log(string.format("🎛️ ADAPTIVE — link ~%.0f ms · ~%.0f fps · windows ×%.2f — the keeper breathes with the device",
+					linkMs, fps, s), true)
+			end
+			return s
+		end,
+		sampleLag = function(self, lag)
+			if type(lag) == "number" and lag >= 0 and lag < 1.5 then
+				ST.netLag = (ST.netLag or 0) * (1 - c.CLOCK_SAMPLE) + lag * c.CLOCK_SAMPLE
+			end
+		end,
+	}
+end)()
 
 -- 📈 v2.80 THE MAN LEDGER — everything a named opponent has done to this
 -- keeper, counted per name, decaying slowly, read BEFORE the next strike. It
@@ -4089,7 +4194,7 @@ ST.prof = (function()
 		if not pr then
 			pr = { key = k, shots = 0, spAvg = 0, distAvg = 0, drib = 0,
 				touch = 0, pass = 0, box = 0, swings = 0, saved = 0, conceded = 0,
-				cls = nil, clsT = 0 }
+				cR = 0, cL = 0, cM = 0, cls = nil, clsT = 0 }
 			P.p[k] = pr
 		end
 		return pr
@@ -4165,6 +4270,30 @@ ST.prof = (function()
 		local pr = row(who)
 		pr.swings = pr.swings + 1
 		pr.touch = pr.touch + 1
+	end
+	-- 📈 v2.82 PATTERN LEAD: the corner a shot was AIMED at (the predicted
+	-- crossing that reaches the line), banked per name. Three corners in the
+	-- same house is a habit — the stance consults it before the crossing
+	-- promises it.
+	function P:corner(who, side)
+		if not who then return end
+		local pr = row(who)
+		if side == "R" then pr.cR = (pr.cR or 0) + 1
+		elseif side == "L" then pr.cL = (pr.cL or 0) + 1
+		else pr.cM = (pr.cM or 0) + 1 end
+	end
+	function P:pattern(who)
+		if not who then return nil end
+		local pr = P.p[who]
+		if not pr then return nil end
+		local n = (pr.cR or 0) + (pr.cL or 0) + (pr.cM or 0)
+		if n < 2 then return nil end
+		local best, bestSide = 0, nil
+		if (pr.cR or 0) > best then best, bestSide = pr.cR, "R" end
+		if (pr.cL or 0) > best then best, bestSide = pr.cL, "L" end
+		if (pr.cM or 0) > best and bestSide == nil then best, bestSide = pr.cM, "M" end
+		if bestSide and best / n >= 2 / 3 then return bestSide, best / n end
+		return nil
 	end
 	-- the ledger's own consequences, kept next to the class it produced:
 	function P:result(scored, who)
@@ -4330,7 +4459,7 @@ function ST.swing:check(now, alert, episode)
 					end
 				end
 			end
-			if nm and now - self.t0 >= CONFIG.SWING_HOLD then
+			if nm and now - self.t0 >= CONFIG.SWING_HOLD * ST.clock:scale(now) then
 				self.done, self.t0 = true, nil
 				ST.prof:swing(nm, now)
 				if episode and key then episode(key, now) end
@@ -4462,6 +4591,8 @@ RunService.Heartbeat:Connect(function(dt)
 		-- per second. Slower EMA + a recovery dwell: downshifts remain
 		-- instant (protect the phone first), upshifts need calm frames.
 		emaDt = emaDt * 0.96 + (dt or 0.016) * 0.04
+		-- 🎛️ v2.82: the same frame EMA the paint governor reads feeds the clock
+		if emaDt > 0.001 then ST.fpsAvg = (ST.fpsAvg or 60) * 0.95 + (1 / emaDt) * 0.05 end
 		local tier = ST.ecoTier or 0
 		local want = tier
 		if emaDt > 0.040 then want = 2
@@ -5357,6 +5488,8 @@ local function mainStep(deltaTime)
 			lastShooterKey    = who and teamKeyOf(who) or nil
 			lastShooterPlayer = who or shooterPlayer
 			lastShooterTime   = now
+			-- 🎛️ v2.82: the alert→motion gap IS the link the keeper lives in
+			if abilityAlert and (now - abilityAlert.t) < 1.0 then ST.clock:sampleLag(now - abilityAlert.t) end
 			ST.prof:arm(lastShooterPlayer and lastShooterPlayer.Name, speed, (ballPos - rootPos).Magnitude, now) -- 📈 v2.80
 			-- ⚗️ v2.68: the man we were watching RECEIVE just kicked it — the
 			-- chemistry shot is here. ONE free strike off the bait tiers (the
@@ -5673,8 +5806,37 @@ local function mainStep(deltaTime)
 	end
 
 	if speed < CONFIG.MIN_INTEREST_SPEED then
-		markIdle()
-		return
+		-- 🪤 v2.82: quiet is not the same as safe. The gate exists to skip
+		-- PREDICTION for dead balls — but a feint-speed opponent at a dead
+		-- ball's feet is exactly the shape bait-2.0 hunts (the sprint that
+		-- quits, the 180° turn), and a slow drop into the mouth is stalked,
+		-- not waited out. A live bait shape — or one second of its
+		-- afterimage — keeps the read running; everything else idles as
+		-- before, and the PREDICTION is still skipped for all of it.
+		local baitish = false
+		local manAtBall = false
+		for _, e in ipairs(refreshPlayerRoots()) do
+			local dGate = (e.root.Position - ballPos).Magnitude
+			if dGate <= 12 then manAtBall = true end
+			if e.vel and e.vel.Magnitude > 15 and dGate <= 20 then
+				ST.baitHeatT = now
+				baitish = true
+			end
+		end
+		local dropNear = velocity and velocity.Y < -1 and ballPos.Y > 5
+			and (ballPos - rootPos).Magnitude <= 12
+		-- heat alone (the sprint that quit) only opens the net when the stall
+		-- shape is on: dead ball in the 11–26 band with a man still at it.
+		-- A real shot that dies point-blank has its shooter 30 studs away —
+		-- that stays closed. (speed/distToGoalie: the gate runs before the
+		-- post-gate locals, so they are read straight from the ball state.)
+		local stallShape = (ST.baitHeatT and (now - ST.baitHeatT) < 1.0)
+			and speed < 5 and (ballPos - rootPos).Magnitude > 11 and (ballPos - rootPos).Magnitude <= 26
+			and manAtBall
+		if not baitish and not stallShape and not dropNear then
+			markIdle()
+			return
+		end
 	end
 
 	local distToGoalie = (ballPos - rootPos).Magnitude
@@ -5703,7 +5865,7 @@ local function mainStep(deltaTime)
 		if dt > 0.08 and span < dt * 80 then
 			local gVel = (GK.history[n].pos - GK.history[j].pos) / dt
 			local estTTI = math.max(0, (distToGoalie - 3) / math.max(speed, 1))
-			local lead = math.min(estTTI, CONFIG.GK_PREDICT_MAX)
+			local lead = math.min(estTTI, CONFIG.GK_PREDICT_MAX * ST.clock:scale(now))
 			if lead > 0.05 then
 				aimPos = rootPos + gVel * lead
 			end
@@ -6190,6 +6352,19 @@ local function mainStep(deltaTime)
 	-- Projection of ball velocity onto the "toward the keeper" axis.
 	-- Positive = coming at us. Clearly negative = going away (pass/clear).
 	local approachSpeed = (rootPos - ballPos):Dot(velocity) / math.max(speed, 1)
+	-- 🪤 v2.82 APPROACH STALL memory: the hottest TRUE ball speed of the
+	-- burst (approachSpeed is a normalized projection — a distance, not a
+	-- speed — so the peak is read off `speed` while the ball still moves
+	-- toward us), with its last-motion stamp. The stall test reads both
+	-- after the death.
+	local approaching = approachSpeed > 0
+	if approaching and speed > 20 and speed > (ST.approachPeak or 0) then
+		ST.approachPeak, ST.approachT = speed, now
+	end
+	-- the sprint itself is the heat: a ball closing at 20+/s is the shape
+	-- that becomes a stall the moment it dies
+	if approaching and speed > 20 then ST.baitHeatT = now end
+	if ST.approachPeak and (now - (ST.approachT or 0)) > 1.5 then ST.approachPeak = 0 end
 	local movingAway    = approachSpeed < -CONFIG.AWAY_THRESHOLD
 
 	-- 🌈 JUGGLE / RAINBOW DETECTION: a juggling ball is not a shot.
@@ -6405,6 +6580,15 @@ local function mainStep(deltaTime)
 		ST.simMinD, ST.simIX, ST.simIY, ST.simIZ, ST.simTTI = minDistance, impactX, impactY, impactZ, timeToImpact
 		ST.simCY, ST.simCL, ST.simCW, ST.simCP, ST.simCOT = crossY, crossLateral, crossWide, crossPos, crossOnTarget
 		ST.simPathN, ST.simDist = pathCount, distToGoalie
+		-- 📈 v2.82 PATTERN LEAD feed: the predicted crossing that reaches the
+		-- line is the shot's AIM — banked per name, once per shot (the
+		-- lastShotReset dedupe). A save or a goal does not erase the aim:
+		-- the habit is in the aim, not the outcome.
+		if crossOnTarget and lastShooterPlayer and ST.lastShotReset ~= ST.cornerShot then
+			ST.cornerShot = ST.lastShotReset
+			ST.prof:corner(lastShooterPlayer.Name,
+				crossLateral > 1.5 and "R" or (crossLateral < -1.5 and "L" or "M"))
+		end
 	end
 
 	local impactPos = Vector3.new(impactX, impactY, impactZ)
@@ -6626,6 +6810,24 @@ local function mainStep(deltaTime)
 	local trickyLive = abilityAlert ~= nil and (now - abilityAlert.t) < 2.5
 		and abilityAlert.moveTricky or nil
 
+	-- 📈 v2.82 PATTERN LEAD: the ledger's corner habit for the man who shot —
+	-- consulted at the middle-holds below, where a fresh strike is otherwise
+	-- a coin flip.
+	local patSide, patShare = nil, nil
+	if lastShooterPlayer then
+		patSide, patShare = ST.prof:pattern(lastShooterPlayer.Name)
+	end
+	if patSide and lastShooterPlayer
+		and (direction == "Right" or direction == "Left")
+		and ((patSide == "R" and direction == "Right") or (patSide == "L" and direction == "Left"))
+		and ((not ST.patternLogged) or (now - ST.patternLogged > 3)) then
+		ST.patternLogged = now
+		log(string.format("📈 PATTERN LEAD — %s goes %s %.0f%% of the time — the heart is %s until the crossing proves otherwise",
+			tostring(lastShooterPlayer.Name):upper():sub(1, 12),
+			patSide == "R" and "RIGHT" or "LEFT", (patShare or 0) * 100,
+			patSide == "R" and "right-biased" or "left-biased"), true)
+	end
+
 	if CONFIG.INVERT_DIVE_DIRECTION then
 		if direction == "Left" then direction = "Right"
 		elseif direction == "Right" then direction = "Left"
@@ -6646,6 +6848,11 @@ local function mainStep(deltaTime)
 		-- read lies more, so the trust bar is higher, not lower.
 		and not (activeMode and activeMode.primeSide)
 		and (not ST.gyroT or now - ST.gyroT > 0.7)
+		-- 📈 v2.82 PATTERN LEAD: a proven corner habit for the man who shot
+		-- breaks the middle-hold — the live read and the ledger agree on the
+		-- same side, and the ledger has seen it at least twice.
+		and not (patSide and ((crossLateral or horizontalDist) >= 0 and patSide == "R"
+			or (crossLateral or horizontalDist) < 0 and patSide == "L"))
 		and (math.abs((crossLateral or horizontalDist)) <= (
 			distToGoalie > CONFIG.SIDE_GUESS_DIST
 				and centerTol * (trickyLive and CONFIG.TRICKY_BAND or 1.8)
@@ -6795,7 +7002,7 @@ local function mainStep(deltaTime)
 		-- exactly like a dribble-touch spike, and the whole point is that it
 		-- is a strike's preface, not a poke.
 		if (not baitHold) and ST.flickT
-			and (now - ST.flickT) < CONFIG.FLICK_MEMORY
+			and (now - ST.flickT) < CONFIG.FLICK_MEMORY * ST.clock:scale(now)
 			and speed < CONFIG.DRIBBLE_MAX_SPEED
 			and distToGoalie > CONFIG.BAIT_SMOTHER_DIST
 			and ST.flickKey and nearPlayer and nearPlayer.Name == ST.flickKey then
@@ -6821,7 +7028,7 @@ local function mainStep(deltaTime)
 		local chaser = live and soft and lastShooterPlayer and (now - lastShooterTime) < CONFIG.SHOT_OWNER_MEMORY
 			and strikerDist and strikerDist <= CONFIG.BAIT_CHASE_DIST
 		local remembered = live and soft and ST.baitMark and lastShooterKey and ST.baitMark.key == lastShooterKey
-			and (now - ST.baitMark.t) < CONFIG.BAIT_MEMORY
+			and (now - ST.baitMark.t) < CONFIG.BAIT_MEMORY * ST.clock:scale(now)
 		local loose = live and soft and (not ballControlled) and distToGoalie <= CONFIG.BAIT_LOOSE_MAX
 		-- 🪤 v2.71 RECLAIM — spike, sprint, kill it at his own feet. The touch
 		-- tell survives half a second; THIS shape survives as long as it takes,
@@ -6841,6 +7048,76 @@ local function mainStep(deltaTime)
 			log(string.format("[AI-Dive] 🪤 RECLAIMED — spiked at %.0f/s then killed it %.0f studs off his own boot — a move, not a shot",
 				ST.peakSinceShot, strikerDist or 0), true)
 		end
+		-- 🪤 v2.82 BAIT 2.0 — the two fake shapes the v2.71 net still let
+		-- through: the sprint that quits, and the 180° turn over a dead ball.
+		-- (a) APPROACH STALL — he came at you at shot-approach pace and the
+		-- forward drive just died with the ball at his feet. A real sprint
+		-- ends in a KICK (the shot credit owns that); a stall ends in
+		-- nothing. One episode per approach burst.
+		local stall = false
+		if speed < 5 and poss ~= "own"
+			and distToGoalie <= 26 and distToGoalie > CONFIG.BAIT_SMOTHER_DIST
+			and (ST.approachPeak or 0) > 35 and (now - (ST.approachT or 0)) < 0.8
+			and (now - (ST.stallEpT or 0)) > 1.0
+			and (not lastShooterPlayer or (now - lastShooterTime) > 1.0
+				-- a sprint CREDITS at its first frame (still→motion) — but the
+				-- ball still at his feet marks it as a run, not a strike
+				or (strikerDist and strikerDist <= CONFIG.BAIT_ORBIT_DIST)) then
+			local aKey = teamKeyOf(carrierPlayer or nearPlayer)
+			if aKey then
+				baitEpisode(aKey, now)
+				stall = true
+				ST.stallEpT = now
+				if (not ST.stallLogged) or (now - ST.stallLogged > 3) then
+					ST.stallLogged = now
+					log(string.format("[AI-Dive] 🪤 APPROACH STALL — sprinted at %.0f/s and quit %.0f studs out — a fake run, not a shot",
+						ST.approachPeak, distToGoalie), true)
+				end
+				-- consume the burst: the 1.5 s decay above recovers any
+				-- remnant, but an explicit zero keeps the next sprint clean
+				ST.approachPeak = 0
+			end
+		end
+		-- (b) WHIP FEINT — the carrier's heading flipped ~180° inside the
+		-- refresh cadence while the ball sat dead at his feet. Shots keep a
+		-- heading; feints change it.
+		local whip = false
+		if speed < 10 and (now - (ST.whipEpT or 0)) > 1.2 then
+			local wWho = carrierPlayer or nearPlayer
+			local wEnt = nil
+			if wWho then
+				for _, e in ipairs(refreshPlayerRoots()) do
+					if e.player == wWho then wEnt = e break end
+				end
+			end
+			local wVel = wEnt and wEnt.vel
+			if wVel and wVel.Magnitude > 15 then
+				local wd = wVel.Unit
+				-- the heading must be at least one refresh old (a true reversal,
+				-- not the same sample read twice) and at most two refreshes old
+				if ST.whipDir and (now - (ST.whipT or 0)) >= 0.45
+					and (now - (ST.whipT or 0)) <= 1.2
+					and (ST.whipDir:Dot(wd)) < -0.8 then
+					local wKey = teamKeyOf(wWho)
+					if wKey then
+						baitEpisode(wKey, now)
+						whip = true
+						ST.whipEpT = now
+						if (not ST.whipLogged) or (now - ST.whipLogged > 3) then
+							ST.whipLogged = now
+							log("[AI-Dive] 🪤 WHIP FEINT — a 180° turn over a dead ball — footwork, not a shot", true)
+						end
+					end
+					ST.whipDir = nil
+				else
+					ST.whipDir, ST.whipT = wd, now
+				end
+			else
+				ST.whipDir = nil
+			end
+		else
+			ST.whipDir = nil
+		end
 		if touch then
 			baitShape, shapeWhy = true, "dribble-touch spike"
 		elseif chaser then
@@ -6851,6 +7128,10 @@ local function mainStep(deltaTime)
 			baitShape, shapeWhy = true, "loose roller in the box"
 		elseif reclaim then
 			baitShape, shapeWhy = true, "spike he reclaimed"
+		elseif stall then
+			baitShape, shapeWhy = true, "approach he quit"
+		elseif whip then
+			baitShape, shapeWhy = true, "whip feint"
 		end
 		-- Episode accounting rides the SHAPE-START edge, not the log cadence —
 		-- a deduped toast must never hide a held ball from the baiter flag.
@@ -7011,7 +7292,7 @@ local function mainStep(deltaTime)
 		-- window, and the keeper who waits is the keeper who concedes the second
 		-- ball. S12's juggler carries no such flag and stays untouchable.
 		and ((not isJuggle) or (activeMode and activeMode.tacklePressure))
-		and (ballControlled or (ST.flickT and (now - ST.flickT) < CONFIG.FLICK_MEMORY + 0.6
+		and (ballControlled or (ST.flickT and (now - ST.flickT) < CONFIG.FLICK_MEMORY * ST.clock:scale(now) + 0.6
 			and bestD and bestD <= 4 and speed < 8)
 			or (activeMode and activeMode.tacklePressure and bestD and bestD <= 6
 				and speed < 12)) -- v2.61 PRESSURE-COLLECT: rapid touches raise no flick EVENT —
@@ -7041,7 +7322,7 @@ local function mainStep(deltaTime)
 	-- ballistically. While the ball is still rising we wait — diving early
 	-- leaves the opposite side open.
 	local loftFired = false
-	local flickLive = ST.flickT and (now - ST.flickT) < CONFIG.FLICK_MEMORY
+	local flickLive = ST.flickT and (now - ST.flickT) < CONFIG.FLICK_MEMORY * ST.clock:scale(now)
 		and speed < CONFIG.DRIBBLE_MAX_SPEED
 	if speed >= CONFIG.MIN_SHOT_SPEED
 		and not flickLive -- 🌈 the flick drop is the attacker's ball; catch it and
@@ -7063,7 +7344,7 @@ local function mainStep(deltaTime)
 			local D = vy * vy - 2 * gY * (y0 - catchY)
 			if D > 0 then
 				local tCatch = (-vy - math.sqrt(D)) / gY -- descending root
-				if tCatch > 0 and tCatch <= (CONFIG.LOFT_CATCH_WINDOW + getNetworkPing()) then
+				if tCatch > 0 and tCatch <= (CONFIG.LOFT_CATCH_WINDOW + getNetworkPing()) * ST.clock:scale(now) then
 					local catchPos = ballPos + Vector3.new(velocity.X, 0, velocity.Z) * tCatch
 					local catchLat = (catchPos - aimPos):Dot(camRight)
 					if math.abs(catchLat) <= CONFIG.LOFT_CATCH_REACH then
@@ -7074,14 +7355,55 @@ local function mainStep(deltaTime)
 			end
 		end
 	end
+	-- 🪂 v2.82 DROP STALK — the "cooler trajectory" half: a SLOW drop inside
+	-- the mouth is not a shot and not a smother — it is a ball the keeper
+	-- plays under. The old LOFT CATCH only answered fast descents
+	-- (vy < -10); a 2–3 studs/s drop sailed under every gate and the keeper
+	-- stood in the heart while it settled on top of him. Now: descending,
+	-- above hand height, dead-slow, INSIDE the mouth (the flick's own drop
+	-- is still the flicker's while the flick memory breathes — scorpion
+	-- discipline), and the ballistic solve says it crosses hand height in
+	-- reach → the keeper commits a Forward under it BEFORE it settles.
+	local dropStalk = false
+	if (not loftFired) and (not tackleFired)
+		and velocity and velocity.Y < -1 and velocity.Y > -12
+		and ballPos.Y > 5 and speed < 25
+		and not isCarried and not isJuggle and poss ~= "own" and not movingAway
+		and not receiverInPath
+		and distToGoalie <= 12
+		and math.abs(crossLateral or 0) <= (gHalfWidth or 8) + 2
+		and not (ST.flickT and (now - ST.flickT) < CONFIG.FLICK_MEMORY * ST.clock:scale(now))
+		and (now >= ST.cooldownUntil) then
+		local catchY3 = aimPos.Y + 1.5
+		if ballPos.Y > catchY3 then
+			local gY3 = (accel and accel.Y < -50) and accel.Y or gravity
+			local vy3 = velocity.Y
+			local D3 = vy3 * vy3 - 2 * gY3 * (ballPos.Y - catchY3)
+			if D3 > 0 then
+				local tC3 = (-vy3 - math.sqrt(D3)) / gY3
+				if tC3 > 0 and tC3 <= (CONFIG.LOFT_CATCH_WINDOW + getNetworkPing()) * 2 then
+					local cP3 = ballPos + Vector3.new(velocity.X, 0, velocity.Z) * tC3
+					if math.abs((cP3 - aimPos):Dot(camRight)) <= CONFIG.LOFT_CATCH_REACH then
+						dropStalk = true
+						direction = "Forward"
+					end
+				end
+			end
+		end
+	end
 	if tackleFired then
 		-- 🤾 GK TACKLE already fired above — the tackle IS the response;
 		-- skip the dive cascade for this frame.
 		ST.commitDir, ST.commitFrames = nil, 0
-	elseif loftFired then
-		hudLabel, hudColor = "LOFT CATCH!", Color3.fromRGB(255, 60, 60)
-		log(string.format("[AI-Dive] 🎈 LOFT CATCH | @%.1f studs | vy %.0f",
-			distToGoalie, velocity.Y))
+	elseif loftFired or dropStalk then
+		hudLabel, hudColor = dropStalk and "DROP STALK!" or "LOFT CATCH!", Color3.fromRGB(255, 60, 60)
+		if dropStalk then
+			log(string.format("[AI-Dive] 🪂 DROP STALK — slow drop inside the mouth: under it before it settles (vy %.0f, %.0f studs)",
+				velocity.Y, distToGoalie))
+		else
+			log(string.format("[AI-Dive] 🎈 LOFT CATCH | @%.1f studs | vy %.0f",
+				distToGoalie, velocity.Y))
+		end
 		fireDive("Forward", now, speed, approachSpeed, effCooldown, jumpImpact, jumpGoal)
 
 	-- NOTE: the MIN_SHOT_SPEED gate uses RAW speed (not the smoothed EMA) so
