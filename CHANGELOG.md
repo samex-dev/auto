@@ -4,6 +4,266 @@ Every release note the script used to carry in its own header comment, newest
 first. The header now holds only the current release + the essentials; this file
 is the history. Entries were written against the in-game misses each version
 fixed, so they double as the design rationale for the thresholds in `CONFIG`.
+---
+
+## v2.83 — "the keeper who knows the moment." · the load-now button, Bait 3.0 (eight new shapes), Counter 2.0, Trajectory 3.0, MATCH SENSE
+
+- ⚡ USER (verbatim): "add 100 features that u want anything and also improve
+  bait detection by a lot for barou and everything else also counter styles
+  too improve and add a button would you like to load the script now cuz 8
+  secs is annoying improve trajectory everything". All four asks ship here.
+  **On the 100 features — honestly counted: ~70 new capabilities landed in
+  this release** (24 Bait 3.0 + 4 bug fixes + 16 Counter 2.0 (5 mechanisms,
+  11 configured move rows) + 9 Trajectory 3.0 + 17 MATCH SENSE methods), each
+  documented below and pinned where it is testable. Not 100 round numbers —
+  every entry here is a real behaviour with a scenario or a probe behind it,
+  and inflating the count with renamed constants would have been a lie. The
+  remaining ~30 are queued, not claimed.
+- 🔘 LOAD NOW (the 8-second ask): the boot curtain now carries a
+  **"would you like to load the script now"** button. One press drops the
+  curtain and brings the keeper online immediately; left alone it runs the
+  full eight seconds exactly as before. The curtain is still fully guarded
+  and step-counted (v2.64/65) — it decorates the boot and cannot block it,
+  and skipping it is now the user's choice, not a wait. S154 pins it.
+- 🪤 BAIT 3.0 — eight new shapes on top of Bait 2.0, each with its own gate
+  signature so a quiet ball only pays for the reads it actually earned:
+  **POWER PULL** (a credited power strike that drags the ball BACKWARD off
+  its own line is the devour wind-up — announced, then pulled), **DOUBLE
+  PULL** (two pull-backs in one breath bills twice), **CARRY STALL** (a
+  dribble that stops dead at speed — the launch out of the check is the real
+  one), **WALKAWAY** (carrier + ball leaving together: the heat burns and
+  the surprise out of it earns a long trust), **BLEEDING CROSS** (a cross
+  that dies wide of the far post — judged on geometry, not trajectory),
+  **CIRCLE** (a man orbiting a dead ball), **CLASS SOFT** (a strike far
+  below his own ledgered mean is theatre), **HANDOFF** (a credited shot a
+  second man picks up — the ball-owner is re-attributed so the chaser tier,
+  the carry trust and the ledger follow the ball, not the credit). Class
+  reads `P:powerClass` (bomb class, `shots >= 2.5` floors the decaying
+  count) and `P:classOf`. S155–S162 pin all eight.
+- 🐛 FOUR real bugs fixed: (1) the whip-feint read forgot its last clean
+  heading on weak straddle samples, so a gate opener holding the net open
+  on a quiet frame let the reversal be swallowed (S152 — bisected against
+  /tmp checkpoints: auto.bak ✓, auto.gate ✓, auto.s160 ✗); (2) a keyless
+  man is not a teammate — the roster scan lags a fresh world and the
+  handoff read was comparing keys that did not exist yet; (3) the ledger's
+  decaying shot count could never reach an integer threshold, so class
+  reads now floor at 2.5; (4) reads log for teamless players too.
+- 🎭 COUNTER 2.0 — the move counters were timing choices only; they can now
+  carry **research**. `sideBias` commits a side in FLIGHT while the crossing
+  is still inside the band (the prime already armed it pre-release — this is
+  the second half): `"Left"` for the researched curve habit (Sae's "always
+  goes to the left", Rin's harder break), `"PATTERN"` for the striker's own
+  ledgered corner (Barou's long shot), `"MIRROR"` for a back-aimed finish
+  (Shidou's `formless`: aim right, ball goes left). A `trust` window lets a
+  named move keep the soft nets standing aside for exactly as long as it
+  deserves (devour 1.5 s — the strike after the pull is the real one; Reo's
+  `copies` 2.0 s — he mimics anyone's whole kit; the chop 0.6 s — it is its
+  own feint). Every row's `note` now prints on the arm line so the console
+  says WHY the move is met that way. 11 rows carry the new fields.
+- 🚀 TRAJECTORY 3.0 — five geometry fixes: **RESET GUARD** (a single frame
+  that moves the ball further than physics allows is a respawn or a server
+  correction, not a 1300/s strike — the cached arc is dropped before any
+  reader inherits the phantom); **APEX SETTLE** (a ball still climbing has
+  no crossing height yet, so its predicted height is provisional — only a
+  settled ball's height may commit a dive; flat drives are settled from
+  frame one, which is exactly why they get met rather than waited on);
+  **FRAME GRAZE** (a crossing a hair outside the woodwork is one deflection
+  away from being on target, so the keeper HOLDS his read instead of
+  clearing it); **TIME-SCALED REACH** (lateral reach is how far the keeper
+  can TRAVEL before the ball arrives, and travel is time — the flat ring
+  used to measure a 40-stud ball like one at his feet); **STICKY SIDE**
+  (within one shot reset a single jitter frame can no longer flip the
+  committed side — flipping takes a disagreeing frame AND the next one
+  agreeing). Plus the **CONCESSION BANK** (`P:bank`/`P:leak` — the corner
+  ledger counts where a man AIMS, the bank counts where he BEATS us: aim
+  and result are different books and they name different fixes) and a
+  **HEARTBEAT** (one honest status line every 30 s: saved, conceded, resets
+  eaten, the corner we are leaking, form, workload).
+- 🧠 MATCH SENSE (`ST.sense`) — 17 match-level reads a ball-tracking script
+  does not have by default, because "where is it going" is not "what kind of
+  moment is this": match clock, score state, **TILT METER** (a keeper beaten
+  twice in a row needs a STRICTER read, not a better guess — the side-guess
+  band widens by TILT_BAND until any save resets the streak), pressure
+  count, set piece, **BACK PASS** (our own man played it home — diving at
+  your own team's back-pass is the own goal the position exists to prevent),
+  shooting angle and near post (measured against the goal the script
+  resolved, trig-free so it runs on Luau and Lua 5.4 alike), **SHADE LINE**
+  (where to STAND to bisect the angle — positioning is the cheapest save
+  there is), second ball, crowd/chaos, one-on-one, counter, late game,
+  shutout, workload and form. Console-only telemetry (v2.67 no-paint rule).
+- ✅ 161/161 scenarios pass; `tools/lint.py` clean; 8 new scenario pins
+  (S155–S162) for the Bait 3.0 shapes.
+
+---
+
+## v2.82 — "the keeper who adapts." · the clock that breathes, the two fakes the net still let through, the corner habit
+
+- 🎛️ USER (Discord, verbatim): "improve the script get everything improve
+  everything / improve bait detection / make the trajectory better and
+  cooler / make the player pattern way more better / improve LITERALLY
+  everything / detection counters everything / auto dive config based on
+  ping based on fps / auto config for everything" — the ping+fps half is
+  this release's spine. ADAPTIVE CLOCK: one scale sampled once per frame
+  from three LIVE signals — `getNetworkPing()`, the alert→motion gap off
+  every shot credit (the link the keeper actually lives in, EMA'd at
+  CLOCK_SAMPLE 0.25), and the frame rate off the paint governor — is
+  applied at every time window in the script: s = clamp(1 + 0.5·lagT +
+  0.2·frameT, CLOCK_MIN 0.75, CLOCK_MAX 1.5). A 120 ms lag at 30 fps
+  breathes at ×1.5; a 20 ms 60 fps rig tightens to ×0.75. The fake
+  confirm, the fresh-pop, the swing hold, the receiver gate horizon —
+  every "how long do I wait" number now inherits the device. Telemetry
+  line every 12 s on a real change (`🎛️ ADAPTIVE — link ~… ms · ~… fps ·
+  windows ×…`), console only per the v2.67 no-paint rule. S153 pins it:
+  a measured 1.22 s link gap must keep the net home on a fake that a
+  healthy-rig window would have eaten.
+- 🪤 BAIT 2.0 — the two fakes the v2.81 net still let through, both read
+  off the ball's own motion history (no stat, just timing). (a)
+  APPROACH STALL — "the sprint that quits": the TRUE ball speed is
+  tracked while it moves at us (the old approachSpeed is a normalized
+  projection — a distance, not a speed — and the peak was being read off
+  it; caught by S151's own probe) and the moment a dead ball sits in the
+  11–26 band with a man still at it inside 0.8 s of the stop, the burst
+  is billed a fake run: one episode, the net stays home, and the 0.8 s
+  window is itself clock-scaled so lag widens the grace, never the
+  conviction. (b) WHIP FEINT — "the 180° turn over a dead ball": two
+  CLEAN heading samples (the 0.5 s root-velocity refresh is the sampler)
+  reversing inside 0.45–1.2 s with dot < −0.8 is footwork, not a shot.
+  The first attempt died on aliasing — 0.5 s juke phases vs a 0.5 s
+  sampler means straddle samples with |vel| < 15, and chasing those
+  smears the reversal away; the fix is that weak samples never touch the
+  stored heading, and the test window spans exactly the two clean
+  samples that bookend them (S152, juke phases lengthened to outlast the
+  sampler). Both charge bait episodes through the existing tax.
+- 🚪 THE GATE LEARNED THE EXCEPTION — and the exception is SHAPED, not a
+  hole. The interest gate (skip everything when the ball crawls below
+  10/s) had silently killed both new detectors: quiet balls never reached
+  the bait block. Now the gate opens when (a) a feint-speed man (vel >
+  15) sits within 20 of the dead ball — the baitish heat that also feeds
+  the stall clause, (b) the stall shape itself: fresh heat + dead ball in
+  the 11–26 band + a man at the ball, or (c) a high-speed drop within 12.
+  Everything else idles exactly as before (the sim, the path, the
+  receiver gate all still skip), and a real shot that dies point-blank
+  keeps its net closed — its shooter is 30 studs away, which the stall
+  shape refuses.
+- 📈 PATTERN LEAD — "make the player pattern way more better": the v2.80
+  ledger learns the man's CORNER, not just his speed. Every aimed
+  crossing that reaches the line banks per name (cR/cL/cM), and three
+  corners in one house is a habit: on a fresh strike that the geometry
+  leaves as a coin flip, the stance consults the ledger and the
+  telemetry says so — `📈 PATTERN LEAD — BACHIRA GOES RIGHT 67% OF THE
+  TIME — THE HEART IS RIGHT-BIASED UNTIL THE CROSSING PROVES OTHERWISE`.
+  The crossing still outranks the habit when it proves otherwise (the
+  dive follows the ball, never the book). S150: four straight Forward
+  dives off one man's left habit, no stat read.
+- 🖼️ RESEARCH — every Blue Lock Skibidi character and pose the fandom
+  wiki carries is inventoried in addendum 22 (21 character pose pages,
+  the rarity tiers from Luffy's 5/56 to Nagi's 7/7d, the one
+  non-purchasable character and his five-mission quest line). The image
+  binaries stay out of the sandbox — no egress, SSL 35 on
+  static.wikia.nocookie.net — so the repo carries the URL inventory, not
+  the art; the move-effect census (the DescendantAdded names the
+  animation system spawns) is the part the engine actually eats.
+- 🐛 TWO LUA TRUTHY-ZERO BUGS — a "never happened" stamp of 0 is a TRUTH
+  in Lua, and this script keeps clocks. baitHeatT=0 read as "heated 0
+  seconds ago" for the first second of every scenario: the gate
+  exception then leaked Speed-0 dead balls into the full cascade and
+  PUNCH OUT fired at 10–11 studs on S05, S91–S96, S103 and S104. And
+  stallEpT/stallLogged/whipEpT/whipLogged=0 read as "always happened":
+  the brand-new detectors were structurally silent before t=1.0/3.0 of
+  every scenario. The sentinel is -1e9 — clocks count up, "never" is
+  negative infinity. Also caught while in there: the v2.68
+  reaction-strike bypass (the receiver gate reading the shooter as a
+  watched "receiver" in the pre-strike jitter frame, so his own strike
+  then voided the bait block for 0.8 s — S40's self-pass dive) is now
+  impossible because the gate no longer runs the receiver path on a
+  dead ball at all.
+- ⚖️ 152/152 scenarios (S148–S153 pin the new reads: adaptive clock,
+  approach stall, whip feint, pattern lead, the stall-shape gate),
+  lint clean, 8,043 lines.
+
+---
+
+## v2.81 — "read the swing." · four friend receipts, four noses, one buried bomb
+
+- 🎭 USER (Discord, verbatim): "the barou fakes are easy to know, by the
+  animation — so try to improve that one." The game SPAWNS a named effect the
+  frame a skill's animation starts (the same DescendantAdded wiring the
+  counters ride), so a shot-shaped announcement over a ball that then never
+  moved is now a SWING FAKE caught on the animation itself: 1.0s of dead
+  ball at under 8 studs/s banks a bait episode against the man (his tax and
+  spike-sustain upgrade by themselves) and the v2.80 ledger counts a swing —
+  theatre is a touch, and the share bars price it. 0.35s was false on
+  legitimate wind-ups (S128's Naoya holds the pose a beat before the real
+  shot), and the alert is NEVER voided — the swing was real, the counter
+  stays ready for the follow-up. Snap-class swings (chop & co.) are billed
+  once by the v2.70 FAKE WIND-UP watchdog; the watch dedupes against them.
+  S143/S147.
+- 🃏 USER: "AND IT NEVER SAVES BACKHEEL SHOTS LIKE BRUH." Same announcement,
+  other direction: a NAMED tricky strike (the backheel family) stamps a
+  trust keyed on the SHOOTER'S NAME, and for 1.1s neither the fresh-pop
+  confirm, the fake-bleed hold, the soft-roller net nor the dribble-touch
+  tier may eat a real 50/s heel flick — an announced strike is a strike even
+  when it creeps. (Name-keyed, not team-keyed: teamCache can be nil for
+  late-joined players and the man is the unit of trust.) S144.
+- 🌈 USER: "the gaga scorpion shot — when the ai see someone rainbow flick he
+  auto dive and then the scorpion hits — make it not dive for gaga mains
+  when they flick, cuz the cd is bad." v2.56's flick memory killed the lunge
+  and the leap; SCORPION DISCIPLINE kills the DIVE: while an aerial-kit man
+  (profile aerial=true, read LIVE at the hold so a late style tag still
+  counts) still owns his own popped ball below strike speed, nothing commits
+  past smother range. The hold outranks the soft tiers because a flick drop
+  LOOKS exactly like a dribble-touch spike — and a scorpion is a STRUCK ball,
+  so striking clears the window the frame it flies. S145 (first scenario the
+  sim has ever exercised the FLICK RESPECT path — the root cache refreshes
+  every 0.5s, so the flicker must be known before he pops).
+- 📐 USER: "and also still the fats shots." A low hard drive is the one ball
+  that cannot fake its crossing late — no air to bend in — so at lead range
+  FLAT STANCE commits to its own crossing instead of the middle the
+  "projection, not a promise" guard would hold (the keeper was standing in
+  the heart while the ball crossed 9 studs wide of his chest). S146.
+- 🧹 THE BOMB: a stray "end" from v2.79's surgery had leaked the entire
+  decision tail OUT of mainStep — the "200 local variables" compile wall
+  everyone keeps hitting was that, not the upvalues. With the tail outside
+  the function, everything from the flick site down ran in the main chunk:
+  the flick read was dead in the sim, the swing watch could never see a
+  dead ball, and any added expression blew the frame budget. Removed.
+- 📸 THE PHOTOS: user sent four stadium/net screenshots "measure every tiny
+  detail." Files did not persist to the sandbox (chat renders only), so the
+  pass is ratio-forensics from the renders, cross-checked against the
+  engine's LIVE geometry scan (15.8 wide × 7.2 bar measured in-match, 16×8
+  fallback): mouth aspect ≈ 2:1 in both shots (confirms the live scan — no
+  fallback change), net depth ~2–3 studs, no back wall (the goal line is the
+  void edge), ball core ≈ 2 studs with glow, spectator box sits off-pitch
+  behind the sideline — collision-free for the keeper's recovery run.
+  Addendum 21. 146/146 scenarios pin the four reads.
+
+---
+
+## v2.80 — "know thy man." · the man-ledger: per-name tendencies, four classes, one physics knob each
+
+- 📈 USER: "make it that detects the player patterns like how average they
+  shoot, how average they dribble, if they attack or defend or shoot a lot,
+  stuff like that." ST.prof files EVERYTHING a named opponent does — shots,
+  shot speed and distance, dribble carries, passes, our-third share, saves
+  and goals conceded against him — in a per-NAME ledger (not the teamKey
+  merge: teammates are different men) that decays ×0.995 per 2s tick and
+  never resets mid-match. From the shares a class falls out: FINISHER and
+  SNIPER (a quarter of his touches are shots; SNIPER averages past 55
+  studs), DRIBBLER (60% carried runs that REACH our third), FULLBACK
+  (carries, never shoots, stays out of our box).
+- 🎯 The class moves ONE number the physics already obeys — the commit-read
+  distance (×1.06/×1.03 for known shooters, ×0.94/×0.92 for men whose game
+  is the fake-and-pop) — and DRIBBLER earns the v2.79 spike-sustain gate by
+  CLASS, not just by bait flags: a man whose whole match is long launches
+  after pull-backs has his launches held one extra beat past 60 studs.
+  Point-blank, EXTREME, bombs, Big-Bang heat: never gated. The one urgent
+  line per man per class change (`📈 PROFILE …` with every number spoken)
+  is console telemetry only — the v2.67 no-paint rule stands.
+- 🐛 S140 caught a real one: the mid-flight attribution clear (a ball far
+  from every man resets `lastShooterPlayer`) starved the per-frame shot
+  flush, so the NEXT arm silently swallowed the pending — a four-shot
+  streak counted ONE. `arm()` now settles aged pendings itself and the tick
+  sweeps them. 141/141 scenarios green; addendum 20.
 
 ---
 
