@@ -199,6 +199,54 @@ credited kick is charged as a bait episode on the spot. A stander banks seconds
 but zero studs of travel — the distance floor is the part nobody can fake.
 130 scenarios; S130–S131 fail the v2.75 build.
 
+**v2.83, "the keeper who knows the moment"**: the curtain gets a **LOAD NOW**
+button — one press and the eight seconds are gone (S154). BAIT 3.0 adds eight
+shapes on top of Bait 2.0, each with its own gate signature so a quiet ball only
+pays for the reads it earned: power pull (a credited bomb that drags backward),
+double pull, carry stall, walkaway, bleeding cross (judged on geometry, not
+trajectory), circle, class soft, and handoff (a credited "shot" a second man
+picks up — ownership is re-attributed so the chaser tier and the ledger follow
+the ball). COUNTER 2.0 lets move counters carry **research**: `sideBias`
+commits a side in flight (Sae's and Rin's documented left habit, Shidou's
+back-aimed `formless`), `trust` gives a named move exactly the window it
+deserves, and every row's `note` prints why. TRAJECTORY 3.0 fixes five geometry
+lies: the reset guard (a one-frame teleport is not a 1300/s strike), apex settle
+(a climbing ball has no crossing height yet), frame graze (a hair outside the
+woodwork is one deflection from on target), time-scaled reach (reach is travel,
+and travel is time), and sticky side (one jitter frame can no longer flip the
+commit). Plus MATCH SENSE — 17 match-level reads (tilt meter, back pass, shade
+line, set piece, one-on-one, second ball, crowd, form) — and the CONCESSION
+BANK, which counts where a man BEATS us rather than where he aims. 161/161
+scenarios.
+
+**v2.82, "the keeper who adapts"**: the keeper breathes with the device. One
+scale (×0.75–×1.5) sampled per frame from live ping, the measured alert→motion
+gap, and frame rate — applied to every time window, so the fake confirm widens
+on a 120 ms link and tightens at 60 fps. BAIT 2.0 adds the two fakes the v2.81
+net let through, both read off the ball's own motion history: the sprint that
+quits (APPROACH STALL — dead ball 11–26, man at it, inside 0.8 s of the stop)
+and the 180° turn over a dead ball (WHIP FEINT — two clean heading samples
+reversing inside 0.45–1.2 s). The ledger learns the man's CORNER: three aimed
+crossings in one house is a habit the stance consults on a coin flip (PATTERN
+LEAD). 152/152 scenarios.
+
+**v2.81, "read the swing"**: the keeper reads the ANIMATION. A shot-shaped skill
+announcement over a ball that never moved = SWING FAKE — episode banked, ledger
+counts a swing, tax upgrades by itself (the alert stays ready for the follow-up;
+snap-class swings are billed once by the v2.70 watchdog). A NAMED tricky strike
+(backheel family) is TRUSTED for 1.1s against the soft nets — "never saves
+backheel" ends. A flick by an aerial-kit man (gaga mains) holds the DIVE until
+the pop is struck — the scorpion hits a standing keeper, not a spent one. And a
+low hard drive commits to its own crossing (FLAT STANCE) — no more middle-stand
+while it crosses nine wide of the chest. 146/146 scenarios.
+**v2.80, "know thy man"**: the keeper keeps a per-name ledger (ST.prof) of every
+shot, dribble, pass, save and goal each opponent has traded with him, all match,
+slowly decaying — and names the pattern in the console (FINISHER, SNIPER,
+DRIBBLER, FULLBACK). A known shooter is read a step earlier (×1.03-1.06 commit
+reach); a dribbler's long launches must sustain a beat before buying the leap —
+his own match says the pull-back is coming soon; a fullback's rare strike waits
+like a baiter's. One line per man per class change, throttled, telemetry-only —
+no HUD paint, ever. 141/141 scenarios pin it.
 **v2.79, "the habit, priced"**: bait detection got its two prices — a GRADUATED commit tax by episode count (14% / 20% / 28% later, replacing the flat 20%) and a SPIKE-SUSTAIN gate: three bait episodes in the window and the man's one-frame launch no longer buys an instant leap from beyond 60 studs (their console's `DEAD BALL REGRET @125` x2 was this exact theft). A full re-sweep for Naoya found… no Naoya: the wiki's 24 pages carry zero hits and the Sep 11-12 rework published no moveset, so the dated catch-all stands; press-kit overviews measured the whole pitch island (goals at the void edge, ~1.5:1 — v2.77's model confirmed, fallback 16×8 kept). 138/138 scenarios green.
 
 **v2.78, "the half-second, reclaimed"**: the user opened the dev console mid-match and photographed the script's own log — it confessed two faults (OWN→OPP wiping the read 4× in 2.5 s at a loose ball; the paint guardian flapping every second on their 48 fps phone), and both are fixed: a 0.35 s flicker guard, a 3 s recovery dwell, plus `BASE_DIVE_TIME 0.32→0.26` and `COMMIT_BASE_DIST 25→27` so every shot is met earlier. "More counters for Rin": the game prints its cast names to the console, so his `RinRun` sprint is now keyed — stance gains `quickSpeed 108`, and a new SPRINT READ steps 6 studs up his run-lane with the forced 2-frame read on the finisher. 136/136 scenarios green.
