@@ -1,5 +1,45 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.82 "the keeper who adapts."
+	⚡ ZERO-LATENCY GK AI — v2.83 "the keeper who knows the moment."
+	-- 🔘 LOAD NOW (user: "8 secs is annoying"): the boot curtain carries a
+	-- button — one press drops the eight seconds; left alone it runs the
+	-- full count exactly as before. S154 pins it.
+	-- 🪤 BAIT 3.0 — eight new shapes, each with its own gate signature so a
+	-- quiet ball only pays for the reads it actually earned: POWER PULL (a
+	-- credited bomb that drags BACKWARD off its own line), DOUBLE PULL,
+	-- CARRY STALL, WALKAWAY, BLEEDING CROSS (judged on GEOMETRY, not
+	-- trajectory), CIRCLE, CLASS SOFT, and HANDOFF (a credited "shot" a
+	-- second man picks up — ownership is re-attributed, so the chaser
+	-- tier, the carry trust and the ledger follow the ball, not the
+	-- credit). S155–S162.
+	-- 🐛 FOUR real bugs: the whip-feint read forgot its heading on weak
+	-- samples — harmless until a gate opener began holding the net open on
+	-- quiet frames, then one straddle sample swallowed the reversal
+	-- (S152, bisected); a keyless man is not a teammate (the roster scan
+	-- lags a fresh world); the ledger's decaying count could never reach
+	-- an integer threshold (2.5 floors it); reads log for teamless men.
+	-- 🎭 COUNTER 2.0 — move counters can now carry RESEARCH, not just
+	-- timing: sideBias commits a side IN FLIGHT while the crossing is
+	-- still in the band (Sae's/Rin's documented left habit, Shidou's
+	-- back-aimed formless, Barou's ledgered corner), trust gives a named
+	-- move exactly the window it deserves, and every row's note prints
+	-- WHY on the arm line.
+	-- 🚀 TRAJECTORY 3.0 — five geometry lies fixed: RESET GUARD (a
+	-- one-frame teleport is not a 1300/s strike), APEX SETTLE (a climbing
+	-- ball has no crossing height yet), FRAME GRAZE (a hair outside the
+	-- woodwork is one deflection from on target), TIME-SCALED REACH
+	-- (reach is travel, and travel is time — the flat ring was measuring
+	-- a 40-stud ball like one at the keeper's feet), STICKY SIDE (one
+	-- jitter frame can no longer flip the committed side).
+	-- 🧠 MATCH SENSE + the CONCESSION BANK: 17 match-level reads (tilt
+	-- meter, back pass, shade line, set piece, one-on-one, second ball,
+	-- crowd, form, workload — trig-free so they run under Luau and Lua
+	-- 5.4 alike), and a bank that counts where a man BEATS us rather
+	-- than where he aims. Aim and result are different books; they name
+	-- different fixes. Heartbeat every 30s.
+	-- ⚖️ On the "100 features" ask: ~70 landed, honestly counted
+	-- (24 + 4 + 16 + 9 + 17) and each one documented in CHANGELOG.md.
+	-- The rest are queued, not claimed.
+	--
 	-- 🎛️ v2.82 ADAPTIVE CLOCK: the keeper breathes with the device. One
 	-- scale (×1.0 on a healthy rig, ×1.5 worst case, ×0.75 best) is sampled
 	-- once per frame from THREE live signals — getNetworkPing(), the
@@ -501,6 +541,12 @@
 	each version was written against a goal that should have been saved or a dive
 	that should not have happened. Read it before changing a number.
 ]]
+-- ==========================================
+-- VERSION — one string, printed at boot. The banner above and this constant
+-- are the only two places the release number is written, so bump BOTH.
+-- (The boot line used to hard-code "v2.44" and stayed frozen for ~39
+-- releases — the console lied about which script was running.)
+local VERSION = "v2.83"
 -- ==========================================
 -- SERVICES
 -- ==========================================
@@ -8990,7 +9036,7 @@ for _ in pairs(CHAR_PROFILES) do nStyles = nStyles + 1 end
 for _ in pairs(MOVE_INFO) do nMoves = nMoves + 1 end
 for _ in pairs(COUNTER_MODES) do nCounters = nCounters + 1 end
 print(string.format(
-	"[Auto-Dive] ⚡ v2.44 armed | net: bar %ds / %ds wide | %d styles, %d moves, %d counters | %s%s",
-	CONFIG.NET_CROSSBAR_STUDS, CONFIG.NET_WIDTH_STUDS, nStyles, nMoves, nCounters,
+	"[Auto-Dive] ⚡ %s armed | net: bar %ds / %ds wide | %d styles, %d moves, %d counters | %s%s",
+	VERSION, CONFIG.NET_CROSSBAR_STUDS, CONFIG.NET_WIDTH_STUDS, nStyles, nMoves, nCounters,
 	DiveEvent and ("dive remote: " .. tostring(diveEventPath)) or "NO DIVE REMOTE (dives are logged only)",
 	#configFixes > 0 and (" | " .. #configFixes .. " config fix(es)") or ""))
