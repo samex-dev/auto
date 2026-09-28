@@ -556,6 +556,332 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Stats             = game:GetService("Stats")
 
 local LocalPlayer = Players.LocalPlayer
+
+local CONSOLE = (function()
+	-- ==========================================
+	-- 🖥️ v2.83 THE SCRIPT'S OWN CONSOLE — capture layer.
+	--
+	-- (user, verbatim: "make a button that when I press it shows the console but
+	-- not the console of Roblox a console of urs which lets u read every bug
+	-- every input that the script made and I don't have to record a vid so u
+	-- can see everything cuz I would have to scroll in console so I would just
+	-- make a pic and send it")
+	--
+	-- Roblox's console is a scrolling fight: it fills with the GAME's chatter,
+	-- it truncates, and getting a bug out of it means recording a video and
+	-- scrubbing. So the script keeps its OWN ring buffer, written at the source:
+	-- every line it prints, time-stamped, including the ones the v2.7x log
+	-- budget muted (the budget protects a struggling device's OUTPUT — it must
+	-- never be allowed to hide a bug from the console).
+	--
+	-- Capture is deliberately CHEAP — one os.clock() and one table slot, no
+	-- substring work — because it runs on every log() call, many of which
+	-- happen every frame. Classification and colouring happen at RENDER time,
+	-- when the panel is open, not per line.
+	-- ==========================================
+	local LOG_BUF, LOG_HEAD, LOG_SEQ, LOG_MAXN = {}, 0, 0, 600
+	local function captureLog(msg)
+		LOG_SEQ = LOG_SEQ + 1
+		LOG_HEAD = (LOG_HEAD % LOG_MAXN) + 1
+		LOG_BUF[LOG_HEAD] = { t = os.clock(), n = LOG_SEQ, s = tostring(msg) }
+	end
+
+	-- Every print the script makes is captured too, so the console carries the
+	-- boot banner, the curtain and the loop errors — not just log() lines.
+	local _rawPrint = print
+	print = function(...)
+		local n = select("#", ...)
+		local parts, i = {}, 1
+		while i <= n do parts[i] = tostring((select(i, ...))); i = i + 1 end
+		captureLog(table.concat(parts, "\t"))
+		_rawPrint(...)
+	end
+
+	-- Render-time classification (never runs on the hot path).
+	local LOG_COLORS = {
+		err  = "#ff6b6b", warn = "#ffcc55", dive = "#6bc7ff",
+		bait = "#c792ea", info = "#c3cede",
+	}
+	local function classifyLog(s)
+		if s:find("LOOP ERROR", 1, true) or s:find("attempt to", 1, true)
+			or s:find("stack traceback", 1, true) or s:find("❌", 1, true)
+			or s:find("error loading", 1, true) then return "err" end
+		if s:find("WARN", 1, true) or s:find("⚠", 1, true) then return "warn" end
+		if s:find("🪤", 1, true) or s:find("🎭", 1, true) or s:find("BAIT", 1, true) then return "bait" end
+		if s:find("Dir: ", 1, true) or s:find("SAVE", 1, true) or s:find("dive", 1, true) then return "dive" end
+		return "info"
+	end
+	-- Ordered snapshot (the buffer is a ring — the oldest slot is the next one).
+	local function logSnapshot()
+		local out = {}
+		for i = 1, LOG_MAXN do
+			local e = LOG_BUF[((LOG_HEAD + i - 1) % LOG_MAXN) + 1]
+			if e then out[#out + 1] = e end
+		end
+		table.sort(out, function(a, b) return a.n < b.n end)
+		return out
+	end
+	-- The plain-text export: what gets copied out and pasted to me.
+	local function consoleText(filter)
+		local lines, out, errs, warns = logSnapshot(), {}, 0, 0
+		for _, e in ipairs(lines) do
+			local lvl = classifyLog(e.s)
+			if lvl == "err" then errs = errs + 1
+			elseif lvl == "warn" then warns = warns + 1 end
+			if (not filter) or filter == "ALL" or filter == lvl then
+				out[#out + 1] = string.format("[%8.2f] %s", e.t, e.s)
+			end
+		end
+		local head = string.format("=== GK AI %s console — %d line(s), %d error(s), %d warning(s) ===",
+			VERSION, #out, errs, warns)
+		return head .. "\n" .. table.concat(out, "\n"), errs, warns
+	end
+	-- Cheap level counts for the badge (no string building — this runs on a timer).
+	local function countLevels()
+		local lines, e, w = logSnapshot(), 0, 0
+		for i = 1, #lines do
+			local l = classifyLog(lines[i].s)
+			if l == "err" then e = e + 1 elseif l == "warn" then w = w + 1 end
+		end
+		return e, w
+	end
+
+	-- ==========================================
+	-- 🖥️ v2.83 THE CONSOLE PANEL — built once at boot, hidden until asked for.
+	--
+	-- It paints NOTHING while closed (v2.67: no automatic HUD paint), it is
+	-- pcall-guarded end to end, and it is wired to nothing in the dive path —
+	-- a console that can break the keeper is worse than no console. If any
+	-- Instance call fails on an unusual client, the console simply does not
+	-- appear and the keeper is untouched.
+	-- ==========================================
+	local consoleRefs = nil
+	local function mk(class, props, parent)
+		local o = Instance.new(class)
+		for k, v in pairs(props) do o[k] = v end
+		if parent then o.Parent = parent end
+		return o
+	end
+	local function escRich(s)
+		return s:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;")
+	end
+	local function refreshConsole()
+		local R = consoleRefs
+		if not R then return end
+		local lines, parts, shown = logSnapshot(), {}, 0
+		for i = #lines, 1, -1 do                       -- newest first
+			local e = lines[i]
+			local lvl = classifyLog(e.s)
+			if R.filter == "ALL" or R.filter == lvl then
+				parts[#parts + 1] = string.format('<font color="#5d6b80">[%7.2f]</font> <font color="%s">%s</font>',
+					e.t, LOG_COLORS[lvl], escRich(e.s))
+				shown = shown + 1
+				if shown >= 400 then break end           -- the panel's own ceiling
+			end
+		end
+		R.rt.Text = table.concat(parts, "\n")
+		R.rt.Size = UDim2.new(1, -12, 0, math.max(20, shown * 15))
+		R.scroll.CanvasSize = UDim2.new(0, 0, 0, math.max(20, shown * 15 + 8))
+		local errs, warns = countLevels()
+		R.badge.Text = (errs > 0 and ("🔴 " .. errs .. " error(s) — tap ERR"))
+			or (warns > 0 and ("🟡 " .. warns .. " warning(s)")) or "✅ no errors"
+		R.badge.TextColor3 = (errs > 0 and Color3.fromRGB(255, 90, 90))
+			or (warns > 0 and Color3.fromRGB(255, 200, 80)) or Color3.fromRGB(120, 220, 150)
+		R.status.Text = string.format("%d line(s) shown · filter: %s", shown, R.filter)
+	end
+	local function toggleConsole()
+		local R = consoleRefs
+		if not R then return end
+		R.gui.Enabled = not R.gui.Enabled
+		if R.gui.Enabled then refreshConsole() end
+		_rawPrint("[Auto-Dive] 🖥️ console " .. (R.gui.Enabled and "opened" or "closed"))
+	end
+	local function buildConsole(cfg)
+		if cfg.SHOW_CONSOLE == false then return end -- on unless explicitly off
+		local ok, pg = pcall(function() return LocalPlayer:WaitForChild("PlayerGui", 5) end)
+		if not ok or not pg then return end
+		local R = {}
+		local built = pcall(function()
+			for _, n in ipairs({ "AutoDiveConsole", "AutoDiveConsoleBtn" }) do
+				local old = pg:FindFirstChild(n)
+				if old then old:Destroy() end
+			end
+			-- ── the panel ────────────────────────────────────────────────
+			local gui = mk("ScreenGui", {
+				Name = "AutoDiveConsole", ResetOnSpawn = false,
+				IgnoreGuiInset = true, DisplayOrder = 1002, Enabled = false,
+			}, pg)
+			local frame = mk("Frame", {
+				Size = UDim2.new(0.74, 0, 0.76, 0), Position = UDim2.new(0.13, 0, 0.12, 0),
+				BackgroundColor3 = Color3.fromRGB(9, 11, 17), BackgroundTransparency = 0.04,
+				BorderSizePixel = 0, Parent = gui,
+			})
+			mk("UICorner", { CornerRadius = UDim.new(0, 10), Parent = frame })
+			-- header
+			local head = mk("Frame", {
+				Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = Color3.fromRGB(18, 22, 32),
+				BorderSizePixel = 0, Parent = frame,
+			})
+			mk("TextLabel", {
+				Size = UDim2.new(0.5, 0, 1, 0), Position = UDim2.new(0, 12, 0, 0),
+				BackgroundTransparency = 1, Text = "🖥️ GK AI CONSOLE — everything the script said",
+				TextColor3 = Color3.fromRGB(190, 205, 225), Font = Enum.Font.GothamBold,
+				TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left, Parent = head,
+			})
+			R.badge = mk("TextLabel", {
+				Size = UDim2.new(0.34, 0, 1, 0), Position = UDim2.new(0.5, 0, 0, 0),
+				BackgroundTransparency = 1, Text = "✅ no errors",
+				TextColor3 = Color3.fromRGB(120, 220, 150), Font = Enum.Font.GothamBold,
+				TextSize = 13, TextXAlignment = Enum.TextXAlignment.Right, Parent = head,
+			})
+			mk("TextButton", {
+				Size = UDim2.new(0, 34, 0, 26), Position = UDim2.new(1, -42, 0, 4),
+				BackgroundColor3 = Color3.fromRGB(70, 30, 40), TextColor3 = Color3.fromRGB(255, 170, 170),
+				Font = Enum.Font.GothamBold, TextSize = 15, Text = "✕", BorderSizePixel = 0,
+				Parent = head,
+			}).MouseButton1Click:Connect(function() if consoleRefs then consoleRefs.gui.Enabled = false end end)
+			-- toolbar
+			local bar = mk("Frame", {
+				Size = UDim2.new(1, -16, 0, 28), Position = UDim2.new(0, 8, 0, 38),
+				BackgroundTransparency = 1, Parent = frame,
+			})
+			local function toolBtn(x, w, label, col, fn)
+				local b = mk("TextButton", {
+					Size = UDim2.new(w, 0, 1, 0), Position = UDim2.new(x, 0, 0, 0),
+					BackgroundColor3 = col, TextColor3 = Color3.fromRGB(230, 238, 248),
+					Font = Enum.Font.GothamBold, TextSize = 12, Text = label,
+					BorderSizePixel = 0, Parent = bar,
+				})
+				mk("UICorner", { CornerRadius = UDim.new(0, 5), Parent = b })
+				b.MouseButton1Click:Connect(fn)
+				return b
+			end
+			local function setFilter(f)
+				R.filter = f
+				refreshConsole()
+			end
+			toolBtn(0.00, 0.09, "ALL",   Color3.fromRGB(38, 48, 68),  function() setFilter("ALL") end)
+			toolBtn(0.10, 0.09, "ERR",   Color3.fromRGB(90, 32, 42),  function() setFilter("err") end)
+			toolBtn(0.20, 0.09, "DIVE",  Color3.fromRGB(24, 58, 80),  function() setFilter("dive") end)
+			toolBtn(0.30, 0.09, "BAIT",  Color3.fromRGB(60, 34, 88),  function() setFilter("bait") end)
+			-- 📋 the whole point: one press, everything, no scrolling, no video
+			toolBtn(0.46, 0.16, "📋 COPY ALL", Color3.fromRGB(26, 78, 52), function()
+				local txt = consoleText(R.filter)
+				local done = false
+				pcall(function()
+					local sc = rawget(_G, "setclipboard") or rawget(_G, "toclipboard") or rawget(_G, "set_clipboard")
+					if sc then sc(txt); done = true end
+				end)
+				if done then
+					R.status.Text = "✅ copied — paste it straight to me, no video needed"
+					R.exportBox.Visible = false
+				else
+					R.exportBox.Text = txt
+					R.exportBox.Visible = true
+					R.status.Text = "no clipboard on this executor — select all below and copy manually"
+				end
+			end)
+			toolBtn(0.63, 0.11, "💾 FILE", Color3.fromRGB(30, 54, 78), function()
+				local txt = consoleText(R.filter)
+				local done = false
+				pcall(function()
+					local wf = rawget(_G, "writefile")
+					if wf then wf("GK_AI_console.txt", txt); done = true end
+				end)
+				R.status.Text = done and "💾 saved to GK_AI_console.txt" or "this executor has no writefile"
+			end)
+			toolBtn(0.75, 0.10, "CLEAR", Color3.fromRGB(60, 46, 26), function()
+				LOG_BUF, LOG_HEAD, LOG_SEQ = {}, 0, 0
+				refreshConsole()
+			end)
+			toolBtn(0.86, 0.14, "REFRESH", Color3.fromRGB(38, 48, 68), function() refreshConsole() end)
+			-- body
+			R.scroll = mk("ScrollingFrame", {
+				Size = UDim2.new(1, -16, 1, -106), Position = UDim2.new(0, 8, 0, 74),
+				BackgroundTransparency = 1, BorderSizePixel = 0,
+				ScrollBarThickness = 8, ScrollBarImageColor3 = Color3.fromRGB(90, 105, 130),
+				Parent = frame,
+			})
+			R.rt = mk("TextLabel", {
+				Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 0, 0, 0),
+				BackgroundTransparency = 1, RichText = true, Text = "",
+				TextColor3 = Color3.fromRGB(190, 205, 225), Font = Enum.Font.Code,
+				TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
+				TextYAlignment = Enum.TextYAlignment.Top, TextWrapped = true,
+				Parent = R.scroll,
+			})
+			-- manual-copy fallback (only shown when the executor has no clipboard)
+			R.exportBox = mk("TextBox", {
+				Size = UDim2.new(1, -16, 0.4, 0), Position = UDim2.new(0, 8, 0.55, 0),
+				BackgroundColor3 = Color3.fromRGB(14, 18, 26), TextColor3 = Color3.fromRGB(200, 214, 232),
+				Font = Enum.Font.Code, TextSize = 12, Text = "", TextWrapped = true,
+				TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+				ClearTextOnFocus = false, MultiLine = true, Visible = false, Parent = frame,
+			})
+			R.status = mk("TextLabel", {
+				Size = UDim2.new(1, -16, 0, 18), Position = UDim2.new(0, 8, 1, -26),
+				BackgroundTransparency = 1, Text = "", TextColor3 = Color3.fromRGB(140, 158, 180),
+				Font = Enum.Font.Gotham, TextSize = 12, TextXAlignment = Enum.TextXAlignment.Left,
+				Parent = frame,
+			})
+			R.gui, R.filter = gui, "ALL"
+			-- ── the toggle button (its own gui, so it survives the panel closing) ──
+			local bg = mk("ScreenGui", {
+				Name = "AutoDiveConsoleBtn", ResetOnSpawn = false,
+				IgnoreGuiInset = true, DisplayOrder = 1001, Parent = pg,
+			})
+			R.btn = mk("TextButton", {
+				Size = UDim2.new(0, 74, 0, 26), Position = UDim2.new(1, -86, 0, 8),
+				BackgroundColor3 = Color3.fromRGB(20, 26, 38), TextColor3 = Color3.fromRGB(190, 205, 225),
+				Font = Enum.Font.GothamBold, TextSize = 12, Text = "🖥️ LOG",
+				BorderSizePixel = 0, Parent = bg,
+			})
+			mk("UICorner", { CornerRadius = UDim.new(0, 6), Parent = R.btn })
+			R.btn.MouseButton1Click:Connect(toggleConsole)
+		end)
+		if not built or not R.gui then return end
+		consoleRefs = R
+		-- 🔁 Keep the badge honest: while the panel is open it re-reads the buffer
+		-- once a second; while it is closed the button still turns RED the moment
+		-- an error lands, which is the "it reads the console for you" part.
+		pcall(function()
+			RunService.Heartbeat:Connect(function()
+				local r = consoleRefs
+				if not r then return end
+				local now = os.clock()
+				if r.gui.Enabled and (now - (r.lastRefresh or 0)) > 1 then
+					r.lastRefresh = now
+					refreshConsole()
+				end
+				if (now - (r.lastBadge or 0)) > 2 and r.lastSeq ~= LOG_SEQ then
+					r.lastSeq = LOG_SEQ
+					local e = countLevels()
+					r.btn.Text = (e > 0 and ("🖥️ " .. e .. " ERR")) or "🖥️ LOG"
+					r.btn.BackgroundColor3 = (e > 0 and Color3.fromRGB(150, 40, 50)) or Color3.fromRGB(20, 26, 38)
+					r.btn.TextColor3 = (e > 0 and Color3.fromRGB(255, 190, 190)) or Color3.fromRGB(190, 205, 225)
+				end
+			end)
+		end)
+		-- ⌨️ F2 also toggles it (some executors swallow clicks on overlays).
+		pcall(function()
+			game:GetService("UserInputService").InputBegan:Connect(function(input, gp)
+				if not gp and input.KeyCode == Enum.KeyCode.F2 then toggleConsole() end
+			end)
+		end)
+	-- 🧪 test hooks: the harness presses the same button and reads the same text
+	if _G.SIM then
+		_G.SIM.consoleButton = R.btn
+		_G.SIM.consoleText   = consoleText
+		_G.SIM.consoleLevels = countLevels
+	end
+		-- NB: `print`, not `_rawPrint` — the wrapper is what captures into the
+	-- buffer. The console's own boot line has to be IN the console.
+	print("[Auto-Dive] 🖥️ console ready — press 🖥️ LOG (or F2) to open the script's own log")
+	end
+	-- One table, one local: the main chunk is at Lua's 200-local ceiling.
+	return { capture = captureLog, build = buildConsole, text = consoleText, raw = _rawPrint }
+end)()
+
 local Camera      = workspace.CurrentCamera
 local UP          = Vector3.new(0, 1, 0)
 
@@ -587,6 +913,7 @@ local function showCreditsCurtain(holdSecs, loadNowBtn)
 	local HOLD       = holdSecs or 8                 -- seconds before the load finishes (v2.65: read properly)
 	local gui, card, status
 	local skip = false                               -- v2.83: the LOAD NOW press (the hold loop obeys it)
+	local loadBtn, btnGrad = nil, nil                -- v2.83: the button the hold loop breathes
 	local built = pcall(function()
 		local plr = Players.LocalPlayer
 		local pg  = plr and (plr:FindFirstChild("PlayerGui") or plr:WaitForChild("PlayerGui", 5))
@@ -641,6 +968,13 @@ local function showCreditsCurtain(holdSecs, loadNowBtn)
 		-- and now it may be DISMISSED on command — one press collapses the hold
 		-- and the backtrack, and the keeper goes live on the next frame.
 		if loadNowBtn then
+			-- ⚡ v2.83 LOAD NOW: the curtain may decorate the boot, and it may be
+			-- DISMISSED in style. A lit pill that BREATHES while the countdown
+			-- runs, counts its own seconds down on its face, answers the mouse,
+			-- and answers the keyboard too. Same contract as before (skip = true
+			-- collapses the hold and the backtrack) - only the surface changed,
+			-- and every new piece is pcall-guarded so an executor missing
+			-- UIGradient/UIStroke still gets the plain working button.
 			local btn = Instance.new("TextButton")
 			btn.Name = "LoadNow"
 			btn.Size = UDim2.new(0.64, 0, 0.14, 0)
@@ -650,16 +984,61 @@ local function showCreditsCurtain(holdSecs, loadNowBtn)
 			btn.TextColor3 = Color3.fromRGB(16, 4, 26)
 			btn.Font = Enum.Font.GothamBold
 			btn.TextSize = 15
+			btn.AutoButtonColor = false
 			btn.Text = "⚡ LOAD NOW — skip the " .. tostring(HOLD) .. "s"
 			btn.Parent = card
+			pcall(function()                                  -- rounded into a pill
+				local c = Instance.new("UICorner")
+				c.CornerRadius = UDim.new(0.5, 0)
+				c.Parent = btn
+			end)
+			pcall(function()                                  -- purple -> hot pink, slowly rotating
+				local g = Instance.new("UIGradient")
+				g.Color = ColorSequence.new(Color3.fromRGB(191, 64, 255), Color3.fromRGB(255, 118, 216))
+				g.Parent = btn
+				btnGrad = g
+			end)
+			pcall(function()                                  -- a halo ring
+				local st = Instance.new("UIStroke")
+				st.Color = Color3.fromRGB(236, 200, 255)
+				st.Thickness = 2
+				st.Transparency = 0.35
+				st.Parent = btn
+			end)
+			pcall(function()                                  -- hover: it lights up under the mouse
+				btn.MouseEnter:Connect(function()
+					btn.BackgroundTransparency = 0
+					btn.TextSize = 16
+				end)
+				btn.MouseLeave:Connect(function()
+					btn.BackgroundTransparency = 0.12
+					btn.TextSize = 15
+				end)
+			end)
 			pcall(function()
 				btn.MouseButton1Click:Connect(function()
 					skip = true
+					btn.Text = "⚡ GO"
+					btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 					if status then status.Text = "⚡ loading now…" end
 					print("[Auto-Dive] ⚡ LOAD NOW — the curtain falls on command")
 				end)
 			end)
-			-- 🧪 test hook: the sim presses the same button
+			-- ⌨️ the keyboard gets the same door: faster, and some executors
+			-- swallow clicks on overlay guis. L / Space / Enter all skip.
+			pcall(function()
+				game:GetService("UserInputService").InputBegan:Connect(function(input, gp)
+					if gp then return end
+					local k = input.KeyCode
+					if k == Enum.KeyCode.L or k == Enum.KeyCode.Space or k == Enum.KeyCode.Return then
+						skip = true
+						btn.Text = "⚡ GO"
+						if status then status.Text = "⚡ loading now…" end
+						print("[Auto-Dive] ⚡ LOAD NOW — the curtain falls on command")
+					end
+				end)
+			end)
+			loadBtn = btn
 			-- 🧪 test hook: the sim presses the same button
 			if _G.SIM then _G.SIM.curtainButton = btn end
 		end
@@ -687,9 +1066,25 @@ local function showCreditsCurtain(holdSecs, loadNowBtn)
 			task.wait(1 / 30)
 		end
 		local remain = HOLD - 0.7                         -- the promised 8s total
+		local pulse = 0
 		while remain > 0 do                               -- hold + live countdown
 			if skip then remain = 0 end                   -- v2.83: LOAD NOW — the rest is gone
 			remain = remain - 0.1
+			-- ⚡ the button breathes and counts ITSELF down while it waits:
+			-- the ring pulses, the gradient turns, and the face shows the
+			-- seconds it is offering to skip. (Guarded: none of this can hold
+			-- the boot hostage on an executor that lacks the pieces.)
+			pulse = pulse + 0.6
+			if loadBtn and not skip then
+				local b = (math.sin(pulse) + 1) / 2        -- 0..1 breath
+				pcall(function()
+					loadBtn.BackgroundTransparency = 0.04 + 0.16 * b
+					loadBtn.Text = string.format("⚡ LOAD NOW — %.1fs left", math.max(0, remain))
+					if btnGrad then btnGrad.Rotation = (btnGrad.Rotation + 9) % 360 end
+					local st = loadBtn:FindFirstChildOfClass("UIStroke")
+					if st then st.Transparency = 0.12 + 0.55 * b end
+				end)
+			end
 			if status and not skip then status.Text = string.format("script loads in %.1fs…", math.max(0, remain)) end
 			task.wait(0.1)
 		end
@@ -1097,6 +1492,12 @@ local CONFIG = {
 	REACH_TIME_CAP      = 8.0,    -- ...capped, so a slow lob does not promise an impossible dive
 	BALL_TELEPORT_DIST  = 22,     -- a single-frame jump this large at non-shot speed is a RESET/teleport, not physics — drop the trajectory cache
 	HEARTBEAT_SECS      = 30,     -- one-line status cadence while the match is quiet
+	-- 👑 v2.83 PREDATOR WATCH (user: "more detection for barou"): a power
+	-- man parked on a DEAD ball inside range, holding the pose. This is the
+	-- stance the fandom documents as the feint of the Predator Shot, and the
+	-- strike that leaves it is the one that matters.
+	PREDATOR_STANCE     = 0.7,    -- s parked on a dead ball before it is the stance, not a pause
+	PREDATOR_TRUST      = 0.9,    -- s the strike out of that stance is trusted (the nets stand aside)
 	TILT_BAND           = 1.6,    -- 🧠 v2.83: after 2+ fresh concessions the side-guess band WIDENS by this — the middle is held until the ball properly proves its side
 	TILT_STREAK_N       = 2,      -- ...this many in a row before the discipline tightens
 	-- ⚙️ v2.72 TRAJECTORY CACHE: straight flight re-integrates on change, not
@@ -1380,6 +1781,10 @@ local CONFIG = {
 local ecoLogTier = 0        -- the governor (below, later in the file) writes its tier here
 local logT0, logN, logMax, logMuted = -999, 0, 12, 0
 local function log(msg, urgent)
+	-- 🖥️ v2.83: captured BEFORE the verbose/budget gates — a muted line must
+	-- still reach the script's own console. The budget exists to protect a
+	-- struggling device's OUTPUT; it must never hide a bug from the console.
+	CONSOLE.capture(msg)
 	if not CONFIG.VERBOSE then return end
 	local t = os.clock()
 	if t - logT0 >= 2 then
@@ -1399,7 +1804,7 @@ local function log(msg, urgent)
 		msg = msg .. "  (+" .. logMuted .. " lines muted by log budget)"
 		logMuted = 0
 	end
-	print(msg)
+	CONSOLE.raw(msg) -- 🖥️ v2.83: the console already captured it (see capture above)
 end
 
 -- 🔌 v2.49 SELF-HEALING DIVE HANDLE — "when a new match happens it just doesn't
@@ -4349,6 +4754,10 @@ local ST = {
 	dirSticky       = nil,     -- the side this shot reset committed to (hysteresis — one jitter frame must not flip it)
 	dirStickyKey    = nil,     -- which shot reset the sticky side belongs to
 	teleportN       = 0,       -- counted ball resets/teleports (visible in the heartbeat)
+	predKey         = nil,     -- 👑 v2.83: the man currently holding the predator stance
+	predT           = 0,
+	predCounted     = 0,
+	predLogged      = -1e9,
 	heartbeatT      = -1e9,
 	whipLogged      = -1e9,    -- last WHIP FEINT log
 	cornerShot      = 0,       -- lastShotReset already banked into the corner ledger
@@ -6305,6 +6714,20 @@ local function mainStep(deltaTime)
 		-- A handoff in progress: a fresh mid-speed ball with a SECOND man at it.
 		local handoffShape = lastShooterPlayer ~= nil and (now - lastShooterTime) < CONFIG.HANDOFF_WINDOW
 			and speed >= 8 and speed <= CONFIG.BAIT_ROLL_MAX + 1 and nearOppAtBall
+		-- 👑 v2.83 PREDATOR SHAPE: a power man (Barou first — his whole kit is
+		-- announced power) PARKED on a dead ball inside range, holding the pose.
+		-- This is the one quiet-ball signature the net must open for on its own:
+		-- nothing is moving at all, so no other gate can see it, and it is
+		-- exactly the stillness the Predator Shot is struck out of.
+		local predatorShape = false
+		if carrierPlayer and speed < 8 and manAtBall
+			and (ballPos - rootPos).Magnitude > CONFIG.BAIT_SMOTHER_DIST
+			and (ballPos - rootPos).Magnitude <= 40 then
+			local cKey = charByPlayer[carrierPlayer]
+			predatorShape = (cKey == "barou") or (ST.hChar == "barou")
+				or (abilityAlert ~= nil and abilityAlert.char == "barou")
+				or ST.prof:powerClass(carrierPlayer.Name)
+		end
 		-- A stander orbiting a dead ball (the circle tell itself).
 		local circleShape = false
 		for _, e in ipairs(refreshPlayerRoots()) do
@@ -6320,7 +6743,7 @@ local function mainStep(deltaTime)
 		if not baitish and not stallShape and not pullShape and not dropNear
 			and not walkawayShape and not bleedShape
 			and not classSoftShape and not handoffShape
-			and not circleShape then
+			and not circleShape and not predatorShape then
 			markIdle()
 			return
 		end
@@ -7978,6 +8401,44 @@ local powerPull = false
 			end
 		end
 
+		-- (c8) PREDATOR WATCH — the Barou stance (user: "more detection for
+		-- barou"). His kit is ANNOUNCED power: the chop, the feast and the
+		-- devour all begin the same way — he stands over a dead ball inside
+		-- range and holds the pose, and the fandom documents that pose as the
+		-- feint of the Predator Shot itself. A power-class man parked on a
+		-- DEAD ball at his own boot is not "carrying": he is WINDING UP. The
+		-- read names the stance and opens a trust window around the release,
+		-- so the soft nets stand aside for the strike that leaves it — the
+		-- stance is the announcement, and the announcement was never the bait.
+		if carrierPlayer and speed < 8
+			and distToGoalie > CONFIG.BAIT_SMOTHER_DIST and distToGoalie <= 40
+			and strikerDist and strikerDist <= 6
+			and (now - (lastShooterTime or 0)) > 0.25 then
+			local cn = carrierPlayer.Name
+			local cKey = charByPlayer[carrierPlayer]
+			local isPredator = (cKey == "barou") or (ST.hChar == "barou")
+				or (abilityAlert ~= nil and abilityAlert.char == "barou")
+				or ST.prof:powerClass(cn)
+			if isPredator then
+				if ST.predKey ~= cn then ST.predKey, ST.predT = cn, now end
+				if (now - ST.predT) >= CONFIG.PREDATOR_STANCE
+					and ST.predT ~= ST.predCounted then
+					ST.predCounted = ST.predT
+					-- the stance ARMS the strike that comes out of it
+					ST.moveTrustT, ST.moveTrustDur = now, CONFIG.PREDATOR_TRUST
+					if (now - (ST.predLogged or -1e9)) > 3 then
+						ST.predLogged = now
+						log(string.format("[AI-Dive] 👑 PREDATOR WATCH — %s parked on a dead ball at %.0f studs, holding the pose — the strike out of this stance is the real one",
+							cn, distToGoalie), true)
+					end
+				end
+			else
+				ST.predKey = nil
+			end
+		else
+			ST.predKey = nil
+		end
+
 		if touch then
 			baitShape, shapeWhy = true, "dribble-touch spike"
 		elseif powerPull then
@@ -9011,6 +9472,8 @@ end
 pcall(showCreditsCurtain, CONFIG.CREDITS_HOLD, CONFIG.LOAD_NOW_BUTTON)
 setupVisuals()
 createHud()
+-- 🖥️ v2.83 the script's own console (off until the 🖥️ LOG button is pressed).
+CONSOLE.build(CONFIG)
 createBillboard()
 createZone()
 if CONFIG.UI_AUTO_FIT then fitUi(true) end -- 📱 fit BEFORE the first frame
