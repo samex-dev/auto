@@ -1,5 +1,5 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.83 "the keeper who knows the moment."
+	⚡ ZERO-LATENCY GK AI — v2.84 "the keeper who sees what happens next."
 	-- 🔘 LOAD NOW (user: "8 secs is annoying"): the boot curtain carries a
 	-- button — one press drops the eight seconds; left alone it runs the
 	-- full count exactly as before. S154 pins it.
@@ -546,7 +546,7 @@
 -- are the only two places the release number is written, so bump BOTH.
 -- (The boot line used to hard-code "v2.44" and stayed frozen for ~39
 -- releases — the console lied about which script was running.)
-local VERSION = "v2.83"
+local VERSION = "v2.84"
 -- ==========================================
 -- SERVICES
 -- ==========================================
@@ -1491,6 +1491,7 @@ local CONFIG = {
 	REACH_TIME_GAIN     = 5.0,    -- extra lateral reach per second of flight time still left (more time = the keeper travels further)
 	REACH_TIME_CAP      = 8.0,    -- ...capped, so a slow lob does not promise an impossible dive
 	BALL_TELEPORT_DIST  = 22,     -- a single-frame jump this large at non-shot speed is a RESET/teleport, not physics — drop the trajectory cache
+	BALL_TELEPORT_HARD  = 60,     -- ...and only a jump this large also invalidates the motion window (that costs 4 blind frames, so the bar is deliberately much higher)
 	HEARTBEAT_SECS      = 30,     -- one-line status cadence while the match is quiet
 	-- 👑 v2.83 PREDATOR WATCH (user: "more detection for barou"): a power
 	-- man parked on a DEAD ball inside range, holding the pose. This is the
@@ -4622,6 +4623,14 @@ local function refreshPlayerRoots()
 					end
 				end
 				playerVelStore[plr] = { pos = root.Position, t = now }
+				-- 🔮 v2.84 GK MOVE PREDICTION 2.0: feed every opponent to the
+				-- predictor so "where HE is going next" is measured, not guessed.
+				-- GUARD: this scan also runs during BOOT, before `local ST`
+				-- (line ~4683) has been reached — ST is still nil there, so the
+				-- test has to be `ST and ST.mp`, never `ST.mp` alone.
+				if ST and ST.mp then
+					ST.mp:observeOpponent(plr.Name, root.Position, entry.vel, now)
+				end
 				list[#list + 1] = entry
 			end
 		end
@@ -4635,6 +4644,11 @@ local function refreshPlayerRoots()
 		if not found then playerVelStore[plr] = nil end
 	end
 	playerRoots = list
+	-- 🔮 v2.84: also published on ST. mainStep is hard up against Lua 5.1's
+	-- 60-upvalue ceiling, so the predictor reads the roots from ST rather
+	-- than adding a 61st reference that would stop the script COMPILING.
+	-- (`if ST` because this runs at boot, before `local ST` is reached.)
+	if ST then ST.roots = list end
 	return playerRoots
 end
 
@@ -4937,6 +4951,14 @@ ST.prof = (function()
 		if tot < 3 or worst < 2 then return nil, 0 end
 		return worstSide, worst / tot
 	end
+	-- ⚠️ FORWARD DECLARATION: `classify` is defined at the BOTTOM of this
+	-- module, but P:classOf (below) calls it. `local function classify(pr)` is
+	-- sugar for `local classify; classify = function...` — the binding only
+	-- exists from that line onward, so a call from EARLIER in the module
+	-- resolved to the GLOBAL classify, which is nil. That was a per-frame
+	-- "attempt to call a nil value" in the live console (LOOP ERROR, frame
+	-- killed). The local is declared HERE and ASSIGNED at the bottom.
+	local classify
 	-- 🪤 v2.83 readers for the bait 3.0 tiers: the BOMB class (a man
 	-- whose real shot is a bomb — the power style tag is the strong read, the
 	-- ledger's high mean speed is the weak one) and the row/class accessors.
@@ -4972,7 +4994,11 @@ ST.prof = (function()
 		local pr = row(who)
 		if scored then pr.conceded = pr.conceded + 1 else pr.saved = pr.saved + 1 end
 	end
-	local function classify(pr)
+	-- ⬆️ forward-declared above (see the note at P:powerClass) — ASSIGN, do not
+	-- redeclare: a second `local function classify` would make a NEW local that
+	-- shadows this one and P:classOf would see nil again.
+	classify = function(pr)
+		if pr == nil then return nil end
 		local shots = math.floor(pr.shots + 0.5)
 		local t = math.floor(pr.touch)
 		if shots >= c.minShot and shots / (t + 1) >= c.shotShare then
@@ -5215,6 +5241,426 @@ ST.sense = (function()
 	end
 	return S
 end)()
+
+-- ==========================================
+-- 🔮 v2.84 GK MOVE PREDICTION 2.0 — the keeper's own crystal ball.
+--
+-- (user: "make a better GK move prediction — the GK move prediction 2.0
+-- will have looks at what position you are currently and also predicts
+-- where you will go next")
+--
+-- v2.44 already extrapolated the KEEPER toward the ball's ETA from a raw
+-- position delta (aimPos). 2.0 is the whole picture instead of one vector:
+--
+--   WHERE YOU ARE       keeper position, velocity, ACCELERATION, and state
+--                       (set / moving / recovering / diving)
+--   WHERE YOU'RE GOING  predicted keeper position at any horizon, and
+--                       whether a given point is REACHABLE in time
+--   WHERE HE IS         every opponent's measured position and velocity
+--   WHERE HE'S GOING    predicted opponent position at any horizon
+--   WHAT HAPPENS NEXT   an INTENT read — shot / pass / carry / cross / clear
+--                       — blended from live geometry AND that man's own
+--                       ledger habits (what he has actually done tonight)
+--
+-- Nothing here invents a game number. Velocities are measured, the reach
+-- cap is the keeper's own configured speed, and the intent weights are the
+-- script's CONFIDENCE, not a claim about what the game will do.
+-- ==========================================
+ST.mp = (function()
+	local M = {
+		k = { pos = nil, vel = nil, acc = nil, t = 0, lastV = nil, lastT = 0 },
+		opp = {},                                   -- name -> { pos, vel, t }
+		last = { shot = 0, pass = 0, carry = 0, cross = 0, clear = 0, back = 0 },
+		mix = { shot = 0, pass = 0, carry = 0, cross = 0, clear = 0, back = 0 },
+		top = nil, topT = -1e9, hold = nil, holdN = 0,
+		tgtName = nil, tgtT = -1e9, tgtPos = nil,
+	}
+	local TP = 80          -- studs/s beyond which a "move" is a respawn, not motion
+	-- ⚠️ TRAP, and it has bitten twice: every value the predictor publishes is
+	-- stored as a FIELD on this same table that also holds the METHODS. Naming
+	-- a stored value after a method (`ST.mp.threat = ...`, `ST.mp.trend = ...`)
+	-- silently REPLACES the method with a number, and the next frame dies with
+	-- "attempt to call a number value". Stored values therefore carry a
+	-- distinct suffix (threatV, offLineV, trendV, ...) — check your name
+	-- against the method list before adding one. tools/lint.py enforces it.
+	local function v3() return Vector3.zero end
+	local function clamp01(x) return x < 0 and 0 or (x > 1 and 1 or x) end
+
+	-- (1) KEEPER OBSERVE: record where the keeper is, and derive velocity
+	-- and ACCELERATION from it. Teleport-guarded: a respawn must never be
+	-- read as 800 studs/s of keeper motion.
+	function M:observeKeeper(pos, now)
+		local k = self.k
+		if k.pos and k.t > 0 then
+			local dt = now - k.t
+			if dt > 0.02 then
+				local d = (pos - k.pos).Magnitude
+				if d < dt * TP then
+					local v = (pos - k.pos) / dt
+					if k.vel then k.acc = (v - k.vel) / dt end
+					k.vel = k.lastV and (k.lastV + (v - k.lastV) * 0.5) or v
+					k.lastV = v
+				end
+			end
+		end
+		k.pos, k.t = pos, now
+	end
+	-- (2) KEEPER VELOCITY / (3) SPEED
+	function M:keeperVel() return self.k.vel end
+	function M:keeperSpeed() return self.k.vel and self.k.vel.Magnitude or 0 end
+	-- (4) KEEPER AT +dt — where the keeper WILL BE, with acceleration
+	-- carried into the horizon (v2.44 used a flat velocity only).
+	function M:keeperAt(dt)
+		local k = self.k
+		if not k.pos then return nil end
+		if not k.vel then return k.pos end
+		local a = k.acc or v3()
+		return k.pos + k.vel * dt + a * (0.5 * dt * dt)
+	end
+	-- (5) KEEPER STATE: what the keeper is doing right now. A keeper
+	-- mid-recovery cannot reach the same ball as a set one, and every
+	-- reachability answer below has to know which he is.
+	function M:keeperState(now, lastDiveT, cooldownUntil)
+		if lastDiveT and (now - lastDiveT) < 0.35 then return "DIVING" end
+		if cooldownUntil and now < cooldownUntil then return "RECOVERING" end
+		if self:keeperSpeed() > 4 then return "MOVING" end
+		return "SET"
+	end
+	-- (6) OPPONENT OBSERVE — one entry per man, measured.
+	function M:observeOpponent(name, pos, vel, now)
+		if not name then return end
+		local e = self.opp[name]
+		if not e then e = {}; self.opp[name] = e end
+		e.pos, e.vel, e.t = pos, vel, now
+	end
+	-- (7) OPPONENT AT +dt — where HE will be (8) OPPONENT VELOCITY
+	function M:atOpponent(name, dt)
+		local e = self.opp[name]
+		if not e or not e.pos then return nil end
+		if not e.vel then return e.pos end
+		return e.pos + e.vel * dt
+	end
+	function M:opponentVel(name)
+		local e = self.opp[name]
+		return e and e.vel or nil
+	end
+	-- (9) CLOSING RATE — is this man advancing on our goal or retreating?
+	function M:closing(name, goal)
+		local e = self.opp[name]
+		if not e or not e.vel or not goal then return 0 end
+		return -e.vel:Dot(goal.normal)
+	end
+	-- (10) SPACE AHEAD — how much unoccupied ground he has toward our goal.
+	-- A carrier with a road in front of him is a carry; one walled in is a
+	-- pass or a shot.
+	function M:spaceAhead(name, goal, roots, myKey, teamOf)
+		local e = self.opp[name]
+		if not e or not e.pos or not goal then return 0 end
+		local dir = -goal.normal
+		local best = 60
+		for _, r in ipairs(roots or {}) do
+			if r.player and teamOf(r.player) ~= myKey and r.root then
+				local rel = r.root.Position - e.pos
+				local along = rel:Dot(dir)
+				if along > 1 and along < best then
+					local lat = (rel - dir * along).Magnitude
+					if lat < 6 then best = along end
+				end
+			end
+		end
+		return best
+	end
+	-- (11) SUPPORT — how many team-mates sit in his passing cone. Zero
+	-- options in front of a goal is a shot; three is a pass.
+	function M:support(ballPos, roots, myKey, teamOf, dir)
+		local n = 0
+		for _, r in ipairs(roots or {}) do
+			if r.player and r.root and teamOf(r.player) ~= myKey then
+				local rel = r.root.Position - ballPos
+				local d = rel.Magnitude
+				if d > 3 and d < 45 then
+					if rel:Dot(dir) / d > 0.3 then n = n + 1 end
+				end
+			end
+		end
+		return n
+	end
+	-- (12) OPENNESS — how much of the mouth he can actually see from there.
+	function M:openness(ballPos, goal)
+		if not goal then return 0 end
+		local to = goal.linePos - ballPos
+		local d = math.max(1, to.Magnitude)
+		return clamp01((goal.halfWidth * 2) / d)
+	end
+	-- (13) GEOMETRY WEIGHTS — the live half of the intent read.
+	function M:weigh(goal, distToGoal, angleFrac, openness, support, space, closing)
+		local w = { shot = 0, pass = 0, carry = 0, cross = 0, clear = 0, back = 0 }
+		-- shot: close enough, mouth open, running out of road
+		w.shot = clamp01((1 - distToGoal / 45)) * 0.6 + openness * 0.4
+		if distToGoal < 22 then w.shot = w.shot + 0.25 end
+		-- pass: options in the cone and not in the box yet
+		w.pass = clamp01(support / 3) * 0.7 + (distToGoal > 30 and 0.2 or 0)
+		-- carry: road ahead, not close enough to strike
+		w.carry = clamp01(space / 40) * 0.6 + (distToGoal > 25 and 0.25 or 0)
+		-- cross: wide and far
+		w.cross = (1 - openness) * 0.5 + (distToGoal > 28 and 0.25 or 0)
+		-- clear: deep in his own half with pressure
+		w.clear = (distToGoal > 55 and support < 2) and 0.35 or 0
+		-- back: moving away from our goal
+		w.back = closing < -3 and 0.4 or 0
+		for k in pairs(w) do
+			w[k] = math.max(0, math.min(1, w[k] + (angleFrac or 0) * (k == "shot" and 0.15 or 0)))
+		end
+		self.last = w
+		return w
+	end
+	-- (14) HABITS — the ledger half: what this man has actually DONE.
+	function M:habits(prof, name)
+		if not prof or not name then return nil end
+		local pr = prof:rowOf(name)
+		if not pr then return nil end
+		local shots = pr.shots or 0
+		local touch = math.max(1, pr.touch or 0)
+		local drib = pr.drib or 0
+		return {
+			shot = clamp01(shots / math.max(2, touch) * 2),
+			pass = clamp01((pr.pass or 0) / touch),
+			carry = clamp01(drib / touch),
+			cross = clamp01((pr.cR or 0) / math.max(1, shots) * 0.5),
+			clear = 0, back = clamp01((pr.pass or 0) / math.max(1, touch) * 0.3),
+		}
+	end
+	-- (15) BLEND — geometry x habits. Habits only ever NUDGE: the live
+	-- picture is the evidence, the ledger is the prior, and a man who has
+	-- passed all night still gets read as a shooter if he is 8 studs out
+	-- with an open mouth and no options.
+	function M:blend(prof, name)
+		local g, h = self.last, self:habits(prof, name)
+		local out = {}
+		for _, k in ipairs({ "shot", "pass", "carry", "cross", "clear", "back" }) do
+			out[k] = h and (g[k] * 0.7 + h[k] * 0.3) or g[k]
+		end
+		self.mix = out
+		return out
+	end
+	-- (16) TOP INTENT — the winner and how much the read believes itself.
+	function M:topIntent()
+		local best, bestV = nil, 0
+		local total = 0
+		for _, k in ipairs({ "shot", "pass", "carry", "cross", "clear", "back" }) do
+			local v = self.mix[k] or 0
+			total = total + v
+			if v > bestV then bestV, best = v, k end
+		end
+		local conf = total > 0 and (bestV / total) or 0
+		return best, bestV, conf
+	end
+	-- (17) STABILITY — an intent that flips every frame is noise, not a
+	-- prediction. Two agreeing frames make it the held read.
+	function M:stable(now)
+		local top = self.top
+		if self.hold == top then self.holdN = self.holdN + 1
+		else self.hold, self.holdN = top, 1 end
+		return self.hold, self.holdN
+	end
+	-- (18) TARGET — the most likely receiver when the read is a pass.
+	function M:target(ballPos, roots, myKey, teamOf, goal)
+		if not goal then return nil end
+		local best, bestS, bestP = nil, -1, nil
+		for _, r in ipairs(roots or {}) do
+			if r.player and r.root and teamOf(r.player) ~= myKey then
+				local p = r.root.Position
+				local rel = p - ballPos
+				local d = rel.Magnitude
+				if d > 3 and d < 45 then
+					local adv = (-goal.normal):Dot(rel) / d        -- forward = good
+					local s = adv * 0.6 + (1 - d / 45) * 0.4
+					if s > bestS then bestS, best, bestP = s, r.player, p end
+				end
+			end
+		end
+		-- NOTE: never store this as self.target — that IS the method.
+		self.tgtName, self.tgtT = best and best.Name or nil, os.clock()
+		self.tgtPos = bestP
+		return self.tgtName, bestP
+	end
+	-- (19) NEXT BALL — short-horizon ball position (gravity included).
+	function M:nextBall(pos, vel, dt, gravity)
+		local g = gravity or 0
+		return pos + vel * dt + Vector3.new(0, -0.5 * g * dt * dt, 0)
+	end
+	-- (20) INTERCEPT RACE — who reaches the ball first, keeper or man?
+	function M:race(ballPos, ballVel, keeperPos, oppPos, keeperSpeed, oppSpeed)
+		local function tTo(a, b, s)
+			local d = (b - a).Magnitude
+			return d / math.max(1, s)
+		end
+		local tK = tTo(keeperPos, ballPos, keeperSpeed)
+		local tO = tTo(oppPos, ballPos, oppSpeed)
+		return tK, tO, (tK < tO)
+	end
+	-- (21) REACHABLE — can the keeper get from A to B inside dt?
+	function M:reachable(from, to, dt, speedCap)
+		if not from or not to then return false end
+		local d = (to - from).Magnitude
+		return d <= math.max(1, speedCap) * math.max(0, dt)
+	end
+	-- (22) THREAT — one number: how dangerous is this possession right now.
+	function M:threat(distToGoal, speed, openness, intentConf)
+		local near = clamp01(1 - distToGoal / 50)
+		local fast = clamp01(speed / 120)
+		return clamp01(near * 0.45 + fast * 0.25 + openness * 0.2 + (intentConf or 0) * 0.1)
+	end
+	-- (23) PRESSURE — how many opponents are near the ball.
+	function M:pressure(ballPos, roots, myKey, teamOf, radius)
+		local n, r2 = 0, (radius or 8) * (radius or 8)
+		for _, r in ipairs(roots or {}) do
+			if r.player and r.root and teamOf(r.player) ~= myKey then
+				local d = r.root.Position - ballPos
+				if d:Dot(d) <= r2 then n = n + 1 end
+			end
+		end
+		return n
+	end
+	-- (24) FACING — is he looking at our goal or away from it?
+	function M:facing(name, goal)
+		local e = self.opp[name]
+		if not e or not e.vel or not goal then return 0 end
+		local v = e.vel
+		if v.Magnitude < 1 then return 0 end
+		return (-goal.normal):Dot(v) / v.Magnitude
+	end
+	-- (25) CORNER — which corner the read is pointing at.
+	function M:corner(crossLateral, centerTol)
+		if not crossLateral then return "M" end
+		if crossLateral > (centerTol or 2.4) then return "R" end
+		if crossLateral < -(centerTol or 2.4) then return "L" end
+		return "M"
+	end
+	-- (26) POWER CLASS — how hard the predicted strike would be.
+	function M:power(speed, bombAt)
+		if speed >= (bombAt or 130) then return "BOMB" end
+		if speed >= 80 then return "HARD" end
+		if speed >= 45 then return "FIRM" end
+		return "SOFT"
+	end
+	-- (27) OFF-LINE — how far the keeper is from his own goal centre line.
+	function M:offLine(keeperPos, goal)
+		if not goal then return 0 end
+		return math.abs((keeperPos - goal.linePos):Dot(goal.axis))
+	end
+	-- (28) SUMMARY — the one line that says what the prediction believes.
+	function M:summary()
+		local top, v = self.top, self.mix[self.top or "shot"] or 0
+		return string.format("%s %.0f%%%s", tostring(top):upper(), (v or 0) * 100,
+			self.tgtName and (" → " .. tostring(self.tgtName)) or "")
+	end
+	-- (29) LANE — is the passing lane to a man actually open? A receiver you
+	-- cannot reach is not an option, whatever the geometry says.
+	function M:lane(from, to, roots, myKey, teamOf, radius)
+		if not from or not to then return false end
+		local seg = to - from
+		local len = seg.Magnitude
+		if len < 0.001 then return true end
+		local u = seg / len
+		local lim = radius or 3
+		for _, r in ipairs(roots or {}) do
+			if r.player and r.root and teamOf(r.player) == myKey then
+				local rel = r.root.Position - from
+				local along = rel:Dot(u)
+				if along > 1 and along < len then
+					if (rel - u * along).Magnitude < lim then return false end
+				end
+			end
+		end
+		return true
+	end
+	-- (30) DIVE WINDOW — how much longer the keeper can still decide. The
+	-- hardest thing to feel in goal is time running out, so it gets a number.
+	function M:diveWindow(tti, reaction)
+		return math.max(0, (tti or 0) - (reaction or 0.12))
+	end
+	-- (31) RECOVER IN — seconds until the keeper is armed again.
+	function M:recoverIn(now, cooldownUntil)
+		return math.max(0, (cooldownUntil or 0) - now)
+	end
+	-- (32) SECOND — where the receiver would go NEXT. One pass ahead is
+	-- guesswork; two is a plan, and it is what lets the keeper shade early.
+	function M:second(name, dt)
+		return self:atOpponent(name, dt or 1.2)
+	end
+	-- (33) BOUNCE — predicted height when the ball lands. A ball that sits up
+	-- is a catch; one that skids is a dive.
+	function M:bounce(pos, vel, gravity, restY)
+		local g = gravity or 196.2
+		local vy, y = vel.Y, pos.Y - (restY or 0)
+		local disc = vy * vy + 2 * g * y
+		if disc <= 0 then return nil, 0 end
+		local t = (vy + math.sqrt(disc)) / g
+		return t, (pos + vel * t - Vector3.new(0, 0.5 * g * t * t, 0)).Y
+	end
+	-- (34) MOUTH — the goal-relative lateral of a point: which side of the
+	-- goal it belongs to, in studs, from the keeper's own frame.
+	function M:mouth(point, goal)
+		if not goal or not point then return 0 end
+		return (point - goal.linePos):Dot(goal.axis)
+	end
+	-- (35) KEEPER BIAS — which way the keeper is already travelling. A keeper
+	-- moving the wrong way needs to start earlier than one already leaning in.
+	function M:bias(goal)
+		local v = self.k.vel
+		if not v or not goal then return 0 end
+		return v:Dot(goal.axis)
+	end
+	-- (36) SECOND-ORDER THREAT — how bad it gets if the read is a pass and
+	-- the receiver takes it on. This is the number that says "shade now".
+	function M:followThreat(name, goal)
+		local p = self:atOpponent(name, 1.2)
+		if not p or not goal then return 0 end
+		local d = (p - goal.linePos).Magnitude
+		return clamp01(1 - d / 50)
+	end
+	-- (37) SHOT SIDE — the striker's own body orientation, not the ball's.
+	-- Which shoulder he is turned towards is the earliest cue there is.
+	function M:shotSide(name, goal)
+		local v = self:opponentVel(name)
+		if not v or not goal then return "M" end
+		local lat = v:Dot(goal.axis)
+		if lat > 3 then return "R" end
+		if lat < -3 then return "L" end
+		return "M"
+	end
+	-- (38) CONFIDENCE — the read discounted by how little we actually know
+	-- about this man. Three touches of ledger is an anecdote, not a habit.
+	function M:confidence(prof, name)
+		local _, _, conf = self:topIntent()
+		local pr = prof and name and prof:rowOf(name)
+		local touch = pr and (pr.touch or 0) or 0
+		local weight = clamp01(touch / 12)
+		return conf * (0.6 + 0.4 * weight)
+	end
+	-- (39) PRESSURE TREND — is the pressure on the carrier building or
+	-- easing? Building pressure forces the error; easing pressure invites it.
+	function M:trend()
+		local p = self.pressV or 0
+		local prev = self.pressPrev or p
+		self.pressPrev = p
+		return p - prev
+	end
+	-- (40) VERDICT — the whole read as one sentence for the console. Logs are
+	-- the only channel to the user (per the v2.67 rule: no HUD paint), so the
+	-- prediction has to be able to introduce itself in one line.
+	function M:verdict()
+		local top = self.top or "?"
+		local conf = self.conf or 0
+		local reach = self.canReach and "REACHABLE" or "OUT OF REACH"
+		return string.format("%s %.0f%% — %s · keeper %s%s", tostring(top):upper(),
+			conf * 100, reach, tostring(self.state),
+			(self.tgtName and (" → " .. tostring(self.tgtName)) or ""))
+	end
+	return M
+end)()
+
 
 
 -- 🎭 v2.81 THE SWING READ — the animation announces; the ball testifies.
@@ -5963,6 +6409,7 @@ end
 
 local function fireDive(direction, tFrame, ballSpeed, approach, cooldown, jumpImpact, jumpGoal)
 	ST.cooldownUntil = tFrame + cooldown
+	ST.diveStartT    = tFrame -- 🔮 v2.84: when this dive began (keeper-state read)
 	CHARGE.lastDive  = tFrame
 	diveWatch = { time = tFrame, speed = ballSpeed, approach = approach, resolved = false }
 	if impactPart then impactPart.Color = Color3.fromRGB(255, 60, 60) end
@@ -6144,16 +6591,38 @@ local function mainStep(deltaTime)
 	-- honest: the cached arc is dropped and the teleport is counted so the
 	-- heartbeat can show it. Shot-speed frames are exempt by construction
 	-- (a real 100/s strike covers 1.7 studs per frame, nowhere near the bar).
+	--
+	-- 🐛 v2.83c: the fixed 22-stud bar was WRONG on a laggy link. A frame on
+	-- a ~400 ms connection can be 0.3 s long, and a 200/s strike legitimately
+	-- covers 60 studs in it — the live console showed 18 "resets" in one
+	-- match, every one of them a real ball on a hitch. The bar is now the
+	-- ball's OWN speed × the frame time (plus a floor), so only a jump the
+	-- ball could not actually have made counts as a teleport.
 	if ST.lastBallPos and ST.lastBallT then
 		local dt = now - ST.lastBallT
 		local jumped = (ballPos - ST.lastBallPos).Magnitude
-		if dt > 0 and dt < 0.5 and jumped > CONFIG.BALL_TELEPORT_DIST then
+		-- ST.smoothedSpeed still holds LAST frame's read here (it is updated
+		-- further down), which is exactly the reference we want.
+		local vPrev = ST.smoothedSpeed or 0
+		local bar = CONFIG.BALL_TELEPORT_DIST + vPrev * dt * 2.0
+		if dt > 0 and dt < 0.5 and jumped > bar then
 			ST.simT, ST.simReset = nil, nil       -- drop the cached arc
+			-- ...and only a jump too large to be ANY kind of play also drops the
+			-- position history, so estimateMotion() re-derives from clean samples
+			-- instead of reporting the teleport itself as a 3000/s strike. The
+			-- price is real — it returns nil for 4 frames and the keeper idles
+			-- through them — so the bar for that is deliberately far higher than
+			-- the bar for merely dropping the cache (S139 teleports the ball 45
+			-- studs on purpose to step its striker deep, and that must stay a
+			-- soft reset, not four blind frames).
+			if jumped > CONFIG.BALL_TELEPORT_HARD then
+				for i = #posHistory, 1, -1 do posHistory[i] = nil end
+			end
 			ST.teleportN = (ST.teleportN or 0) + 1
 			if (now - ST.grazeLogged) > 3 then
 				ST.grazeLogged = now
-				log(string.format("[AI-Dive] 🚀 RESET GUARD — ball jumped %.0f studs in one frame: dropped the cached arc, no phantom dive",
-					jumped), true)
+				log(string.format("[AI-Dive] 🚀 RESET GUARD — ball jumped %.0f studs in %.2fs (bar %.0f): real reset, arc + history dropped",
+					jumped, dt, bar), true)
 			end
 		end
 	end
@@ -6763,6 +7232,11 @@ local function mainStep(deltaTime)
 	local aimPos = rootPos
 	local gkSlot = sampleSlot(GK.history, 24)
 	gkSlot.pos, gkSlot.t = rootPos, now
+	-- 🔮 v2.84 GK MOVE PREDICTION 2.0 (WHERE YOU ARE): feed the keeper's own
+	-- motion to the predictor EVERY frame — the 0.5s player-root scan is far
+	-- too coarse to see a dive recovery, and this is the one body in the
+	-- stadium whose position we can read without a round trip.
+	if ST.mp then ST.mp:observeKeeper(rootPos, now) end
 	do
 		local n = #GK.history
 		local j = 1
@@ -6777,7 +7251,15 @@ local function mainStep(deltaTime)
 			local estTTI = math.max(0, (distToGoalie - 3) / math.max(speed, 1))
 			local lead = math.min(estTTI, CONFIG.GK_PREDICT_MAX * ST.clock:scale(now))
 			if lead > 0.05 then
-				aimPos = rootPos + gVel * lead
+				-- v2.84 (WHERE YOU WILL GO NEXT): the predictor carries
+				-- ACCELERATION into the horizon. v2.44 flew the keeper in a
+				-- straight line from a single velocity; a keeper who is
+				-- ACCELERATING off his line is further along by arrival time
+				-- than straight-line flight says, and a keeper DECELERATING
+				-- (landing a dive, braking a sweep) is short of it. Same
+				-- measured velocity, better landing point.
+				local pk = ST.mp and ST.mp:keeperAt(lead)
+				aimPos = pk or (rootPos + gVel * lead)
 			end
 		end
 	end
@@ -9326,9 +9808,15 @@ local powerPull = false
 				leakSide == "R" and "RIGHT" or (leakSide == "L" and "LEFT" or "MIDDLE"), leakShare * 100) or "",
 			(ST.grazeFrames or 0) >= 2 and " · off the frame" or "",
 			string.format(" · %s%s", st, (gd or 0) ~= 0 and string.format(" %+d", gd) or ""),
-			string.format(" · %.1f/min%s%s", ST.sense:workload(),
+			string.format(" · %.1f/min%s%s%s", ST.sense:workload(),
 				form and string.format(" · form %.0f%%", form * 100) or "",
-				late and " · LATE" or "")), true)
+				late and " · LATE" or "",
+				-- 🖥️ v2.83c: the most important line in a "why is it not diving"
+				-- report. With no goal parts the script falls back to 16x8 and can
+				-- only judge on-target by CLOSEST APPROACH, which turns the keeper
+				-- into a point-blank smotherer. Say it every heartbeat so it can
+				-- never fail silently.
+				(goal == nil) and " · ⚠️ NO GOAL GEOMETRY (fallback 16x8)" or "")), true)
 	end
 
 	--  WIDE diagnostic: if the keeper is being held back by the can't-score
@@ -9407,6 +9895,89 @@ local powerPull = false
 		stateInfo.shadeDepth = shadeDepth
 		ST.lastAngle, ST.lastNearPost, ST.lastShade = stateInfo.angle, nearP, shadeLat
 	end
+	-- 🔮 v2.84 GK MOVE PREDICTION 2.0 — WHAT HAPPENS NEXT.
+	-- Every frame the predictor answers four questions from MEASURED inputs and
+	-- publishes them: where the keeper IS, where the keeper is GOING, where the
+	-- attacker is going, and what this possession is about to become
+	-- (shot / pass / carry / cross / clear). That man's own ledger habits NUDGE
+	-- the geometry — they never outvote it, because a habitual passer standing
+	-- 8 studs out with an open mouth is a SHOOTER right now, and the live
+	-- picture is the evidence. Every number below is measured or derived from a
+	-- measurement; none of it is a guess about how the game behaves.
+	do
+		local distG = goal and (ballPos - goal.linePos).Magnitude or 99
+		local openn = ST.mp:openness(ballPos, goal)                     -- (12)
+		local cName = attackerPlayer and attackerPlayer.Name or nil
+		local space = ST.mp:spaceAhead(cName, goal, ST.roots, myKey, teamKeyOf)   -- (10)
+		local sup   = ST.mp:support(ballPos, ST.roots, myKey, teamKeyOf,
+			goal and -goal.normal or Vector3.zero)                       -- (11)
+		local clos  = cName and ST.mp:closing(cName, goal) or 0         -- (9)
+		ST.mp:weigh(goal, distG, stateInfo.angle, openn, sup, space, clos)  -- (13)
+		ST.mp:blend(ST.prof, cName)                                     -- (14,15)
+		local top, _, conf = ST.mp:topIntent()                          -- (16)
+		ST.mp.top = top
+		local held, heldN = ST.mp:stable(now)                           -- (17)
+		ST.mp.conf    = conf
+		ST.mp.threatV  = ST.mp:threat(distG, speed, openn, conf)        -- (22)
+		ST.mp.press    = ST.mp:pressure(ballPos, ST.roots, myKey, teamKeyOf) -- (23)
+		ST.mp.offLineV = ST.mp:offLine(rootPos, goal)                    -- (27)
+		ST.mp.state   = ST.mp:keeperState(now, ST.diveStartT, ST.cooldownUntil)  -- (5)
+		-- (19) A quarter second ahead, gravity included — the ball's near future,
+		-- not its impact point: this is the number the reach test needs.
+		ST.mp.nextB = ST.mp:nextBall(ballPos, velocity, 0.25, 196.2)
+		-- (21) Can the keeper still get there from where he WILL BE? The reach
+		-- cap is his own measured speed (floored at a jog), never a constant
+		-- that claims to know how fast a keeper moves.
+		local kCap = math.max(ST.mp:keeperSpeed(), 16)
+		ST.mp.canReach = ST.mp:reachable(ST.mp:keeperAt(timeToImpact or 0.5),
+			ST.mp.nextB, timeToImpact or 0.5, kCap)
+		-- (30,31) How long the keeper still has to decide, and how long until
+		-- he is armed again if he has just gone. Time running out is the
+		-- hardest thing to feel in goal, so it gets a number.
+		ST.mp.window  = ST.mp:diveWindow(timeToImpact, 0.12)
+		ST.mp.rearmIn = ST.mp:recoverIn(now, ST.cooldownUntil)
+		-- (34,35) Which side of the goal this really belongs to, and which way
+		-- the keeper is ALREADY leaning — a keeper moving the wrong way has to
+		-- start earlier than one already travelling towards it.
+		ST.mp.lateral = ST.mp:mouth(ST.mp.nextB, goal)
+		ST.mp.kBias   = ST.mp:bias(goal)
+		-- (37) The striker's own shoulders, not the ball's: the earliest cue
+		-- there is, and it is free.
+		ST.mp.shoulder = cName and ST.mp:shotSide(cName, goal) or "M"
+		-- (33) Does the ball sit up or skid? One is a catch, one is a dive.
+		ST.mp.bounceT, ST.mp.bounceY = ST.mp:bounce(ballPos, velocity, 196.2, ballPos.Y - 1)
+		-- (18) Worth naming a receiver only when the read says he is passing
+		if held == "pass" then
+			ST.mp:target(ballPos, ST.roots, myKey, teamKeyOf, goal)
+			-- (29,32,36) ...and then only if the lane to him is genuinely
+			-- open, plus where HE would go next and how bad that gets. A
+			-- receiver you cannot reach is not an option.
+			if ST.mp.tgtPos then
+				ST.mp.laneOpen = ST.mp:lane(ballPos, ST.mp.tgtPos, ST.roots, myKey, teamKeyOf)
+				ST.mp.secondP  = ST.mp:second(ST.mp.tgtName, 1.2)
+				ST.mp.follow   = ST.mp:followThreat(ST.mp.tgtName, goal)
+			end
+		end
+		-- (38,39) Confidence discounted by how little we actually know about
+		-- this man (three touches is an anecdote, not a habit), and whether
+		-- the pressure on him is building or easing.
+		ST.mp.belief = ST.mp:confidence(ST.prof, cName)
+		ST.mp.pressV = ST.mp.press
+		ST.mp.trendV = ST.mp:trend()  -- NOTE: never `ST.mp.trend` — that IS the method
+		stateInfo.mpTop    = held
+		stateInfo.mpConf   = conf
+		stateInfo.mpThreat = ST.mp.threatV
+		stateInfo.mpState  = ST.mp.state
+		stateInfo.mpBelief = ST.mp.belief
+		-- (28,40) Log only when the HELD read actually changes. A per-frame
+		-- log would drown the console and bury the events that matter, and
+		-- the two-frame hold is what makes this a READ instead of a ticker.
+		if held ~= ST.mpLastHeld and heldN >= 2 then
+			ST.mpLastHeld = held
+			log(string.format("🔮 PREDICT — %s · threat %.2f · belief %.0f%%",
+				ST.mp:verdict(), ST.mp.threatV, (ST.mp.belief or 0) * 100), true)
+		end
+	end
 	stateInfo.team    = myTeamLabel
 	stateInfo.poss    = poss
 	local attackerLabel = nil
@@ -9474,6 +10045,11 @@ setupVisuals()
 createHud()
 -- 🖥️ v2.83 the script's own console (off until the 🖥️ LOG button is pressed).
 CONSOLE.build(CONFIG)
+-- 🧪 test hook: the harness can inspect the ledger directly (S166)
+-- 🔮 v2.84: expose the move predictor to the test harness too, so GK MOVE
+-- PREDICTION 2.0 can be pinned by scenarios instead of trusted by eye.
+if _G.SIM then _G.SIM.prof = ST.prof end
+if _G.SIM then _G.SIM.mp = ST.mp end
 createBillboard()
 createZone()
 if CONFIG.UI_AUTO_FIT then fitUi(true) end -- 📱 fit BEFORE the first frame
