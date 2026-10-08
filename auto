@@ -1,5 +1,5 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.84 "the keeper who sees what happens next."
+	⚡ ZERO-LATENCY GK AI — v2.85 "the iron wall, and the phone in your hand."
 	-- 🔘 LOAD NOW (user: "8 secs is annoying"): the boot curtain carries a
 	-- button — one press drops the eight seconds; left alone it runs the
 	-- full count exactly as before. S154 pins it.
@@ -546,7 +546,7 @@
 -- are the only two places the release number is written, so bump BOTH.
 -- (The boot line used to hard-code "v2.44" and stayed frozen for ~39
 -- releases — the console lied about which script was running.)
-local VERSION = "v2.84"
+local VERSION = "v2.85"
 -- ==========================================
 -- SERVICES
 -- ==========================================
@@ -556,6 +556,90 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Stats             = game:GetService("Stats")
 
 local LocalPlayer = Players.LocalPlayer
+
+-- ⚠️ v2.85 — FORWARD DECLARATION, and the two bugs it fixes.
+--
+-- `ST` (the one table that holds every loose per-frame scalar) is ASSIGNED
+-- ~4,000 lines below, at `ST = { ... }`. In Lua a `local` is only in scope
+-- from its declaration point ONWARD, so any earlier use of the name `ST`
+-- resolves to the GLOBAL `ST` — which is nil, silently, forever. `if ST then`
+-- is not a guard against that; it is a guard that always fails.
+--
+-- It bit twice in one session:
+--   1. refreshPlayerRoots() published ST.roots under `if ST then`, so it was
+--      NEVER set. Since v2.84 that silently disabled spaceAhead, support,
+--      pressure, target and lane — wired, documented, tested green, dead.
+--   2. The console's tool buttons (built ~5,700 lines above `ST = {`) called
+--      ST.diveReport(); lexical scoping means they would have read the global
+--      and thrown on the first tap, even though the closure is CREATED later.
+--
+-- Declaring the binding HERE and assigning it far below is the fix: one
+-- table, visible from this line onward. tools/lint.py now fails the build on
+-- any file-scope forward reference to ST/CONFIG/CHARGE/MOVE/GK/PLAT/CONSOLE.
+local ST
+
+
+-- ==========================================
+-- 📱 v2.85 MOBILE LAYER — the script was written for a keyboard and a mouse.
+--
+-- (user, verbatim: "MAKE SCRIPT MOBIKE FRIENDLY")
+--
+-- On a phone the HUD was a 720px bar on a ~390px screen, the log button was a
+-- 26px tap target (Apple's guidance is 44pt, Material's 48dp), and every
+-- control the script offered was a KEY — and there is no F2 on a phone.
+-- Nothing in this block changes what the AI decides; it changes whether a
+-- thumb can reach the thing that tells you what it decided.
+--
+-- Detection is the honest kind: we read what Roblox reports about the input
+-- devices that actually exist. We never guess from screen size alone — a
+-- narrow window on a desktop is not a phone, and a tablet is neither.
+-- ==========================================
+local PLAT = (function()
+	local P = {
+		touch = false, keyboard = true, mouse = true,
+		isMobile = false, isTablet = false, isDesktop = true,
+		scale = 1, tap = 26, vw = 1920, vh = 1080, lowEnd = false,
+		model = "desktop",
+	}
+	local okU, UIS = pcall(function() return game:GetService("UserInputService") end)
+	if okU and UIS then
+		local function f(name)
+			local o, v = pcall(function() return UIS[name] end)
+			return (o and v == true) or false
+		end
+		P.touch, P.keyboard, P.mouse = f("TouchEnabled"), f("KeyboardEnabled"), f("MouseEnabled")
+	end
+	-- A PHONE reports touch with neither keyboard nor mouse. A TABLET reports
+	-- touch AND a keyboard. A desktop reports no touch at all. Some executors
+	-- under-report KeyboardEnabled, so the default stays desktop and only a
+	-- genuine touch-and-nothing-else is treated as a phone.
+	P.isMobile  = P.touch and not P.keyboard and not P.mouse
+	P.isTablet  = P.touch and (P.keyboard or P.mouse)
+	P.isDesktop = not P.touch
+	P.model = P.isMobile and "phone" or (P.isTablet and "tablet" or "desktop")
+	-- viewport, for anything that has to fit the actual glass
+	do
+		local ok, cam = pcall(function() return workspace.CurrentCamera end)
+		if ok and cam then
+			local o2, v = pcall(function() return cam.ViewportSize end)
+			if o2 and v and v.X > 0 then P.vw, P.vh = v.X, v.Y end
+		end
+	end
+	-- short edge decides: a phone in landscape is still a phone
+	local edge = (P.vw < P.vh) and P.vw or P.vh
+	local narrow = edge < 620
+	P.scale = P.isMobile and (narrow and 1.55 or 1.35)
+		or (P.isTablet and 1.25 or ((P.vw < 1100) and 1.1 or 1.0))
+	-- minimum comfortable tap target, in physical pixels
+	P.tap = math.floor((P.isMobile and 48 or (P.isTablet and 40 or 26)) + 0.5)
+	-- a phone is also the machine that can least afford the extras
+	P.lowEnd = P.isMobile
+	-- one shared scaler for every hard-coded pixel in the UI
+	function P.px(n) return math.floor((n or 0) * P.scale + 0.5) end
+	-- font sizes scale more gently than geometry: 1.55x body text is absurd
+	function P.fs(n) return math.floor((n or 0) * (1 + (P.scale - 1) * 0.6) + 0.5) end
+	return P
+end)()
 
 local CONSOLE = (function()
 	-- ==========================================
@@ -680,8 +764,10 @@ local CONSOLE = (function()
 			end
 		end
 		R.rt.Text = table.concat(parts, "\n")
-		R.rt.Size = UDim2.new(1, -12, 0, math.max(20, shown * 15))
-		R.scroll.CanvasSize = UDim2.new(0, 0, 0, math.max(20, shown * 15 + 8))
+		-- 📱 v2.85: line height follows the platform's font scale
+		local lh = PLAT.fs(15)
+		R.rt.Size = UDim2.new(1, -12, 0, math.max(20, shown * lh))
+		R.scroll.CanvasSize = UDim2.new(0, 0, 0, math.max(20, shown * lh + 8))
 		local errs, warns = countLevels()
 		R.badge.Text = (errs > 0 and ("🔴 " .. errs .. " error(s) — tap ERR"))
 			or (warns > 0 and ("🟡 " .. warns .. " warning(s)")) or "✅ no errors"
@@ -711,45 +797,62 @@ local CONSOLE = (function()
 				Name = "AutoDiveConsole", ResetOnSpawn = false,
 				IgnoreGuiInset = true, DisplayOrder = 1002, Enabled = false,
 			}, pg)
+			-- 📱 v2.85: 74%x76% of a 390px phone is a postage stamp. On a
+			-- phone the console takes the screen it needs; on desktop nothing
+			-- moves.
+			local fw, fh, fx, fy = 0.74, 0.76, 0.13, 0.12
+			if PLAT.isMobile then fw, fh, fx, fy = 0.96, 0.90, 0.02, 0.05
+			elseif PLAT.isTablet then fw, fh, fx, fy = 0.88, 0.84, 0.06, 0.08 end
 			local frame = mk("Frame", {
-				Size = UDim2.new(0.74, 0, 0.76, 0), Position = UDim2.new(0.13, 0, 0.12, 0),
+				Size = UDim2.new(fw, 0, fh, 0), Position = UDim2.new(fx, 0, fy, 0),
 				BackgroundColor3 = Color3.fromRGB(9, 11, 17), BackgroundTransparency = 0.04,
 				BorderSizePixel = 0, Parent = gui,
 			})
 			mk("UICorner", { CornerRadius = UDim.new(0, 10), Parent = frame })
 			-- header
+			local headH = PLAT.px(34)
 			local head = mk("Frame", {
-				Size = UDim2.new(1, 0, 0, 34), BackgroundColor3 = Color3.fromRGB(18, 22, 32),
+				Size = UDim2.new(1, 0, 0, headH), BackgroundColor3 = Color3.fromRGB(18, 22, 32),
 				BorderSizePixel = 0, Parent = frame,
 			})
 			mk("TextLabel", {
-				Size = UDim2.new(0.5, 0, 1, 0), Position = UDim2.new(0, 12, 0, 0),
+				Size = UDim2.new(0.5, 0, 1, 0), Position = UDim2.new(0, PLAT.px(12), 0, 0),
 				BackgroundTransparency = 1, Text = "🖥️ GK AI CONSOLE — everything the script said",
 				TextColor3 = Color3.fromRGB(190, 205, 225), Font = Enum.Font.GothamBold,
-				TextSize = 14, TextXAlignment = Enum.TextXAlignment.Left, Parent = head,
+				TextSize = PLAT.fs(14), TextXAlignment = Enum.TextXAlignment.Left, Parent = head,
 			})
 			R.badge = mk("TextLabel", {
 				Size = UDim2.new(0.34, 0, 1, 0), Position = UDim2.new(0.5, 0, 0, 0),
 				BackgroundTransparency = 1, Text = "✅ no errors",
 				TextColor3 = Color3.fromRGB(120, 220, 150), Font = Enum.Font.GothamBold,
-				TextSize = 13, TextXAlignment = Enum.TextXAlignment.Right, Parent = head,
+				TextSize = PLAT.fs(13), TextXAlignment = Enum.TextXAlignment.Right, Parent = head,
 			})
-			mk("TextButton", {
-				Size = UDim2.new(0, 34, 0, 26), Position = UDim2.new(1, -42, 0, 4),
-				BackgroundColor3 = Color3.fromRGB(70, 30, 40), TextColor3 = Color3.fromRGB(255, 170, 170),
-				Font = Enum.Font.GothamBold, TextSize = 15, Text = "✕", BorderSizePixel = 0,
-				Parent = head,
-			}).MouseButton1Click:Connect(function() if consoleRefs then consoleRefs.gui.Enabled = false end end)
+			do -- 📱 close button: 34x26 was not a thumb target
+				local cw = math.max(PLAT.px(34), PLAT.tap)
+				mk("TextButton", {
+					Size = UDim2.new(0, cw, 0, math.max(PLAT.px(26), PLAT.tap)),
+					Position = UDim2.new(1, -(cw + PLAT.px(8)), 0, PLAT.px(4)),
+					BackgroundColor3 = Color3.fromRGB(70, 30, 40), TextColor3 = Color3.fromRGB(255, 170, 170),
+					Font = Enum.Font.GothamBold, TextSize = PLAT.fs(15), Text = "✕", BorderSizePixel = 0,
+					Parent = head,
+				}).MouseButton1Click:Connect(function() if consoleRefs then consoleRefs.gui.Enabled = false end end)
+			end
 			-- toolbar
+			local barH = math.max(PLAT.px(28), PLAT.isMobile and PLAT.tap or 0)
 			local bar = mk("Frame", {
-				Size = UDim2.new(1, -16, 0, 28), Position = UDim2.new(0, 8, 0, 38),
+				Size = UDim2.new(1, -16, 0, barH), Position = UDim2.new(0, 8, 0, PLAT.px(38)),
 				BackgroundTransparency = 1, Parent = frame,
 			})
-			local function toolBtn(x, w, label, col, fn)
+			-- 📱 ALL/ERR/DIVE/BAIT/COPY ALL: on a phone these must wrap to two
+			-- rows or they become 30px-wide slivers. Two rows of three.
+			local rows = PLAT.isMobile and 2 or 1
+			local rowH = (rows == 2) and 0.46 or 1.0
+			local function toolBtn(x, w, label, col, fn, row)
+				local ry = (row == 2) and 0.54 or 0.0
 				local b = mk("TextButton", {
-					Size = UDim2.new(w, 0, 1, 0), Position = UDim2.new(x, 0, 0, 0),
+					Size = UDim2.new(w, 0, rowH, 0), Position = UDim2.new(x, ry, 0, 0),
 					BackgroundColor3 = col, TextColor3 = Color3.fromRGB(230, 238, 248),
-					Font = Enum.Font.GothamBold, TextSize = 12, Text = label,
+					Font = Enum.Font.GothamBold, TextSize = PLAT.fs(12), Text = label,
 					BorderSizePixel = 0, Parent = bar,
 				})
 				mk("UICorner", { CornerRadius = UDim.new(0, 5), Parent = b })
@@ -760,12 +863,40 @@ local CONSOLE = (function()
 				R.filter = f
 				refreshConsole()
 			end
-			toolBtn(0.00, 0.09, "ALL",   Color3.fromRGB(38, 48, 68),  function() setFilter("ALL") end)
-			toolBtn(0.10, 0.09, "ERR",   Color3.fromRGB(90, 32, 42),  function() setFilter("err") end)
-			toolBtn(0.20, 0.09, "DIVE",  Color3.fromRGB(24, 58, 80),  function() setFilter("dive") end)
-			toolBtn(0.30, 0.09, "BAIT",  Color3.fromRGB(60, 34, 88),  function() setFilter("bait") end)
-			-- 📋 the whole point: one press, everything, no scrolling, no video
-			toolBtn(0.46, 0.16, "📋 COPY ALL", Color3.fromRGB(26, 78, 52), function()
+			if PLAT.isMobile then
+				-- two rows of two: 4 x ~46% wide, each a full thumb target
+				toolBtn(0.00, 0.235, "ALL",  Color3.fromRGB(38, 48, 68), function() setFilter("ALL") end, 1)
+				toolBtn(0.255, 0.235, "ERR", Color3.fromRGB(90, 32, 42), function() setFilter("err") end, 1)
+				toolBtn(0.51, 0.235, "DIVE", Color3.fromRGB(24, 58, 80), function() setFilter("dive") end, 1)
+				toolBtn(0.765, 0.235, "BAIT", Color3.fromRGB(60, 34, 88), function() setFilter("bait") end, 1)
+			else
+				toolBtn(0.00, 0.09, "ALL",   Color3.fromRGB(38, 48, 68), function() setFilter("ALL") end, 1)
+				toolBtn(0.10, 0.09, "ERR",   Color3.fromRGB(90, 32, 42), function() setFilter("err") end, 1)
+				toolBtn(0.20, 0.09, "DIVE",  Color3.fromRGB(24, 58, 80), function() setFilter("dive") end, 1)
+				toolBtn(0.30, 0.09, "BAIT",  Color3.fromRGB(60, 34, 88), function() setFilter("bait") end, 1)
+				-- 📊 v2.85: the dive ledger, printed into the log so it copies out
+				-- with everything else in one press
+				toolBtn(0.40, 0.05, "📊",  Color3.fromRGB(30, 62, 78), function()
+					-- ⚠️ via ST, not the bare name: this closure is created at ~line 850,
+						-- while `local diveReport` is declared ~5,700 lines further down. A
+						-- bare `diveReport()` here would read the GLOBAL (nil) and throw on
+						-- the first tap.
+						print("[Auto-Dive] " .. ST.diveReport())
+				end, 1)
+			end
+			-- (on a phone it gets its own full-width row — this is the button
+			-- the user actually needs, so it is the biggest thing here)
+				if PLAT.isMobile then
+					toolBtn(0.0, 0.30, "📊 DIVES", Color3.fromRGB(30, 62, 78), function()
+						-- ⚠️ via ST, not the bare name: this closure is created at ~line 850,
+						-- while `local diveReport` is declared ~5,700 lines further down. A
+						-- bare `diveReport()` here would read the GLOBAL (nil) and throw on
+						-- the first tap.
+						print("[Auto-Dive] " .. ST.diveReport())
+					end, 2)
+				end
+			toolBtn(PLAT.isMobile and 0.0 or 0.46, PLAT.isMobile and 1.0 or 0.16,
+				"📋 COPY ALL", Color3.fromRGB(26, 78, 52), function()
 				local txt = consoleText(R.filter)
 				local done = false
 				pcall(function()
@@ -806,7 +937,7 @@ local CONSOLE = (function()
 				Size = UDim2.new(1, -12, 0, 20), Position = UDim2.new(0, 0, 0, 0),
 				BackgroundTransparency = 1, RichText = true, Text = "",
 				TextColor3 = Color3.fromRGB(190, 205, 225), Font = Enum.Font.Code,
-				TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
+				TextSize = PLAT.fs(13), TextXAlignment = Enum.TextXAlignment.Left,
 				TextYAlignment = Enum.TextYAlignment.Top, TextWrapped = true,
 				Parent = R.scroll,
 			})
@@ -830,10 +961,15 @@ local CONSOLE = (function()
 				Name = "AutoDiveConsoleBtn", ResetOnSpawn = false,
 				IgnoreGuiInset = true, DisplayOrder = 1001, Parent = pg,
 			})
+			-- 📱 v2.85: 74x26 was a 26px tap target — fine for a mouse, a
+			-- nightmare for a thumb (Apple HIG 44pt / Material 48dp). Scaled
+			-- with the platform, and the text with it.
+			local btnW, btnH = PLAT.px(74), math.max(PLAT.px(26), PLAT.tap)
 			R.btn = mk("TextButton", {
-				Size = UDim2.new(0, 74, 0, 26), Position = UDim2.new(1, -86, 0, 8),
+				Size = UDim2.new(0, btnW, 0, btnH),
+				Position = UDim2.new(1, -(btnW + PLAT.px(12)), 0, PLAT.px(8)),
 				BackgroundColor3 = Color3.fromRGB(20, 26, 38), TextColor3 = Color3.fromRGB(190, 205, 225),
-				Font = Enum.Font.GothamBold, TextSize = 12, Text = "🖥️ LOG",
+				Font = Enum.Font.GothamBold, TextSize = PLAT.fs(12), Text = "🖥️ LOG",
 				BorderSizePixel = 0, Parent = bg,
 			})
 			mk("UICorner", { CornerRadius = UDim.new(0, 6), Parent = R.btn })
@@ -879,7 +1015,13 @@ local CONSOLE = (function()
 	print("[Auto-Dive] 🖥️ console ready — press 🖥️ LOG (or F2) to open the script's own log")
 	end
 	-- One table, one local: the main chunk is at Lua's 200-local ceiling.
-	return { capture = captureLog, build = buildConsole, text = consoleText, raw = _rawPrint }
+	-- 📱 v2.85: `toggle` is exported so the TOUCH CONTROLS can open the console
+	-- on a phone, where there is no F2. (The keyboard path reaches it through
+	-- the same function, so the two can never drift apart.)
+	return {
+		capture = captureLog, build = buildConsole, text = consoleText,
+		raw = _rawPrint, toggle = toggleConsole,
+	}
 end)()
 
 local Camera      = workspace.CurrentCamera
@@ -1276,6 +1418,11 @@ local CONFIG = {
 	-- stutters with every sparkle off, the lag is the game or the executor, not
 	-- this script. Decisions stay every-frame in every tier, as always.
 	ECO_LOCK              = 0,
+	-- 📊 v2.85 DIVE LEDGER: every dive is booked by the direction it was thrown
+	-- in, so "my keeper keeps going the wrong way" becomes a number you can
+	-- argue with. Printed automatically every N dives (0 = never; the console's
+	-- 📊 button prints it on demand either way).
+	DIVE_REPORT_EVERY     = 25,
 	-- Recovery re-upgrades as soon as the frames come back. false = never intervene.
 	LOW_SPEC_GUARDIAN     = true,
 	CENTER_TOLERANCE      = 4.5,    -- |horizontal offset| below this = Middle
@@ -1989,6 +2136,30 @@ end
 -- value first; it pre-allocates MAX_STEPS rows, so an infinite one is a hang).
 local configFixes = validateConfig()
 
+-- 📱 v2.85 MOBILE DEFAULTS — a phone is not a slow desktop, it is a different
+-- machine: it has less GPU, no keyboard, and a screen a third of the size. The
+-- LOW-SPEC GUARDIAN already reacts to frame time, but it REACTS — it has to
+-- see the phone struggle for a few seconds first. On a detected phone we start
+-- in the eased tier instead, so the first minute of a match is smooth rather
+-- than something the guardian has to dig out of.
+--
+-- These only ever make the paint cheaper and the log quieter. Dives, commits,
+-- jumps, the hitbox cube and the dive remote are untouched — the guardian's
+-- own rule, applied from the first frame instead of the hundredth.
+if PLAT.isMobile then
+	if (CONFIG.ECO_LOCK or 0) < 1 then
+		CONFIG.ECO_LOCK = 1
+		configFixes[#configFixes + 1] = ("mobile (" .. PLAT.model .. "): ECO_LOCK raised to 1 — "
+			.. "paint eased from the first frame (dives untouched)")
+	end
+	-- Printing costs frames on an executor-attached phone, and a phone is the
+	-- device that can least afford the console's own chatter.
+	if CONFIG.VERBOSE then
+		CONFIG.VERBOSE = false
+		configFixes[#configFixes + 1] = "mobile: VERBOSE off — printing costs frames on a phone"
+	end
+end
+
 -- Goal part names — edit here if your game names them differently.
 local GOAL_LEFT_NAMES  = { leftpost = true, postleft = true, leftgoalpost = true, ["left goalpost"] = true }
 local GOAL_RIGHT_NAMES = { rightpost = true, postright = true, rightgoalpost = true, ["right goalpost"] = true }
@@ -2528,12 +2699,11 @@ local CHAR_PROFILES = {
 		aerial = false, bombThreshold = 130, heightBonus = 0,
 		signature = "Schizophrenic Shot (bends mid-air) · Flour Ginga (ignores hitboxes) · Little Bee (10s speed)",
 	},
-	-- Event crossovers
-	santaclaus = {
-		label = "SANTA CLAUS", danger = "SECRET · EVENT",
-		aerial = false, bombThreshold = 135, heightBonus = 0,
-		signature = "Limited crossover event moves",
-	},
+	-- ⚠️ v2.85: this key used to be declared TWICE — an "Event crossovers"
+	-- SANTACLAUS row sat here, and the table defined it AGAIN further down.
+	-- In a Lua table constructor the LAST key silently wins, so this one was
+	-- dead code, and its bombThreshold = 135 died with it. Merged: the honest
+	-- name-register row below (NO invented kit) now carries that threshold.
 	-- Crossovers (deep-researched)
 	otoya = {
 		label = "OTOYA", danger = "CROSSOVER",
@@ -2587,7 +2757,7 @@ local CHAR_PROFILES = {
 	},
 	santaclaus = {
 		label = "SANTA CLAUS", danger = "SPECIAL · NAME REGISTER (2026-09)",
-		aerial = false, heightBonus = 0,
+		aerial = false, heightBonus = 0, bombThreshold = 135, -- carried over from the merged dead row
 		-- Registered on request (friend: style detection "like Santa Claus").
 		-- NO invented kit: his moves are undocumented here, so he gets the
 		-- universal stance via styleStance() and the console asks for names.
@@ -2625,7 +2795,6 @@ local CHAR_NAMES = {
 	-- so this is name-registration ONLY (tag + Role read + prefix strip recognize
 	-- him); no move is claimed that the classification table does not already know.
 	naoya = { "naoya" },
-	santaclaus = { "santaclaus", "santa" },
 	santaclaus = { "santaclaus", "santa" },
 }
 
@@ -2674,7 +2843,11 @@ local MOVE_INFO = {
 	doughdonut       = { char = "devilfruituser", speed = "normal",  aerial = false, barrage = false },
 	gear5            = { char = "luffy", speed = "extreme", aerial = true,  barrage = false },
 	freedommovement  = { char = "luffy", speed = "tricky",  aerial = false, barrage = false },
-	jetkick          = { char = "luffy", speed = "extreme", aerial = false, barrage = false, shape = "forward" }, -- 📖 arrives flat and true -- v2.61 (friend): "a jetkick for luffy — insanely fast"
+	-- ⚠️ v2.85: Luffy's jetkick row lived HERE and was DEAD. The table goes on
+	-- to define jetkick again for Devil Fruit User, and in a Lua table
+	-- constructor the LAST key silently wins, so Luffy's was never read.
+	-- Both rows were identical apart from `char` (extreme / non-aerial /
+	-- forward), so the ANSWER never changed — only the attribution did.
 	-- Barou
 	kingschopshot    = { char = "barou", speed = "extreme", aerial = false, barrage = false },
 	-- Nagi
@@ -2728,7 +2901,11 @@ local MOVE_INFO = {
 	unstoppabledemonheader = { char = "shidou", speed = "extreme", aerial = true, barrage = false },
 	unstoppabledemon = { char = "shidou", speed = "extreme", aerial = true, barrage = false },
 	-- Dio (The World = Timestop alias)
-	theworld         = { char = "dio", speed = "extreme", aerial = false, barrage = false },
+	-- ⚠️ v2.85: a `theworld` row for Dio (speed "extreme") used to sit HERE and
+	-- was dead — the table defines theworld again further down with
+	-- cutscene = true, and the last key wins. The surviving row is also the
+	-- correct one: The World is a TIME STOP, not a strike, so reading it as a
+	-- cutscene rather than an extreme-speed shot is right.
 	-- Isagi
 	finalshot        = { char = "isagi", speed = "extreme", aerial = false, barrage = false },
 	directshot       = { char = "isagi", speed = "fast",    aerial = false, barrage = false },
@@ -2828,7 +3005,6 @@ local MOVE_INFO = {
 	gomugomurocket       = { char = "luffy", speed = "tricky",  aerial = false, barrage = false },
 	dawnrocket           = { char = "luffy", speed = "tricky",  aerial = false, barrage = false },
 	redhawk              = { char = "luffy", speed = "extreme", aerial = false, barrage = false },
-	instantconquerorshaki = { char = "luffy", speed = "stun",   aerial = false, barrage = false },
 	-- Ronaldo
 	cr7kick              = { char = "ronaldo", speed = "extreme", aerial = false, barrage = false, shape = "forward" }, -- 📖 the friend's named ask: seam cannon, dive forward
 	goatflips            = { char = "ronaldo", speed = "tricky",  aerial = true,  barrage = false },
@@ -3169,10 +3345,9 @@ local COUNTER_MODES = {
 		name = "THROW WALL",           -- a GK's powerful throw can score
 		bombThreshold = 135, confirmFrames = 1,
 	},
-	escorpion = {
-		name = "AERIAL CAPTURE",       -- scorpion kick from the air
-		heightBonus = 10,
-	},
+	-- ⚠️ v2.85: an "AERIAL CAPTURE" escorpion row lived HERE and was dead —
+	-- COUNTER_MODES defines escorpion again further down ("SCORPION REACH",
+	-- heightBonus 10 + bombThreshold 130), which is a strict superset.
 	leap = {
 		name = "LEAP CATCH",
 		heightBonus = 8,
@@ -3464,10 +3639,11 @@ local COUNTER_MODES = {
 		name = "5-STAGE FEINT",          -- multi-stage fakes ending in a volley
 		confirmFrames = 2, heightBonus = 6,
 	},
-	fivestagefakevolley = {
-		name = "5-STAGE FEINT",
-		confirmFrames = 2, heightBonus = 6,
-	},
+	-- ⚠️ v2.85: a "5-STAGE FEINT" row lived HERE and was dead —
+	-- COUNTER_MODES defines fivestagefakevolley again further down
+	-- ("FIVE-STAGE BAIT — HOLD"). The dead row carried heightBonus = 6 which
+	-- the surviving row did not, so that value moved down to it: a feint you
+	-- have to reach UP for is still a feint you have to reach up for.
 	jumpeturn = {
 		name = "AIR SPIN READ",
 		confirmFrames = 2, heightBonus = 8,
@@ -3526,11 +3702,11 @@ local COUNTER_MODES = {
 		name = "CUTSCENE KICK READ",
 		confirmFrames = 2, commitBonus = 6,
 	},
-	-- DEVIL FRUIT USER
-	jetkick = {
-		name = "JET KICK WALL",          -- awakened Gomu-Gomu: faster + harder
-		snap = true, bombThreshold = 120, confirmFrames = 1,
-	},
+	-- ⚠️ v2.85: the DEVIL FRUIT USER "JET KICK WALL" row lived HERE and was
+	-- DEAD — COUNTER_MODES defines jetkick again further down ("JET SNAP",
+	-- bombThreshold 125 + commitBonus 12) and the last key silently wins.
+	-- Same answer otherwise (snap, confirmFrames 1), so nothing was lost
+	-- except the shadowed row's slightly lower bomb threshold of 120.
 	lightingtrap = {
 		name = "LIGHTNING TRAP",         -- jump-intercept then powerful shot
 		confirmFrames = 2, heightBonus = 8, bombThreshold = 130,
@@ -3742,7 +3918,7 @@ local COUNTER_MODES = {
 	},
 	fivestagefakevolley = {
 		name = "FIVE-STAGE BAIT — HOLD",
-		confirmFrames = 2,
+		confirmFrames = 2, heightBonus = 6, -- carried over from the merged dead row
 	},
 	sharksteal = {
 		name = "STEAL ALERT",
@@ -4578,6 +4754,33 @@ local function estimateMotion()
 		end
 	end
 
+	-- ⚠️ v2.85 — TRIED AND REJECTED: sampling-lag correction.
+	--
+	-- The reasoning is sound: vRecent is a finite difference ACROSS the window
+	-- [tS, tN], so it is the AVERAGE velocity over that span, which under
+	-- constant acceleration equals the velocity at the window's MIDPOINT. The
+	-- simulator integrates from tN, so the estimate is half a window stale,
+	-- and advancing it by accel*(dtRecent/2) should fix that.
+	--
+	-- MEASURED, IT MADE THE PREDICTION WORSE. S174 (which compares the
+	-- predicted crossing against where the ball ACTUALLY crosses):
+	--
+	--     Euler, no lag fix      4.82   (4.00 studs off)
+	--     midpoint, no lag fix   7.08   (1.74 studs off)   <-- kept
+	--     Euler + lag fix        1.00   (7.82 studs off)
+	--     midpoint + lag fix     2.57   (6.25 studs off)
+	--
+	-- The flaw is that `accel` above is measured across a much LONGER span
+	-- (dtMid, from window n-4..n against 1..b) and then deadzoned and capped
+	-- for curve purposes. It is not the local acceleration at the sampling
+	-- window, so pairing it with a short dtRecent over-corrects badly — and it
+	-- fights the estimator's own smoothing, which was already tuned against
+	-- real flights. The bias is real; this correction is not the fix for it.
+	--
+	-- Kept as a comment so nobody re-derives it and ships it. Actual crossing
+	-- was 8.82; the naive analytic "should be 11" is wrong because the
+	-- reference arc is stepped, not solved.
+
 	return vRecent, accel
 end
 
@@ -4647,8 +4850,9 @@ local function refreshPlayerRoots()
 	-- 🔮 v2.84: also published on ST. mainStep is hard up against Lua 5.1's
 	-- 60-upvalue ceiling, so the predictor reads the roots from ST rather
 	-- than adding a 61st reference that would stop the script COMPILING.
-	-- (`if ST` because this runs at boot, before `local ST` is reached.)
-	if ST then ST.roots = list end
+	-- (v2.85: the old `if ST then` guard here was always false — see the forward
+	-- declaration above. ST is a real table by the time this runs.)
+	ST.roots = list
 	return playerRoots
 end
 
@@ -4693,7 +4897,9 @@ local diveWatch    = { time = 0, speed = 0, approach = 0, resolved = true }
 -- 📦 ALL loose per-frame scalars live in ONE table (ST) so the main loop stays
 -- under the VM's 60-upvalue limit (Lua 5.1 executors) — adding a `local` here is
 -- free, adding one at file scope is not.
-local ST = {
+-- (v2.85: ASSIGNED, not declared — `local ST` is forward-declared above
+-- refreshPlayerRoots so the pre-ST functions can actually see it.)
+ST = {
 	cooldownUntil   = 0,     -- until when the keeper is still re-arming
 	tackleUntil     = 0,     -- until when the GK tackle is on cooldown (v2.40)
 	ctrlD           = nil,   -- ball-to-nearest-opponent gap (controlled-ball gate)
@@ -5767,9 +5973,16 @@ local function createHud()
 	gui.DisplayOrder = 999
 	gui.Parent = playerGui
 
+	-- 📱 v2.85: a 720px bar centred on a 390px phone hangs off both edges.
+	-- On touch the HUD becomes a full-width band that fits the glass and
+	-- sits at the TOP (a thumb covers the bottom of the screen in play).
+	local hudW = PLAT.px(720)
+	local maxW = PLAT.vw - PLAT.px(16)
+	if hudW > maxW then hudW = math.max(160, maxW) end
+	local hudH = PLAT.px(80)
 	local frame = Instance.new("Frame")
-	frame.Size = UDim2.fromOffset(720, 80)
-	frame.Position = UDim2.new(0.5, -360, 0, 10)
+	frame.Size = UDim2.fromOffset(hudW, hudH)
+	frame.Position = UDim2.new(0.5, -math.floor(hudW / 2), 0, PLAT.px(10))
 	frame.BackgroundColor3 = Color3.fromRGB(12, 15, 22)
 	frame.BackgroundTransparency = 0.2
 	frame.BorderSizePixel = 0
@@ -5780,22 +5993,22 @@ local function createHud()
 	corner.Parent = frame
 
 	local line1 = Instance.new("TextLabel")
-	line1.Size = UDim2.new(1, -16, 0, 22)
-	line1.Position = UDim2.new(0, 8, 0, 4)
+	line1.Size = UDim2.new(1, -PLAT.px(16), 0, PLAT.px(22))
+	line1.Position = UDim2.new(0, PLAT.px(8), 0, PLAT.px(4))
 	line1.BackgroundTransparency = 1
 	line1.Font = Enum.Font.GothamMedium
-	line1.TextSize = 14
+	line1.TextSize = PLAT.fs(14)
 	line1.TextXAlignment = Enum.TextXAlignment.Left
 	line1.TextColor3 = Color3.fromRGB(225, 228, 235)
 	line1.Text = "⚽ scanning for ball..."
 	line1.Parent = frame
 
 	local line2 = Instance.new("TextLabel")
-	line2.Size = UDim2.new(1, -16, 0, 26)
-	line2.Position = UDim2.new(0, 8, 0, 27)
+	line2.Size = UDim2.new(1, -PLAT.px(16), 0, PLAT.px(26))
+	line2.Position = UDim2.new(0, PLAT.px(8), 0, PLAT.px(27))
 	line2.BackgroundTransparency = 1
 	line2.Font = Enum.Font.GothamBold
-	line2.TextSize = 15
+	line2.TextSize = PLAT.fs(15)
 	line2.TextXAlignment = Enum.TextXAlignment.Left
 	line2.TextColor3 = Color3.fromRGB(170, 175, 185)
 	line2.Text = ""
@@ -6407,11 +6620,85 @@ local function baitEpisode(k, now)
 	end
 end
 
+-- 📊 v2.85 DIVE LEDGER — every dive is booked by the direction it was thrown
+-- in, so the script can answer the only question that matters about its own
+-- side-picking: does it actually work? A keeper who throws himself left 40
+-- times and saves 2 of them is not unlucky, he is reading something wrong —
+-- and until the number is written down, "my keeper keeps going the wrong way"
+-- is a feeling you cannot argue with.
+--
+-- Booked per direction: dives thrown, saves held, goals conceded, and the
+-- closest approach achieved. Reported on demand (see DIVE REPORT) and never
+-- painted on the HUD.
+local diveLedger = {}
+local function ledgerFor(dir)
+	local k = tostring(dir or "?")
+	local row = diveLedger[k]
+	if not row then
+		row = { n = 0, saves = 0, conceded = 0, near = 0 }
+		diveLedger[k] = row
+	end
+	return row
+end
+-- 📦 hung on ST, not called as a bare upvalue from mainStep: the loop is at
+-- Lua 5.1's 60-upvalue ceiling and one more `local` stops it COMPILING.
+ST.ledgerFor = ledgerFor
+ST.diveLedger = diveLedger
+
+-- 📊 v2.85 DIVE REPORT — the ledger, read aloud.
+-- "My keeper keeps going the wrong way" is a feeling you cannot argue with
+-- until it is a number. This is that number: per direction, how many were
+-- thrown, how many were held, how many went in, and the save rate that falls
+-- out. Ten dives left with zero saves is not bad luck, it is a read that is
+-- systematically wrong on one side — and now you can see which.
+local function diveReport()
+	local rows, total = {}, 0
+	for dir, row in pairs(diveLedger) do
+		if row.n > 0 then
+			rows[#rows + 1] = row
+			row.dir = dir
+			total = total + row.n
+		end
+	end
+	if total == 0 then
+		return "📊 DIVE REPORT — no dives thrown yet."
+	end
+	table.sort(rows, function(a, b) return a.n > b.n end)
+	local parts = {}
+	for _, row in ipairs(rows) do
+		local decided = row.saves + row.conceded
+		local rate = decided > 0 and string.format("%.0f%%", (row.saves / decided) * 100) or "—"
+		parts[#parts + 1] = string.format("%s %d thrown · %d saved · %d conceded (%s)",
+			row.dir, row.n, row.saves, row.conceded, rate)
+		end
+	local allSaved, allDecided = 0, 0
+	for _, row in ipairs(rows) do
+		allSaved, allDecided = allSaved + row.saves, allDecided + row.saves + row.conceded
+	end
+	local overall = allDecided > 0 and string.format("%.0f%%", (allSaved / allDecided) * 100) or "—"
+	return "📊 DIVE REPORT — " .. table.concat(parts, " | ")
+		.. string.format(" || overall %s over %d dive(s)", overall, total)
+end
+ST.diveReport = diveReport -- reachable from the console button and the harness
+
 local function fireDive(direction, tFrame, ballSpeed, approach, cooldown, jumpImpact, jumpGoal)
 	ST.cooldownUntil = tFrame + cooldown
 	ST.diveStartT    = tFrame -- 🔮 v2.84: when this dive began (keeper-state read)
 	CHARGE.lastDive  = tFrame
 	diveWatch = { time = tFrame, speed = ballSpeed, approach = approach, resolved = false }
+	-- 📊 v2.85: book the dive under the direction it was actually thrown in
+	ST.diveDir = tostring(direction or "?")
+	do
+		local row = ST.ledgerFor(direction)
+		row.n = row.n + 1
+		-- Every DIVE_REPORT_EVERY dives, print the ledger WITHOUT being asked.
+		-- A button you have to remember to press never gets pressed mid-match,
+		-- and the number is most useful while you can still act on it.
+		ST.diveTotal = (ST.diveTotal or 0) + 1
+		if CONFIG.DIVE_REPORT_EVERY > 0 and ST.diveTotal % CONFIG.DIVE_REPORT_EVERY == 0 then
+			log("[Auto-Dive] " .. diveReport(), true)
+		end
+	end
 	if impactPart then impactPart.Color = Color3.fromRGB(255, 60, 60) end
 	-- 🔌 v2.49: NEVER fire into a stale handle — validate (and if needed, re-find)
 	-- at the exact moment of use, and if the FireServer itself errors the remote
@@ -6493,7 +6780,11 @@ local function setAIEnabled(on)
 		styleTags = {}
 		tagAnchors = {}
 		if hudRefs then
-			hudRefs.line1.Text = "⏸ PAUSED — press " .. tostring(CONFIG.PAUSE_KEY) .. " to re-arm the keeper"
+			-- 📱 v2.85: "press F6" is meaningless on a phone that has no F6.
+			-- The hint names the control this device actually has.
+			hudRefs.line1.Text = "⏸ PAUSED — "
+				.. (PLAT.touch and "tap ⏸ to re-arm the keeper"
+					or ("press " .. tostring(CONFIG.PAUSE_KEY) .. " to re-arm the keeper"))
 			hudRefs.line1.TextColor3 = Color3.fromRGB(255, 200, 60)
 		end
 		log("[Auto-Dive] ⏸ AI PAUSED — no dives, no saves, no tags")
@@ -6515,6 +6806,94 @@ if okInput and UserInputService and CONFIG.PAUSE_KEY then
 	if not okBind then
 		warn("[Auto-Dive] could not bind the pause key — set CONFIG.PAUSE_KEY = nil to silence this")
 	end
+end
+
+-- ==========================================
+-- 📱 v2.85 TOUCH CONTROLS — every control the script had was a KEY, and there
+-- is no F6 or F2 on a phone. Everything bound to a key above is unreachable
+-- without a keyboard, so on a touch device the same functions get real
+-- buttons: arm/pause the AI, open the console, and copy the log out (which is
+-- the button this script exists for — "I don't have to record a vid").
+--
+-- They are built only when a touch device is actually detected, they are
+-- anchored LEFT (the log button already owns the top-right), and each is at
+-- least PLAT.tap across.
+-- ==========================================
+if PLAT.touch then
+	pcall(function()
+		local pg = LocalPlayer:WaitForChild("PlayerGui", 5)
+		if not pg then return end
+		local old = pg:FindFirstChild("AutoDiveTouch")
+		if old then old:Destroy() end
+
+		local gui = Instance.new("ScreenGui")
+		gui.Name = "AutoDiveTouch"
+		gui.ResetOnSpawn = false
+		gui.IgnoreGuiInset = true
+		gui.DisplayOrder = 1000
+		gui.Parent = pg
+
+		local size = PLAT.tap
+		local gap = PLAT.px(8)
+		local x0 = PLAT.px(10)
+		local y0 = PLAT.px(120) -- clear of the HUD band at the top
+
+		local function mkBtn(idx, label, colour, fn)
+			local b = Instance.new("TextButton")
+			b.Name = "Touch" .. tostring(idx)
+			b.Size = UDim2.fromOffset(size, size)
+			b.Position = UDim2.fromOffset(x0, y0 + (idx - 1) * (size + gap))
+			b.BackgroundColor3 = colour
+			b.BackgroundTransparency = 0.25
+			b.TextColor3 = Color3.fromRGB(235, 242, 252)
+			b.Font = Enum.Font.GothamBold
+			b.TextSize = PLAT.fs(15)
+			b.Text = label
+			b.BorderSizePixel = 0
+			b.Parent = gui
+			local c = Instance.new("UICorner")
+			c.CornerRadius = UDim.new(0, math.floor(size / 4))
+			c.Parent = b
+			b.MouseButton1Click:Connect(fn)
+			return b
+		end
+
+		-- 1) arm / pause the AI (the F6 key, with no F6)
+		local pauseBtn = mkBtn(1, "⏸", Color3.fromRGB(30, 38, 54), function()
+			setAIEnabled(not aiEnabled)
+		end)
+		-- 2) the console (the F2 key, with no F2)
+		mkBtn(2, "🖥️", Color3.fromRGB(24, 32, 48), function()
+			if CONSOLE and CONSOLE.toggle then CONSOLE.toggle() end
+		end)
+		-- 3) copy the whole log out in one press — the whole point of the
+		--    console, and the one thing a phone most needs a button for
+		mkBtn(3, "📋", Color3.fromRGB(26, 78, 52), function()
+			local txt = (CONSOLE and CONSOLE.text) and CONSOLE.text("ALL") or ""
+			local done = false
+			pcall(function()
+				local sc = rawget(_G, "setclipboard") or rawget(_G, "toclipboard")
+					or rawget(_G, "set_clipboard")
+				if sc then sc(txt); done = true end
+			end)
+			log("[Auto-Dive] 📋 touch copy — " .. (done and "copied to clipboard"
+				or "no clipboard on this executor — open 🖥️ LOG and use COPY ALL"), true)
+		end)
+
+		-- keep the pause button's face honest: it mirrors aiEnabled, not a toggle
+		pcall(function()
+			RunService.Heartbeat:Connect(function()
+				if pauseBtn then
+					local want = aiEnabled and "⏸" or "▶️"
+					if pauseBtn.Text ~= want then pauseBtn.Text = want end
+				end
+			end)
+		end)
+
+		log("[Auto-Dive] 📱 touch controls on (" .. PLAT.model .. ", ui x"
+			.. string.format("%.2f", PLAT.scale) .. ", " .. tostring(PLAT.vw) .. "x"
+			.. tostring(PLAT.vh) .. ") — ⏸ arm/pause · 🖥️ log · 📋 copy")
+	end)
 end
 
 -- ==========================================
@@ -7290,6 +7669,8 @@ local function mainStep(deltaTime)
 					log("[AI-Dive] ⚽ OUR GOAL!")
 				else
 					matchStats.conceded = matchStats.conceded + 1
+					-- 📊 v2.85: blame the direction the dive was thrown in
+					ST.ledgerFor(ST.diveDir).conceded = ST.ledgerFor(ST.diveDir).conceded + 1
 					diveWatch.resolved = true
 					ST.pendingFlash = { text = "GOAL...", color = Color3.fromRGB(255, 60, 60), t = now }
 					log("[AI-Dive] 🥅 CONCEDED")
@@ -7928,16 +8309,44 @@ local function mainStep(deltaTime)
 		-- Magnus physics: a real curve holds (almost) full sideways force
 		-- early in the flight, then decays — full curve for the first
 		-- CURVE_FULL_TIME, then decay (stops over-curving on noisy estimates).
+		-- 🚀 v2.85 TRAJECTORY 4.0 — MIDPOINT (RK2) INTEGRATION.
+		--
+		-- v2.83 stepped with semi-implicit Euler: update the velocity, then
+		-- step the position with the NEW velocity. For constant gravity that
+		-- lands at  s + v·dt + a·dt²  — but the true answer is
+		--              s + v·dt + ½a·dt²
+		-- so every single step overshoots the drop by half a step's worth of
+		-- fall, and the error compounds across a 3.5 s flight. A lob predicted
+		-- this way lands DEEPER and LOWER than it really does, which is the
+		-- worst possible direction: it is exactly the ball you step forward
+		-- for and watch sail over your head.
+		--
+		-- The midpoint method steps the POSITION with the velocity at the
+		-- HALF step. For constant acceleration that is exact; for the damped
+		-- curve term it is second-order instead of first. Same number of
+		-- force evaluations — no extra cost, materially truer arcs.
 		local curveDampener = (t < curveFullTime)
 			and 1.0
 			or math.max(0, 1 - (t - curveFullTime) * curveDecay)
 		-- Vertical: if the estimator measured free fall (accel.Y < -50) trust
 		-- THAT (the game may run custom gravity); otherwise use world gravity.
 		local gY = (acy < -50) and acy or gravity
-		vx = vx + acx * curveDampener * simStep
+		local hdt = simStep * 0.5
+		-- velocity at the half step — this is what carries the position
+		local vmx = vx + acx * curveDampener * hdt
+		local vmy = vy + gY * hdt
+		local vmz = vz + acz * curveDampener * hdt
+		-- the full-step velocity uses the dampener evaluated at the MIDPOINT
+		-- time, not the start of the step (the curve decays during the step)
+		local dampMid = (t + hdt < curveFullTime)
+			and 1.0
+			or math.max(0, 1 - (t + hdt - curveFullTime) * curveDecay)
+		vx = vx + acx * dampMid * simStep
 		vy = vy + gY * simStep
-		vz = vz + acz * curveDampener * simStep
-		sx, sy, sz = sx + vx * simStep, sy + vy * simStep, sz + vz * simStep
+		vz = vz + acz * dampMid * simStep
+		sx = sx + vmx * simStep
+		sy = sy + vmy * simStep
+		sz = sz + vmz * simStep
 		-- Pitch bounce. v2.41 BUG FIX: a ball RESTING on the ground used to
 		-- "bounce" every step (gravity makes vy negative each step while the ball
 		-- sits exactly at groundY), so BOUNCE_FRICTION hit vx/vz EVERY STEP and
@@ -8188,6 +8597,57 @@ local function mainStep(deltaTime)
 
 	local centerTol = floorShot and (CONFIG.CENTER_TOLERANCE * CONFIG.FLOOR_CENTER_BIAS) or CONFIG.CENTER_TOLERANCE
 	local direction = CONFIG.CENTER_ACTION
+
+	-- 🧱 v2.85 THE IRON WALL — the wall style, turned into keeper behaviour.
+	--
+	-- (user: "CHECK NOW FOR THE WALL STYLE I FORGOT THE NAME". It is AIKU —
+	-- Legendary, 1.5%, and his awakening is literally called "The Iron Wall"
+	-- ("While I'm on patrol... you won't be stealing any goal"). He was
+	-- already in the roster; what was missing was the LESSON of a wall.)
+	--
+	-- A wall does not just stop the ball, it HIDES the strike. If bodies sit
+	-- in the corridor between the ball and the mouth, the shot can be
+	-- deflected — off a shin, a hip, a late leg — and a deflection is the one
+	-- ball that changes its mind after you have already left the ground. A
+	-- keeper who has thrown himself left cannot re-decide when it squirts
+	-- right.
+	--
+	-- So through a screen this script does the two things a coached keeper
+	-- does: it demands one more agreeing frame before committing to a SIDE,
+	-- and it will not pretend to read a side through a crowd. Nothing here
+	-- changes whether it dives — only how sure it is before it picks one.
+	local screened, screenCount = false, 0
+	do
+		local toMouth = goal and (goal.linePos - ballPos) or nil
+		local dist = toMouth and toMouth.Magnitude or 0
+		if goal and toMouth and dist > 2 then
+			local u = toMouth / dist
+			for _, e in ipairs(ST.roots or {}) do
+				if e.root then
+					local rel = e.root.Position - ballPos
+					local along = rel:Dot(u)
+					-- in the corridor, but not the striker himself (along > 1.5)
+					-- and not past the mouth (along < dist - 1)
+					if along > 1.5 and along < dist - 1 then
+						if (rel - u * along).Magnitude < 5 then
+							screenCount = screenCount + 1
+						end
+					end
+				end
+			end
+			-- one body is a defender; two is a WALL you cannot see through
+			screened = screenCount >= 2
+		end
+	end
+	if screened ~= (ST.screened == true) then
+		ST.screened = screened
+		if screened then
+			log(string.format("[AI-Dive] 🧱 IRON WALL — %d bodies in the lane: "
+				.. "sides need an extra frame, deflections change their mind",
+				screenCount), true)
+		end
+	end
+
 	-- ⚡ The lead predicate is computed HERE (the direction read below needs it)
 	-- and reused as the commit trigger at the urgency block — one evaluation,
 	-- one truth.
@@ -9630,6 +10090,13 @@ local powerPull = false
 			and direction ~= nearPostSide then
 			confirmFrames = confirmFrames + 1
 		end
+		-- 🧱 v2.85 IRON WALL: through a screen a side commit is a guess about a
+		-- ball that may yet be deflected. One more agreeing frame. (Never touches
+		-- the plow — Forward was already chosen, or the read simply stays open,
+		-- which is the point.)
+		if needsConfirm and screened and (direction == "Left" or direction == "Right") then
+			confirmFrames = confirmFrames + 1
+		end
 		-- 🧊 floor balls must SURVIVE the skid: +1 agreeing frame before the
 		-- body leaves the ground for a side. (Never touches the plow — Forward was
 		-- already chosen, or the read simply stays open, which is the point.)
@@ -9738,6 +10205,8 @@ local powerPull = false
 			if secured and speed < 30 then
 				diveWatch.resolved = true
 				matchStats.saves = matchStats.saves + 1
+				-- 📊 v2.85: credit the direction the dive was thrown in
+				ST.ledgerFor(ST.diveDir).saves = ST.ledgerFor(ST.diveDir).saves + 1
 				ST.lastSaveTime = now
 				ST.pendingFlash = { text = "SAVE!!", color = Color3.fromRGB(80, 255, 120), t = now }
 				log("[AI-Dive] 🧤 SAVE! (ball secured)")
@@ -9849,6 +10318,8 @@ local powerPull = false
 				log("[AI-Dive] ⚽ OUR GOAL!")
 			else
 				matchStats.conceded = matchStats.conceded + 1
+				-- 📊 v2.85: blame the direction the dive was thrown in
+				ST.ledgerFor(ST.diveDir).conceded = ST.ledgerFor(ST.diveDir).conceded + 1
 				ST.prof:result(true, lastShooterPlayer and lastShooterPlayer.Name) -- 📈 v2.80
 				ST.sense:onConceded() -- 🧠 v2.83 match sense
 				ST.prof:bank(lastShooterPlayer and lastShooterPlayer.Name,
@@ -10050,6 +10521,22 @@ CONSOLE.build(CONFIG)
 -- PREDICTION 2.0 can be pinned by scenarios instead of trusted by eye.
 if _G.SIM then _G.SIM.prof = ST.prof end
 if _G.SIM then _G.SIM.mp = ST.mp end
+-- 📊 v2.85: the dive ledger, readable by the harness so S177 can prove the
+-- report formats, survives an empty ledger, and actually books a dive.
+if _G.SIM then _G.SIM.diveReport = ST.diveReport end
+if _G.SIM then _G.SIM.diveLedger = diveLedger end
+-- 🚀 v2.85: expose the trajectory integrator's ANSWER to the harness. A test
+-- that infers the arc from "did he dive" is testing the whole decision chain;
+-- this tests the physics directly, which is what TRAJECTORY 4.0 changed.
+if _G.SIM then
+	_G.SIM.traj = function()
+		return {
+			crossY = ST.simCY, crossLateral = ST.simCL, crossWide = ST.simCW,
+			crossOnTarget = ST.simCOT, tti = ST.simTTI, minDist = ST.simMinD,
+			pathN = ST.simPathN,
+		}
+	end
+end
 createBillboard()
 createZone()
 if CONFIG.UI_AUTO_FIT then fitUi(true) end -- 📱 fit BEFORE the first frame
@@ -10079,3 +10566,14 @@ print(string.format(
 	VERSION, CONFIG.NET_CROSSBAR_STUDS, CONFIG.NET_WIDTH_STUDS, nStyles, nMoves, nCounters,
 	DiveEvent and ("dive remote: " .. tostring(diveEventPath)) or "NO DIVE REMOTE (dives are logged only)",
 	#configFixes > 0 and (" | " .. #configFixes .. " config fix(es)") or ""))
+
+-- 📱 v2.85: say which machine this is. Ten releases of mobile tuning are worth
+-- nothing if you cannot tell whether it engaged, and the one question behind
+-- "make it mobile friendly" is "did it know I was on a phone?". One line at
+-- boot answers it — including the UI scale and the viewport it measured, so a
+-- wrong guess is visible instead of silent.
+log(string.format(
+	"[Auto-Dive] 📱 platform: %s (touch=%s keyboard=%s mouse=%s) | ui x%.2f · tap %dpx · %dx%d%s",
+	PLAT.model, tostring(PLAT.touch), tostring(PLAT.keyboard), tostring(PLAT.mouse),
+	PLAT.scale, PLAT.tap, PLAT.vw, PLAT.vh,
+	PLAT.isMobile and " | MOBILE DEFAULTS ON (paint eased, verbose off)" or ""))
