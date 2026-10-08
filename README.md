@@ -230,6 +230,13 @@ reversing inside 0.45–1.2 s). The ledger learns the man's CORNER: three aimed
 crossings in one house is a habit the stance consults on a coin flip (PATTERN
 LEAD). 152/152 scenarios.
 
+It also keeps its **own console** (🖥️ LOG button, or **F2**): every line the
+script prints, captured at the source before the log budget can mute it,
+time-stamped and colour-graded, with **📋 COPY ALL** so a bug can be pasted
+straight out instead of recorded on video and scrubbed through. The button
+turns red and counts the errors itself. Off by default — it paints nothing
+until you open it.
+
 **v2.81, "read the swing"**: the keeper reads the ANIMATION. A shot-shaped skill
 announcement over a ball that never moved = SWING FAKE — episode banked, ledger
 counts a swing, tax upgrades by itself (the alert stays ready for the follow-up;
