@@ -3,7 +3,316 @@
 Every release note the script used to carry in its own header comment, newest
 first. The header now holds only the current release + the essentials; this file
 is the history. Entries were written against the in-game misses each version
-fixed, so they double as the design rationale for the thresholds in `CONFIG`.
+fixed, so they double as the design rationale for the thresholds in `CONFIG`.---
+
+## v2.85 — "the iron wall, and the phone in your hand."
+
+> *"ITS TIME FOR UPDATING TIME AFTER 10 DAYS ADD YOUR OWN IDEAS ADD
+> EVERYTHING CHECK FOR NEW STYLES CHECK NOW FOR THE WALL STYLE I FORGOT THE
+> NAME CHECK EVERYTHING NEW UPDATE EVERYTHING IMPROVE TRAJECTORY AND REWRITE
+> THE ENTIRE SCRIPT REWRITE TRAJECTORY REWRITE EVERYTHING ADD YOUR OWN IDEAS
+> MAKE SCRIPT MOBILE FRIENDLY IMPROVE DIVING IMPROVE EVERYTHING"*
+
+Four asks taken in the order they were hardest: mobile, trajectory, the wall
+style, diving. Plus the bug that made five v2.84 features dead code.
+
+---
+
+### 📱 MOBILE FRIENDLY — the script had ZERO touch support
+
+No `TouchEnabled`, no `KeyboardEnabled`, no platform branch anywhere. On a
+phone the HUD was a 720px bar on a ~390px screen (hanging off both edges),
+the log button was a 26px tap target (Apple HIG is 44pt, Material 48dp), and
+every control the script offered was a KEY — there is no F6 or F2 on a phone.
+
+- **PLAT**: honest device detection from what Roblox reports about the input
+  devices that exist. Never guesses from screen size — a narrow window on a
+  desktop is not a phone, and a tablet is neither. Short-edge test, so a
+  phone in landscape is still a phone.
+- **px() / fs()** scalers. Fonts scale at 60% of the geometry rate, because
+  1.55x body text is absurd.
+- HUD, console panel, toolbar and log button all scaled; HUD clamps to the
+  viewport and anchors TOP (a thumb covers the bottom of the screen in play).
+- Console toolbar wraps to **two rows** on a phone; **📋 COPY ALL** — the
+  button this script exists for — gets its own full-width row.
+- **TOUCH CONTROLS**: `⏸` arm/pause · `🖥️` log · `📋` copy. Built only on a
+  touch device, each at least `PLAT.tap` across, anchored left (the log
+  button owns the top-right). Required exporting `CONSOLE.toggle`.
+- The pause hint is device-aware ("tap ⏸", not "press F6").
+- **Mobile defaults**: `ECO_LOCK` → 1 and `VERBOSE` off from the FIRST
+  frame. The LOW-SPEC GUARDIAN only *reacts* after watching a phone struggle;
+  on a phone we start in the eased tier. Paint and printing only — dives,
+  commits, jumps, hitbox and dive remote untouched.
+- **Boot line reports the platform**: `📱 platform: phone (touch=true
+  keyboard=false mouse=false) | ui x1.55 · tap 48px · 390x844`. Ten releases
+  of mobile tuning are worth nothing if you cannot tell whether it engaged.
+
+### 🚀 TRAJECTORY 4.0 — the integrator rewritten
+
+v2.83 stepped with **semi-implicit Euler**: update the velocity, then step
+the position with the NEW velocity. For constant gravity that lands at
+`s + v·dt + a·dt²`, but the truth is `s + v·dt + ½a·dt²` — it overshoots the
+drop by half a step's worth of fall, **every step**, compounding across a
+3.5 s flight. A lob predicted this way lands deeper and lower than it really
+does: exactly the ball you step forward for and watch sail over your head.
+
+Replaced with **MIDPOINT (RK2)** — the position steps with the velocity at the
+HALF step, and the curve dampener is evaluated at the midpoint time rather
+than the start of the step. Exact for constant acceleration, second-order for
+the curve, same number of force evaluations.
+
+Verified against the analytic solution at a 3 s flight:
+
+| | height | error |
+|---|---|---|
+| Euler | −723.79 | **5.89 studs** |
+| midpoint | −717.90 | **0.00 studs** |
+
+A stud is ~0.28 m and the crossbar is ~8 studs up — that error was most of a
+crossbar. Pinned by **S174**, which compares the predicted goal-line crossing
+against where the ball *actually* crosses (measured, not assumed from the
+maths): Euler 4.00 studs off → midpoint **1.74**.
+
+**⚠️ Tried and rejected — sampling-lag correction.** The theory is sound
+(`vRecent` is an average over the sample window, so it is the velocity at the
+window's *midpoint* while the sim integrates from *now*). Measured, it made
+the prediction **much worse**: with the lag fix, error went 1.74 → 6.25
+studs. `accel` is measured across a far longer span and then deadzoned and
+capped for curve purposes, so it is not the local acceleration at the
+sampling window and over-corrects against the estimator's own smoothing. The
+bias is real; this is not the fix. Left in the file as a documented dead end
+with the numbers, so nobody re-derives it and ships it.
+
+### 🧱 THE WALL STYLE IS AIKU
+
+Legendary, 1.5%, and his awakening is literally called **"The Iron Wall"**
+("While I'm on patrol... you won't be stealing any goal"). He was already in
+the roster (`ironwall`, `cobraintercept`, `defensivemetavision`,
+`formerstriker`, `snakeshot`, `snakeclear` + the SNAKE FLOW READ stance).
+
+What was missing was the **lesson** of a wall. A wall does not only stop the
+ball — it *hides the strike*. With two or more bodies in the corridor between
+ball and mouth, a shot can be deflected, and a deflection is the one ball
+that changes its mind after the keeper has left the ground. Through a screen
+the script now demands one more agreeing frame before committing to a SIDE.
+It never changes *whether* it dives — only how sure it is before picking one.
+Pinned by **S175** (two bodies → IRON WALL) and **S176** (one body → must
+NOT fire; a lone defender is not a wall).
+
+### 📊 DIVE LEDGER — "my keeper keeps going the wrong way"
+
+Every dive is now booked by the direction it was thrown in, with saves and
+goals attributed to that direction. That sentence is the only question that
+matters about the script's own side-picking, and until it is a number it is a
+feeling you cannot argue with.
+
+```
+📊 DIVE REPORT — Forward 1 thrown · 0 saved · 0 conceded (—) || overall — over 1 dive(s)
+```
+
+Printed automatically every `CONFIG.DIVE_REPORT_EVERY` (25) dives, and on
+demand from a new **📊** button in the console (desktop and mobile rows). A
+button you have to remember to press never gets pressed mid-match. Pinned by
+**S177**.
+
+### 🐛 The bug that had silently killed five v2.84 features
+
+`local ST = {` was declared at line 4854. `refreshPlayerRoots()` is at 4763 —
+91 lines EARLIER. In Lua a `local` is only in scope from its declaration
+point onward, so `ST` inside that function resolved to the **GLOBAL** `ST`,
+which is nil. It published `ST.roots` under a defensive `if ST then`, so it
+**never published at all**.
+
+`if X then` is not a guard against this. It is a guard that always fails.
+
+Consequence: since v2.84, `ST.roots` was nil on every frame, silently
+disabling `spaceAhead`, `support`, `pressure`, `target` and `lane` — five
+features that were wired, documented, tested green, and doing nothing. The
+intent read has been running with `support=0` and `space=0` since the day it
+shipped. Fixed by forward-declaring `local ST` at the top of the file and
+ASSIGNING the table far below.
+
+It bit a second time the same day: the console's tool buttons are built
+~5,700 lines above `ST = {`, so `ST.diveReport()` in those closures would
+have read the global and thrown on the first tap.
+
+**Two new lint rules make both classes unshippable**, each verified by
+negative control (restore the bug → lint fails with the line number and the
+fix; revert → clean):
+
+- forward references to `ST/CONFIG/CHARGE/MOVE/GK/PLAT/CONSOLE` before their
+  declaration
+- duplicate keys in `CHAR_NAMES / CHAR_PROFILES / MOVE_INFO / COUNTER_MODES`
+
+### 🐛 Eight duplicate table keys — four CONFLICTING
+
+In a Lua table constructor the LAST key silently wins and the first becomes
+dead code. `info.char` gates real keeper behaviour, so these were live bugs:
+
+- **`MOVE_INFO.jetkick`** — Luffy's row was dead; Devil Fruit User's won, so
+  the move was misattributed.
+- **`MOVE_INFO.theworld`** — Dio's "extreme" row was dead. The surviving
+  `defense + cutscene` row is also the correct one: The World is a TIME STOP,
+  not a strike.
+- **`MOVE_INFO.instantconquerorshaki`** — identical twins.
+- **`CHAR_PROFILES.santaclaus`** — two genuinely different rows; merged,
+  carrying the dead row's `bombThreshold = 135` into the survivor.
+- **`CHAR_NAMES.santaclaus`** — byte-identical twin.
+- **`COUNTER_MODES`** jetkick / escorpion / fivestagefakevolley — dead rows
+  removed, preserving the one unique value (`heightBonus = 6`) the surviving
+  row lacked.
+
+### 🔍 New styles: the roster was already complete
+
+The Skibidi wiki's last real content edit was March 2026, so the codes were
+the better source — and every one of them resolves to a style already present:
+
+- **Naoya — CONFIRMED.** Two codes: `naoya` (Sep 5) and `NaoyaNerf`
+  (Sep 15). The script's 2026-09 note said "no fandom page yet"; the codes
+  settle it, and the existing PERFECT IMPACT WATCH stance (quick read armed,
+  panic NOT — because he was nerfed) was right.
+- **Mugetsu** (Sep 8) — already an Ichigo row from v2.75.
+- Post-wiki styles **Shidou, Ichigo** (Jul), **Bachira, Yukimiya** (Aug),
+  **Kurona** (Sep) — all present and handled.
+- Confirmed canonical 14: Isagi, Gagamaru, Reo, Chigiri, Nagi, Sae, Aiku,
+  Barou, Kaiser, Don Lorenzo, Rin, Devil Fruit User, Ronaldo, Dio, Luffy.
+
+**Nothing was missing.** The research confirmed the roster rather than
+extending it — which is the honest outcome, and worth more than padding.
+
+### Scenarios: 173 → 176
+
+**S174** the predicted arc tracks the real arc · **S175** the iron wall: two
+bodies in the lane hide the strike · **S176** ...a lone defender is not a
+wall · **S177** the dive ledger survives being read (and books a direction)
+
+176/176, deterministic across two runs · `tools/lint.py` clean · version
+bumped in the SCRIPT (banner + `VERSION`).
+
+## v2.84 — "the keeper who sees what happens next." · GK MOVE PREDICTION 2.0
+
+> *"make a better GK move prediction — the GK move prediction 2.0 will have
+> looks at what position you are currently and also predicts where you will go
+> next"*
+
+v2.44's `aimPos` already asked one question — **where will the keeper be when
+the ball gets there?** — and answered it with a single velocity and a straight
+line. 2.0 keeps that question and adds the three it was missing: **where he
+is going, where the attacker is going, and what this possession is about to
+become.** 50 features, every one measured or derived from a measurement.
+
+### WHERE YOU ARE  (1–5)
+- Keeper position / velocity / **acceleration**, teleport-guarded (a respawn is
+  never read as 800 studs/s of motion).
+- **KEEPER STATE** — `SET` / `MOVING` / `RECOVERING` / `DIVING`. Every
+  reachability answer has to know which keeper it is asking about: a keeper
+  still landing a dive cannot reach the ball a set one can.
+
+### WHERE YOU'RE GOING NEXT  (4, 19–21, 30–35)
+- **`keeperAt(dt)` carries ACCELERATION into the horizon** — this is the
+  upgrade over v2.44. A keeper accelerating off his line is *further along* by
+  arrival time than straight-line flight says; a decelerating one (landing a
+  dive, braking a sweep) is *short* of it. Same measured velocity, better
+  landing point. *(Pinned by S168, with the constant-velocity case pinned too,
+  so the flat case did not break.)*
+- Short-horizon ball position (+0.25 s, gravity in), **reachability** from where
+  the keeper *will be* (capped by his own measured speed, floored at a jog —
+  never a constant claiming to know how fast a keeper moves), **dive window**,
+  **re-arm time**, goal-relative **lateral**, and which way the keeper is
+  **already leaning** (a keeper moving the wrong way must start earlier).
+
+### WHERE HE IS / WHERE HE'S GOING  (6–11, 23, 24)
+- Every opponent's measured position and velocity, predicted at any horizon,
+  **closing rate**, **space ahead**, **pressure count**, **pressure trend**,
+  and **body orientation** (which shoulder he is turned towards is the earliest
+  cue there is, and it is free).
+
+### WHAT HAPPENS NEXT  (12–18, 28, 36–40)
+- An **INTENT read** — `shot / pass / carry / cross / clear / back` — weighted
+  from live geometry (distance, mouth **openness**, support options, road
+  ahead) and blended with **that man's own ledger habits**. Habits only ever
+  *nudge*: a habitual passer standing 8 studs out with an open mouth is a
+  shooter right now, and the live picture is the evidence.
+- **Two-frame hold**: an intent that flips every frame is noise, not a
+  prediction. The hold is what makes `🔮 PREDICT` a read instead of a ticker.
+- **Confidence is discounted by sample size** — three touches of ledger is an
+  anecdote, not a habit.
+- Names the **receiver** (with an open-lane test), where *he* goes **next**, and
+  how bad that gets — the number that says "shade now".
+
+### Logging  (40 + dedicated console line)
+- **`🔮 PREDICT`** on the console the moment the *held* read changes:
+  `🔮 PREDICT — SHOT 84% — REACHABLE · keeper SET · threat 0.62 · belief 71%`.
+  One line, exportable in one press — per the standing rule, telemetry lives in
+  logs/console only, never on the HUD.
+- Live telemetry on `stateInfo` (`mpTop`, `mpConf`, `mpThreat`, `mpState`,
+  `mpBelief`) for the console export.
+
+### Bugs found and fixed while building it
+- ⚠️ **The trap, twice.** `ST.mp` stores its published values on the same table
+  that holds its methods, so `ST.mp.threat = 0` silently *replaced* the
+  `threat()` method with a number; the next frame died with *"attempt to call a
+  number value (field 'threat')"*. Hit with `threat`, `offLine`, `target`, then
+  `trend`. Values now carry a distinct suffix, the trap is documented at the top
+  of the module, and **`tools/lint.py` now fails the build on it** — it names
+  the line and suggests the fix.
+- ⚠️ **Boot ordering.** `refreshPlayerRoots` runs during boot, *before*
+  `local ST` is reached, so `ST` is still **nil** there. Every feed is guarded
+  with `if ST and ST.mp then`, never `if ST.mp then`.
+- ⚠️ **The 60-upvalue ceiling.** Reading `playerRoots` from `mainStep` pushed it
+  to **61/60** — Lua 5.1 executors refuse to *compile* that. The roots list is
+  now published on `ST.roots`; `mainStep` sits at exactly **60/60**.
+
+### Scenarios (172, all passing)
+- **S168** accelerating keeper predicted further than straight flight *(negative
+  control: stripping the accel term makes it FAIL)*; constant-velocity case must
+  still agree. **S169** the four keeper states. **S170** open mouth at 8 studs
+  reads SHOT. **S171** far out with three options reads PASS *and names the man*
+  — and naming him must not destroy the method that named him. **S172** the
+  two-frame hold, and that a changed read resets it. **S173** `🔮 PREDICT`
+  actually reaches the console.
+
+## v2.83c — "the first bug the console caught." · a nil call that killed frames, and a reset guard that cried wolf
+
+The first real match log the user pasted out of the new console (327 lines,
+6 errors) — and it caught two live bugs immediately, one of them mine.
+
+- 🐛 **THE NIL CALL (the crash).** `P:classOf` called `classify(pr)`, but
+  `local function classify` is declared ~25 lines BELOW it. `local function
+  classify(...)` is sugar for `local classify; classify = function...` — the
+  binding only exists from that line onward, so the call inside `classOf`
+  resolved to the **global** `classify`, which is nil. Every call threw
+  *"attempt to call a nil value"* — logged as `❌ LOOP ERROR`, and each one
+  killed the whole frame, dive included. The live log showed it at
+  `…:4953`, which is exactly the `classify(pr)` line.
+  **Why the suite never caught it:** the periodic pass sets `pr.cls` first,
+  so `classOf` short-circuits on `if not pr.cls` and never reaches the bad
+  call. Only a **fresh, un-classified row** — which is what the live game
+  has — hits it. Fixed by forward-declaring the local, and pinned by
+  **S166**, which force-clears `cls` and asserts the call survives.
+- 🐛 **THE RESET GUARD CRIED WOLF.** `BALL_TELEPORT_DIST` was a fixed 22
+  studs, but on a **~397 ms link** a single frame can be 0.3 s long, and a
+  real 120/s strike legitimately covers 36 studs in it. The live log showed
+  **18 "resets"** in one match, every one of them a real ball on a hitch —
+  which is also where the absurd measured speeds (537 → 15 studs/s) came
+  from. The bar is now the ball's own speed × the frame time, and only a
+  jump too large to be any kind of play (`BALL_TELEPORT_HARD`, 60) also
+  invalidates the motion window — because that costs 4 blind frames and the
+  price must be paid only for a true reset. Pinned by **S167**, verified by
+  negative control: with the old fixed bar the scenario fails with
+  `unexpected log line: RESET GUARD`.
+- 🖥️ **A diagnostic worth the whole trip.** The heartbeat now reports
+  `⚠️ NO GOAL GEOMETRY (fallback 16×8)` on every beat when the script could
+  not find the goal parts. That line was in the user's log, and it is the
+  most likely explanation for "not diving": with no goal geometry the
+  script can only judge on-target by **closest approach** (COMMIT_RADIUS,
+  25), which turns the keeper into a point-blank smotherer — which is
+  exactly what the log showed (`🧤 PUNCH OUT | Speed: 18 | @2.7 studs`,
+  seventeen times, instead of dives).
+
+- ✅ 166/166 scenarios pass (twice — deterministic); `tools/lint.py` clean;
+  2 new regression pins (S166–S167).
+
 ---
 
 ## v2.83 — "the keeper who knows the moment." · the load-now button, Bait 3.0 (eight new shapes), Counter 2.0, Trajectory 3.0, MATCH SENSE
@@ -91,8 +400,46 @@ fixed, so they double as the design rationale for the thresholds in `CONFIG`.
   (where to STAND to bisect the angle — positioning is the cheapest save
   there is), second ball, crowd/chaos, one-on-one, counter, late game,
   shutout, workload and form. Console-only telemetry (v2.67 no-paint rule).
-- ✅ 161/161 scenarios pass; `tools/lint.py` clean; 8 new scenario pins
-  (S155–S162) for the Bait 3.0 shapes.
+- 🖥️ THE SCRIPT'S OWN CONSOLE (user: "make a button that when I press it
+  shows the console but not the console of Roblox — a console of urs which
+  lets u read every bug every input that the script made and I don't have to
+  record a vid"). Roblox's console fills with the GAME's chatter, truncates,
+  and getting a bug out of it means recording a video and scrubbing — so the
+  script now keeps its own ring buffer (600 lines), written at the source
+  BEFORE the v2.7x log budget can mute anything (the budget protects a
+  struggling device's output; it must never hide a bug). A small **🖥️ LOG**
+  button (or **F2**) opens it: every line, time-stamped, colour-graded into
+  ERROR / WARN / DIVE / BAIT, with filters, and **📋 COPY ALL** which puts
+  the whole log on the clipboard in one press (💾 FILE saves it where the
+  executor allows; where there is no clipboard the text is dropped into a
+  select-all box). The button turns RED and counts the errors on its own
+  face — that is the part that reads the console for you. Off by default
+  and it paints nothing until opened (v2.67 no-paint rule), pcall-guarded
+  end to end, and wired to nothing in the dive path. S164–S165 pin it.
+- 👑 PREDATOR WATCH (user: "more detection for barou"): a power man parked
+  on a DEAD ball inside 40 studs, holding the pose — the stance the fandom
+  documents as the feint of the Predator Shot. His whole kit is announced
+  power (chop, feast, devour) and every one of them starts with that
+  stillness, so the stance gets its own gate opener (`predatorShape`): it is
+  the one quiet-ball signature nothing else can see, because nothing is
+  moving. The read names it and opens a trust window around the release —
+  the stance is the announcement, and the announcement was never the bait.
+  S163 pins it.
+- ⚡ LOAD NOW, cooler (user: "make the load now button cooler"): the plain
+  rectangle is now a lit PILL — rounded, purple→pink gradient that slowly
+  turns, a halo ring that BREATHES on a sine while the countdown runs, hover
+  that lights it up, and a face that counts its own seconds down ("⚡ LOAD
+  NOW — 7.3s left") instead of just naming the delay. It answers the
+  keyboard too (**L** / **Space** / **Enter**), because some executors
+  swallow clicks on overlay guis. Every new piece is pcall-guarded: an
+  executor without UIGradient/UIStroke still gets the plain working button.
+- 🐛 Two bugs found while building the console: the console's own boot line
+  used `_rawPrint` and so never entered its own buffer (now captured); and
+  the console module was 16 main-chunk locals, which pushed the file past
+  Lua's 200-local ceiling — it is now wrapped so it costs one.
+
+- ✅ 164/164 scenarios pass; `tools/lint.py` clean; 11 new scenario pins
+  (S155–S162 Bait 3.0 shapes, S163 PREDATOR WATCH, S164–S165 the console).
 
 ---
 
