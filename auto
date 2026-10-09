@@ -1,35 +1,60 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.85 "the iron wall, and the phone in your hand."
+	⚡ ZERO-LATENCY GK AI — v2.86 "everything the header promised but never wrote down."
 	-- 🔘 LOAD NOW (user: "8 secs is annoying"): the boot curtain carries a
 	-- button — one press drops the eight seconds; left alone it runs the
 	-- full count exactly as before. S154 pins it.
-	-- 🪤 BAIT 3.0 — eight new shapes, each with its own gate signature so a
-	-- quiet ball only pays for the reads it actually earned: POWER PULL (a
-	-- credited bomb that drags BACKWARD off its own line), DOUBLE PULL,
-	-- CARRY STALL, WALKAWAY, BLEEDING CROSS (judged on GEOMETRY, not
+	-- 🚪 BAIT 4.0 — 3.0's eight shapes, each with its own gate signature
+	-- so a quiet ball only pays for the reads it actually earned: POWER
+	-- PULL (a credited bomb that drags BACKWARD off its own line), DOUBLE
+	-- PULL, CARRY STALL, WALKAWAY, BLEEDING CROSS (judged on GEOMETRY, not
 	-- trajectory), CIRCLE, CLASS SOFT, and HANDOFF (a credited "shot" a
 	-- second man picks up — ownership is re-attributed, so the chaser
 	-- tier, the carry trust and the ledger follow the ball, not the
 	-- credit). S155–S162.
+	-- 4.0 adds THE SHAPE LEDGER. 3.0 knew THAT a man baits and HOW OFTEN;
+	-- it never knew WHICH feint he reaches for. All eight shapes were
+	-- detected, billed as one undifferentiated "episode", and thrown away
+	-- — so a man who had sold the same carry-stall five times tonight was
+	-- met with exactly the same suspicion as a man doing it for the first
+	-- time. Now the shape is remembered per character, the favourite is
+	-- named once there is enough sample to call it one (BAIT_SHAPE_MIN),
+	-- and that favourite EARNS a longer trust window: a liar with a
+	-- signature is easier to read than a liar without one. S182.
 	-- 🐛 FOUR real bugs: the whip-feint read forgot its heading on weak
 	-- samples — harmless until a gate opener began holding the net open on
 	-- quiet frames, then one straddle sample swallowed the reversal
 	-- (S152, bisected); a keyless man is not a teammate (the roster scan
 	-- lags a fresh world); the ledger's decaying count could never reach
 	-- an integer threshold (2.5 floors it); reads log for teamless men.
-	-- 🎭 COUNTER 2.0 — move counters can now carry RESEARCH, not just
-	-- timing: sideBias commits a side IN FLIGHT while the crossing is
-	-- still in the band (Sae's/Rin's documented left habit, Shidou's
-	-- back-aimed formless, Barou's ledgered corner), trust gives a named
-	-- move exactly the window it deserves, and every row's note prints
-	-- WHY on the arm line.
-	-- 🚀 TRAJECTORY 3.0 — five geometry lies fixed: RESET GUARD (a
-	-- one-frame teleport is not a 1300/s strike), APEX SETTLE (a climbing
-	-- ball has no crossing height yet), FRAME GRAZE (a hair outside the
-	-- woodwork is one deflection from on target), TIME-SCALED REACH
-	-- (reach is travel, and travel is time — the flat ring was measuring
-	-- a 40-stud ball like one at the keeper's feet), STICKY SIDE (one
-	-- jitter frame can no longer flip the committed side).
+	-- 🎭 COUNTER 3.0 — move counters carry RESEARCH: a move's documented
+	-- side committed IN FLIGHT while the crossing is still in the band
+	-- (Sae's/Rin's documented left habit, Shidou's back-aimed formless,
+	-- Barou's ledgered corner); trust gives a named move exactly the
+	-- window it deserves, and every row's note prints WHY on the arm line.
+	-- 3.0 adds the RESEARCH AUDIT: research is about a CHARACTER, but the
+	-- thing you are facing is a PLAYER. Every researched commit is scored
+	-- against where the crossing actually went, and after
+	-- COUNTER_AUDIT_FAILS wrong calls from one man the wiki stands down
+	-- for him and the live measurement leads — out loud, not quietly 0-6.
+	-- 🚀 TRAJECTORY 4.0 — the ARC itself, not just the geometry around
+	-- it. v2.83's five geometry lies all still hold (RESET GUARD: a
+	-- one-frame teleport is not a 1300/s strike · APEX SETTLE: a climbing
+	-- ball has no crossing height yet · FRAME GRAZE: a hair outside the
+	-- woodwork is one deflection from on target · TIME-SCALED REACH:
+	-- reach is travel and travel is time · STICKY SIDE: one jitter frame
+	-- cannot flip the committed side). 4.0 fixes the two errors UNDER
+	-- all five:
+	--   MIDPOINT (RK2) INTEGRATION — semi-implicit Euler stepped the
+	--   position with the NEW velocity, overshooting the drop by
+	--   ½·g·dt·T EVERY step: 5.89 studs of invented fall at T=3s, against
+	--   a crossbar 8 studs up. Midpoint is exact for constant
+	--   acceleration. Measured crossing error fell 4.00 -> 1.74 studs.
+	--   EXACT CROSSING — the goal-line crossing was split LINEARLY across
+	--   a step (up to 2.5 studs of travel at 100 studs/s), which is only
+	--   right if the ball flew straight through it. Under constant
+	--   acceleration depth is a parabola in time, so the exact root is
+	--   available from the same two samples, for free.
+	-- S174 pins the predicted arc against where the ball ACTUALLY crosses.
 	-- 🧠 MATCH SENSE + the CONCESSION BANK: 17 match-level reads (tilt
 	-- meter, back pass, shade line, set piece, one-on-one, second ball,
 	-- crowd, form, workload — trig-free so they run under Luau and Lua
@@ -174,7 +199,7 @@
 	BAIT_DANCE_RANGE   = 7,      -- studs: how close the prowler must be
 	BAIT_DANCE_DIST    = 0.6,    -- his cumulative travel inside that ring
 	BAIT_DANCE_TIME    = 0.35,   -- seconds of dance that condemns the kick
-	-- 🪤 v2.83 BAIT 3.0: the second-generation fake shapes (POWER PULL,
+	-- 🪤 v2.83 BAIT 4.0: the second-generation fake shapes (POWER PULL,
 	-- CARRY STALL, WALKAWAY, BLEEDING CROSS, CIRCLE, CLASS SOFT, HANDOFF)
 	-- live in CONFIG below — this header documents the WHY, not the numbers.
 	BAIT_DANCE_WINDOW  = 1.2,    -- credit this close to the dance's end is THE dance's shot
@@ -187,12 +212,16 @@
 	PLAY_FWD_BAND       = 2.4,    -- "forward" shape: seam = this × centerTol
 	PLAY_FWD_MAX        = 62,     -- ...and the pounce read fires this far out
 	SIDE_GUESS_DIST     = 38,     -- past here, band-wide side commits are guesses
-	-- 🎭 v2.83 COUNTER 2.0: the band within which a researched move-bias may
+	-- 🎭 v2.83 COUNTER 3.0: the band within which a researched move-bias may
 	-- COMMIT a side. A crossing reading this narrow off the centerline is
 	-- still a coin flip, and research (the move's documented side, or the
 	-- man's ledgered corner habit) beats a guess. Once the crossing clears
 	-- the band the ball has proven itself and the live reading wins.
 	COUNTER_BIAS_BAND   = 4,
+	-- 🎭 v2.85 COUNTER 3.0: how many times the researched side has to be
+	-- WRONG for one man before the wiki stands down for him and the live
+	-- measurement takes the lead. 0 = research is never audited.
+	COUNTER_AUDIT_FAILS = 3,
 	-- 🪹 v2.74 NEVER DIVE WHAT YOU CAN SMOTHER: inside SIDE_GUESS_DIST a side
 	-- commit must clear the keeper's reach ring (centerTol + this), or it is a
 	-- step-in. The friend's last sideways class: dives at balls drifting ~6
@@ -546,7 +575,7 @@
 -- are the only two places the release number is written, so bump BOTH.
 -- (The boot line used to hard-code "v2.44" and stayed frozen for ~39
 -- releases — the console lied about which script was running.)
-local VERSION = "v2.85"
+local VERSION = "v2.86"
 -- ==========================================
 -- SERVICES
 -- ==========================================
@@ -1334,7 +1363,7 @@ local CONFIG = {
 	CREDITS_HOLD          = 8,      -- v2.83: the curtain's readable hold (the user's "make it last 8 secs")
 	LOAD_NOW_BUTTON       = true,   -- v2.83: "would you like to load the script now?" — the curtain's skip button
 
-	-- 🪤 v2.83 BAIT 3.0 — the second-generation fake shapes (see the header
+	-- 🪤 v2.83 BAIT 4.0 — the second-generation fake shapes (see the header
 	-- block for the doctrine; the numbers live HERE, not there).
 	POWER_PULL_WINDOW   = 0.6,    -- s of pull-back before the devour shape is on
 	PULL_REPEAT_WINDOW  = 4.0,    -- s for a second pull to bill the double
@@ -1631,7 +1660,7 @@ local CONFIG = {
 	-- side when the crossing is past centerTol × this AND the same side held
 	-- the previous frame. Inside the band or unconfirmed: hold the middle.
 	LEAD_SIDE_TRUST     = 1.8,    -- same taper LONG READ uses at its own range
-	-- 🚀 v2.83 TRAJECTORY 3.0 tuning. All four are keeper-side geometry
+	-- 🚀 v2.83 TRAJECTORY 4.0 tuning. All four are keeper-side geometry
 	-- knobs — none of them invent a game number.
 	APEX_SETTLE_VY      = 6,      -- |vertical speed| under this = the ball has stopped climbing: its crossing height is FINAL, not provisional
 	FRAME_GRAZE         = 1.6,    -- predicted crossing this close to post/bar (outside) = it may clip the frame and come back
@@ -1913,6 +1942,42 @@ local CONFIG = {
 	-- while tuning, noisy while playing. VERBOSE=false mutes all of it except the
 	-- boot banner and real errors (those always print).
 	VERBOSE               = true,
+	-- 🔧 v2.86 THE RESURRECTION BLOCK. Thirteen knobs this script has been
+	-- READING for versions were never actually written into this table — they
+	-- lived only in the header comment above and in CONFIG_RULES' sanity
+	-- rows. Every one of them therefore evaluated to nil, and every feature
+	-- gated on one was dead: it either errored (if reached) or, far worse,
+	-- short-circuited on nil and quietly never fired. Side-guess distance,
+	-- the never-dive ring, the tricky-move band, the shooter's playbook
+	-- forward shape, the whole bait-dance detector, the near-smother speed
+	-- gate, and COUNTER 3.0's researched side-bias all sat in that grave.
+	-- These are the values the header already documented and CONFIG_RULES
+	-- already validated — restored verbatim, not re-tuned. See addendum 29.
+	BAIT_DANCE_STILL    = 3.0,    -- ball speed at/below this = "dead"
+	BAIT_DANCE_RANGE    = 7,      -- studs: how close the prowler must be
+	BAIT_DANCE_DIST     = 0.6,    -- his cumulative travel inside that ring
+	BAIT_DANCE_TIME     = 0.35,   -- seconds of dance that condemns the kick
+	BAIT_DANCE_WINDOW   = 1.2,    -- credit this close to the dance's end is THE dance's shot
+	PLAY_FWD_BAND       = 2.4,    -- "forward" shape: seam = this × centerTol
+	PLAY_FWD_MAX        = 62,     -- ...and the pounce read fires this far out
+	SIDE_GUESS_DIST     = 38,     -- past here, band-wide side commits are guesses
+	SIDE_NO_DIVE        = 3.5,    -- inside SIDE_GUESS_DIST a commit must clear centerTol + this
+	NEAR_SMOTHER_SPEED  = 85,     -- above it the near ring stands down
+	TRICKY_BAND         = 2.6,    -- × centerTol while a tricky move's alert is live
+	COUNTER_BIAS_BAND   = 4,      -- 🎭 COUNTER 3.0: a researched move-bias may commit a side inside this
+	COUNTER_AUDIT_FAILS = 3,      -- 🎭 v2.85: wrong calls before research stands down for one man (0 = never audited)
+	-- 🔮 v2.86 GK MOVE PREDICTION 3.0: the blend between the LIVE
+	-- picture (geometry) and the ledger's PRIOR (this man's habits).
+	MP_EVIDENCE_K       = 6,      -- touches before the prior is half-believed: evidence = touch/(touch+this)
+	MP_HABIT_MAX        = 0.3,    -- ceiling on the prior's share — it NEVER outvotes the live picture
+	MP_INTENT_FAILS     = 4,      -- wrong intent reads before the script says so out loud (0 = never)
+	MP_KEEPER_TERMINAL  = 1.5,    -- × measured speed: the fastest a keeper is predicted to be travelling
+	-- 🚪 v2.86 BAIT 4.0: the shape ledger. A liar with a SIGNATURE is easier
+	-- to read than a liar without one, so once a man's favourite feint is
+	-- established, the trust window that feint buys is lengthened by
+	-- BAIT_SHAPE_GAIN × (that shape's share of his episodes).
+	BAIT_SHAPE_MIN      = 3,      -- episodes of one shape before it is called his signature
+	BAIT_SHAPE_GAIN     = 0.6,    -- × the favourite's share = how much longer its trust window runs
 }
 
 -- ==========================================
@@ -3383,7 +3448,7 @@ local COUNTER_MODES = {
 		-- ball goes left. It's a deceiver: force a 2-frame read.
 		name = "MIRRORED BICYCLE",
 		heightBonus = 10, confirmFrames = 2,
-		sideBias = "MIRROR",             -- 🎭 v2.83 COUNTER 2.0: the wind-up's
+		sideBias = "MIRROR",             -- 🎭 v2.83 COUNTER 3.0: the wind-up's
 		-- read side is the PICTURE — the ball lands the other way (aim right,
 		-- ball goes left). Flips the committed side while the crossing is
 		-- still in the band; the live crossing outranks it once it clears.
@@ -3509,7 +3574,7 @@ local COUNTER_MODES = {
 		confirmFrames = 2,
 		trust = 2.0,                     -- 🎭 v2.83: he mimics anyone's whole
 		-- kit, so every read he sells is a possible lie — the trust window is
-		-- the longest on the table (the Bait 3.0 tiers already price his
+		-- the longest on the table (the Bait 4.0 tiers already price his
 		-- theatre; this just tells the soft nets to stand aside longer).
 		note = "he copies anyone — the only truth is the ball",
 	},
@@ -3553,7 +3618,7 @@ local COUNTER_MODES = {
 		-- -> the read is PRIMED LEFT before the shot is even released.
 		name = "LEFT BIAS CURVE",
 		confirmFrames = 2, primeSide = "Left", heightBonus = 6,
-		sideBias = "Left",              -- 🎭 v2.83 COUNTER 2.0: the bias now
+		sideBias = "Left",              -- 🎭 v2.83 COUNTER 3.0: the bias now
 		-- works in FLIGHT too (the prime arms pre-release; the sideBias
 		-- commits while the crossing is still in the band).
 		note = "researched: his shot always goes to the left",
@@ -3561,7 +3626,7 @@ local COUNTER_MODES = {
 	longshot = {
 		name = "LONG SHOT WALL",         -- "must jump or stand/dive"
 		snap = true, bombThreshold = 130, commitBonus = 10, confirmFrames = 1,
-		sideBias = "PATTERN",           -- 🎭 v2.83 COUNTER 2.0: his long bombs
+		sideBias = "PATTERN",           -- 🎭 v2.83 COUNTER 3.0: his long bombs
 		-- favor the corner the ledger has seen him aim (v2.82 pattern, now a
 		-- commit, not just a log); center when it has seen nothing.
 		note = "his long shot favors his ledgered corner",
@@ -3595,7 +3660,7 @@ local COUNTER_MODES = {
 		-- that used to slip in sometimes.
 		name = "RIN CURVE WALL",
 		confirmFrames = 2, primeSide = "Left", heightBonus = 8, bombThreshold = 130,
-		sideBias = "Left",              -- 🎭 v2.83 COUNTER 2.0: in-flight left
+		sideBias = "Left",              -- 🎭 v2.83 COUNTER 3.0: in-flight left
 		-- commit while the crossing is still a coin flip (harder break than
 		-- Sae's, same habit).
 		note = "Sae's curve, harder — the left habit",
@@ -4260,11 +4325,11 @@ local function armAbility(info, moveKey, rawName, counterKey)
 		t = t,
 		expiresAt = t + armed,
 	}
-	-- 🎭 v2.83 COUNTER 2.0: the row's research note rides the arm line — the
+	-- 🎭 v2.83 COUNTER 3.0: the row's research note rides the arm line — the
 	-- console shows WHY this move is met the way it is.
 	log(string.format("[AI-Dive] 🎯 %s detected — counter: %s%s", rawName,
 		cm and cm.name or "standard", cm and cm.note and (" | " .. cm.note) or ""))
-	-- 🎭 v2.83 COUNTER 2.0: a named move can carry its own trust window —
+	-- 🎭 v2.83 COUNTER 3.0: a named move can carry its own trust window —
 	-- while it is fresh, the soft nets stand aside for it (the announced
 	-- strike is a strike, exactly the v2.81 backheel doctrine, generalized
 	-- to any row that says so). The window rides the ALERT, not ST: this
@@ -4826,7 +4891,7 @@ local function refreshPlayerRoots()
 					end
 				end
 				playerVelStore[plr] = { pos = root.Position, t = now }
-				-- 🔮 v2.84 GK MOVE PREDICTION 2.0: feed every opponent to the
+				-- 🔮 v2.84 GK MOVE PREDICTION 3.0: feed every opponent to the
 				-- predictor so "where HE is going next" is measured, not guessed.
 				-- GUARD: this scan also runs during BOOT, before `local ST`
 				-- (line ~4683) has been reached — ST is still nil there, so the
@@ -4934,7 +4999,7 @@ ST = {
 	whipDir         = nil,     -- last carrier heading (unit) for the WHIP FEINT dot test
 	whipT           = -1e9,    -- when that heading was sampled
 	whipEpT         = -1e9,    -- last WHIP FEINT episode (dedupe)
-	-- 🪤 v2.83 BAIT 3.0 state (sentinels: clocks count up, "never" is -1e9)
+	-- 🪤 v2.83 BAIT 4.0 state (sentinels: clocks count up, "never" is -1e9)
 	powerPullT      = -1e9,    -- last POWER PULL (double-pull grudge window)
 	powerPullKey    = nil,
 	powerPullCredit = -1,
@@ -4967,7 +5032,7 @@ ST = {
 	handoffLogged   = -1e9,
 	moveTrustT      = -1e9,    -- 🎭 v2.83: a named move with a trust window armed it
 	moveTrustDur    = 0,
-	-- 🚀 v2.83 TRAJECTORY 3.0 state
+	-- 🚀 v2.83 TRAJECTORY 4.0 state
 	apexSettled     = false,   -- the ball has stopped climbing: its crossing height is final
 	grazeFrames     = 0,       -- consecutive frames the crossing has grazed post/bar from OUTSIDE
 	grazeLogged     = -1e9,
@@ -5124,7 +5189,7 @@ ST.prof = (function()
 		elseif side == "L" then pr.cL = (pr.cL or 0) + 1
 		else pr.cM = (pr.cM or 0) + 1 end
 	end
-	-- 🚀 v2.83 TRAJECTORY 3.0 — THE CONCESSION BANK: the corner ledger counts
+	-- 🚀 v2.83 TRAJECTORY 4.0 — THE CONCESSION BANK: the corner ledger counts
 	-- where a man AIMS; the bank counts where he BEATS us. Aim and result are
 	-- different books: a man who aims right 70% of the time but only scores
 	-- left is telling the keeper the read is right and the DIVE is wrong —
@@ -5449,14 +5514,15 @@ ST.sense = (function()
 end)()
 
 -- ==========================================
--- 🔮 v2.84 GK MOVE PREDICTION 2.0 — the keeper's own crystal ball.
+-- 🔮 v2.86 GK MOVE PREDICTION 3.0 — the keeper's own crystal ball,
+-- and now a crystal ball that keeps score on itself.
 --
--- (user: "make a better GK move prediction — the GK move prediction 2.0
+-- (user: "make a better GK move prediction — the GK move prediction 3.0
 -- will have looks at what position you are currently and also predicts
 -- where you will go next")
 --
 -- v2.44 already extrapolated the KEEPER toward the ball's ETA from a raw
--- position delta (aimPos). 2.0 is the whole picture instead of one vector:
+-- position delta (aimPos). 2.0 was the whole picture instead of one vector:
 --
 --   WHERE YOU ARE       keeper position, velocity, ACCELERATION, and state
 --                       (set / moving / recovering / diving)
@@ -5467,6 +5533,32 @@ end)()
 --   WHAT HAPPENS NEXT   an INTENT read — shot / pass / carry / cross / clear
 --                       — blended from live geometry AND that man's own
 --                       ledger habits (what he has actually done tonight)
+--
+-- 3.0 is the part 2.0 left out: it never checked whether any of it was
+-- RIGHT, and it trusted its own priors far too early. Three changes:
+--
+--   EVIDENCE-WEIGHTED BLENDING (40)    2.0 split the intent read a flat
+--       70/30 between the live picture and this man's habits, whatever the
+--       sample size — so a man with three touches was being read 30% on
+--       the strength of a "100% shot rate" computed from ONE shot. The
+--       habit share now scales with how much the ledger has actually seen
+--       (MP_EVIDENCE_K), and is still capped by MP_HABIT_MAX so even an
+--       all-night ledger can never outvote what is in front of the keeper.
+--   THE HORIZON CLAMP                  2.0 carried a measured acceleration
+--       into the horizon for as long as you asked, so a two-second
+--       prediction from a keeper who happened to be accelerating promised
+--       a sprint clean across the box (measured: 520 studs). End-of-horizon
+--       speed is now capped at MP_KEEPER_TERMINAL × his own measured speed,
+--       integrated as a trapezoid — algebraically identical to the old
+--       v*dt + ½a*dt² whenever the cap is not reached, so nothing that
+--       worked before moves (measured: 52.5 studs, was 520).
+--   THE INTENT LEDGER (41)             2.0 published an intent every frame
+--       and never checked whether it had been right, so a read that was
+--       wrong all night carried the same authority at minute 40 as at
+--       minute 1. Every resolved possession now scores the held read
+--       against what the man ACTUALLY did; after MP_INTENT_FAILS misses the
+--       script says so out loud, and trustV lets anything downstream
+--       discount a read that has not earned belief.
 --
 -- Nothing here invents a game number. Velocities are measured, the reach
 -- cap is the keeper's own configured speed, and the intent weights are the
@@ -5480,6 +5572,9 @@ ST.mp = (function()
 		mix = { shot = 0, pass = 0, carry = 0, cross = 0, clear = 0, back = 0 },
 		top = nil, topT = -1e9, hold = nil, holdN = 0,
 		tgtName = nil, tgtT = -1e9, tgtPos = nil,
+		-- 🔮 v2.86 GK MOVE PREDICTION 3.0: the intent ledger. NOTE the
+		-- naming trap (see the warning above) — intentL, not intent.
+		intentL = { n = 0, hit = 0, miss = 0, warned = false },
 	}
 	local TP = 80          -- studs/s beyond which a "move" is a respawn, not motion
 	-- ⚠️ TRAP, and it has bitten twice: every value the predictor publishes is
@@ -5521,7 +5616,19 @@ ST.mp = (function()
 		if not k.pos then return nil end
 		if not k.vel then return k.pos end
 		local a = k.acc or v3()
-		return k.pos + k.vel * dt + a * (0.5 * dt * dt)
+		-- 🔮 v2.86 GK MOVE PREDICTION 3.0 HORIZON CLAMP. 2.0 carried a
+		-- measured acceleration into the horizon for as long as you asked, so a
+		-- two-second prediction from a keeper who happened to be accelerating
+		-- promised a sprint clean across the box. Real keepers (like every
+		-- other body on the pitch) stop accelerating. The end-of-horizon speed
+		-- is now capped at MP_KEEPER_TERMINAL × his own measured speed, and the
+		-- step is integrated as the TRAPEZOID between the two speeds — which is
+		-- algebraically identical to the old v*dt + ½a*dt² whenever the cap is not
+		-- reached, so nothing that worked before moves.
+		local vEnd = k.vel + a * dt
+		local cap = math.max(self:keeperSpeed(), 16) * (CONFIG.MP_KEEPER_TERMINAL or 1.5)
+		if vEnd.Magnitude > cap then vEnd = vEnd.Unit * cap end
+		return k.pos + (k.vel + vEnd) * (0.5 * dt)
 	end
 	-- (5) KEEPER STATE: what the keeper is doing right now. A keeper
 	-- mid-recovery cannot reach the same ball as a set one, and every
@@ -5636,15 +5743,36 @@ ST.mp = (function()
 			clear = 0, back = clamp01((pr.pass or 0) / math.max(1, touch) * 0.3),
 		}
 	end
+	-- (40) EVIDENCE — 🔮 v2.86 GK MOVE PREDICTION 3.0. How much the ledger
+	-- has actually SEEN this man. 2.0 blended the live picture against his
+	-- habits at a FLAT 70/30 whatever the sample: a man with three touches to
+	-- his name was being read 30% on the strength of a "100% shot rate"
+	-- computed from a single shot. A prior has to earn its share, so the
+	-- habit weight now scales with the evidence behind it — and is still
+	-- capped by MP_HABIT_MAX, so even a ledger that has watched him all night
+	-- can never outvote what is happening in front of the keeper.
+	function M:evidence(prof, name)
+		if not prof or not name then return 0 end
+		local pr = prof:rowOf(name)
+		if not pr then return 0 end
+		local touch = pr.touch or 0
+		if touch <= 0 then return 0 end
+		local kk = CONFIG.MP_EVIDENCE_K or 6
+		if kk <= 0 then return 1 end
+		return touch / (touch + kk)
+	end
 	-- (15) BLEND — geometry x habits. Habits only ever NUDGE: the live
 	-- picture is the evidence, the ledger is the prior, and a man who has
 	-- passed all night still gets read as a shooter if he is 8 studs out
 	-- with an open mouth and no options.
 	function M:blend(prof, name)
 		local g, h = self.last, self:habits(prof, name)
+		self.evidenceV = self:evidence(prof, name)
+		local hw = (CONFIG.MP_HABIT_MAX or 0.3) * (self.evidenceV or 0)
+		self.habitWeightV = hw
 		local out = {}
 		for _, k in ipairs({ "shot", "pass", "carry", "cross", "clear", "back" }) do
-			out[k] = h and (g[k] * 0.7 + h[k] * 0.3) or g[k]
+			out[k] = h and (g[k] * (1 - hw) + h[k] * hw) or g[k]
 		end
 		self.mix = out
 		return out
@@ -5845,6 +5973,34 @@ ST.mp = (function()
 		local weight = clamp01(touch / 12)
 		return conf * (0.6 + 0.4 * weight)
 	end
+	-- (41) INTENT LEDGER — 🔮 v2.86 GK MOVE PREDICTION 3.0: did the read
+	-- come true? 2.0 published an intent every single frame and never once
+	-- checked whether it had been right. So a read that was wrong all night
+	-- carried exactly the same authority at minute 40 as at minute 1. Every
+	-- resolved possession now scores the held read against what the man
+	-- ACTUALLY did, and once the read has been wrong MP_INTENT_FAILS times the
+	-- script says so out loud (and trustV, published below, lets anything
+	-- downstream discount an intent that has not earned belief).
+	function M:scoreIntent(actual)
+		if not actual or not self.top then return end
+		local L = self.intentL
+		L.n = (L.n or 0) + 1
+		if actual == self.top then
+			L.hit = (L.hit or 0) + 1
+		else
+			L.miss = (L.miss or 0) + 1
+			local lim = CONFIG.MP_INTENT_FAILS or 4
+			if lim > 0 and L.miss >= lim and not L.warned then
+				L.warned = true
+				log(string.format("🔮 INTENT TRUST — the read has been wrong %d of %d "
+					.. "possessions — the live picture leads, the ledger's prior steps back",
+					L.miss, L.n), true)
+			end
+		end
+		self.trustV = (L.hit or 0) / L.n
+	end
+	function M:intentTrust() return self.trustV end
+	function M:intentSeen() return self.intentL.n or 0 end
 	-- (39) PRESSURE TREND — is the pressure on the carrier building or
 	-- easing? Building pressure forces the error; easing pressure invites it.
 	function M:trend()
@@ -6599,8 +6755,61 @@ local function baitTaxN(n)
 	return CONFIG.BAITER_TAX[math.min(math.max(n or 2, 2), 4)]
 end
 
-local function baitEpisode(k, now)
+-- 🚪 v2.86 BAIT 4.0 — THE SHAPE LEDGER. BAIT 4.0 knew THAT a man baits and
+-- HOW OFTEN; it never knew WHICH feint he reaches for. All eight shapes
+-- (POWER PULL, DOUBLE PULL, CARRY STALL, WALKAWAY, BLEEDING CROSS, CIRCLE,
+-- CLASS SOFT, HANDOFF) were detected, billed as one undifferentiated
+-- "episode", and thrown away — so a man who had sold the same carry-stall
+-- five times tonight was met with exactly the same suspicion as a man doing
+-- it for the first time. 4.0 remembers the shape per character, names the
+-- favourite once there is enough sample to call it one, and lets that
+-- favourite EARN a longer trust window.
+--
+-- ⚠️ Note the key: this is the CHARACTER key, not the player — the same
+-- discipline the rest of the bait system uses, because teamKeyOf() is the
+-- only identity that survives a lagged roster scan.
+ST.baitShape = {}
+function ST.shapeTally(key, shape)
+	if not key or not shape then return end
+	local row = ST.baitShape[key]
+	if not row then row = { _n = 0 }; ST.baitShape[key] = row end
+	row[shape] = (row[shape] or 0) + 1
+	row._n = row._n + 1
+end
+-- the dominant shape for this character, its count, and its share of all
+-- his episodes. Nil until he has run at least one.
+function ST.shapeFavourite(key)
+	local row = key and ST.baitShape[key]
+	if not row or not row._n or row._n <= 0 then return nil, 0, 0 end
+	local best, bestN = nil, 0
+	for k, v in pairs(row) do
+		if k ~= "_n" and v > bestN then bestN, best = v, k end
+	end
+	if not best then return nil, 0, 0 end
+	return best, bestN, bestN / row._n
+end
+-- Scale a shape's trust window by how established that shape is for this
+-- man. Publishes ST.shapeKnown for the log line — mainStep has NO spare
+-- upvalues, so the flag rides on ST rather than coming back as a second
+-- return value that would need a local to hold it.
+function ST.shapeTrust(base, key, shape)
+	ST.shapeKnown, ST.shapeFavN = false, 0
+	local fav, cnt, share = ST.shapeFavourite(key)
+	if not fav or fav ~= shape then return base end
+	if cnt < (CONFIG.BAIT_SHAPE_MIN or 3) then return base end
+	ST.shapeKnown, ST.shapeFavN = true, cnt
+	return base * (1 + (CONFIG.BAIT_SHAPE_GAIN or 0.6) * share)
+end
+-- ⚠️ These are ST METHODS, not bare locals, for two separate ceilings:
+-- mainStep sits at Lua 5.1's exact 60-upvalue limit (a bare local here
+-- costs an upvalue and the executor refuses to compile the function),
+-- and the MAIN CHUNK is at the 200-local limit — three more `local
+-- function` declarations at file scope push the whole script over it.
+-- Reached as ST.shapeTally / ST.shapeTrust from inside mainStep.
+
+local function baitEpisode(k, now, shape)
 	if not k then return end
+	if shape then ST.shapeTally(k, shape) end
 	if ST.baitMark and ST.baitMark.key == k and (now - ST.baitMark.t) < CONFIG.BAITER_WINDOW then
 		ST.baitMark = { key = k, t = now, n = (ST.baitMark.n or 1) + 1 }
 		if ST.baitMark.n >= CONFIG.BAITER_LOCK
@@ -6895,6 +7104,40 @@ if PLAT.touch then
 			.. tostring(PLAT.vh) .. ") — ⏸ arm/pause · 🖥️ log · 📋 copy")
 	end)
 end
+	ST.counterAudit = ST.counterAudit or {}
+	local function auditKey(player, mode)
+		return tostring(player or "?") .. "|" .. tostring(mode or "?")
+	end
+	local function auditResolve(crossLat, now)
+		local p = ST.biasPending
+		if not p then return end
+		-- only judge once the crossing is out of the ambiguity band
+		if not crossLat or abs(crossLat) < CONFIG.COUNTER_BIAS_BAND then return end
+		local actual = (crossLat > 0) and "Right" or "Left"
+		ST.biasPending = nil
+		local k = auditKey(p.player, p.mode)
+		local row = ST.counterAudit[k]
+		if not row then row = { agree = 0, disagree = 0 }; ST.counterAudit[k] = row end
+		if actual == p.side then
+			row.agree = row.agree + 1
+		else
+			row.disagree = row.disagree + 1
+			if row.disagree >= CONFIG.COUNTER_AUDIT_FAILS and not row.stood then
+				row.stood = true
+				log(string.format("🎭 COUNTER AUDIT — %s: research says %s, %s keeps going %s "
+					.. "(%d of %d wrong) — the wiki stands down for this man, the measurement leads",
+					tostring(p.mode), tostring(p.side), tostring(p.player), actual,
+					row.disagree, row.agree + row.disagree), true)
+			end
+		end
+	end
+	-- does the research still have standing for this man?
+	local function auditStanding(player, mode)
+		local row = ST.counterAudit[auditKey(player, mode)]
+		return not (row and row.stood)
+	end
+ST.auditResolve  = auditResolve
+ST.auditStanding = auditStanding
 
 -- ==========================================
 -- 🧠 MAIN AI PREDICTION LOOP 🧠
@@ -6961,7 +7204,7 @@ local function mainStep(deltaTime)
 	local rootPos = rootPart.Position
 	local now     = os.clock()
 
-	-- 🚀 v2.83 TRAJECTORY 3.0 (1/5) RESET GUARD: a single frame that moves the
+	-- 🚀 v2.83 TRAJECTORY 4.0 (1/5) RESET GUARD: a single frame that moves the
 	-- ball further than physics allows is not a shot — it is a respawn, a
 	-- kickoff reposition, or a server correction. Every downstream reader
 	-- (the trajectory cache, the closest-approach history, the pop detector)
@@ -7182,6 +7425,7 @@ local function mainStep(deltaTime)
 			-- 🎛️ v2.82: the alert→motion gap IS the link the keeper lives in
 			if abilityAlert and (now - abilityAlert.t) < 1.0 then ST.clock:sampleLag(now - abilityAlert.t) end
 			ST.prof:arm(lastShooterPlayer and lastShooterPlayer.Name, speed, (ballPos - rootPos).Magnitude, now) -- 📈 v2.80
+		if ST.mp then ST.mp:scoreIntent("shot") end -- 🔮 v2.86: the intent read is now scored
 			-- ⚗️ v2.68: the man we were watching RECEIVE just kicked it — the
 			-- chemistry shot is here. ONE free strike off the bait tiers (the
 			-- promise is consumed whether or not the bypass ends up used — a
@@ -7329,6 +7573,7 @@ local function mainStep(deltaTime)
 	
 
 	ST.prof:carrier(carrierPlayer and carrierPlayer.Name, (ballPos - rootPos).Magnitude, now) -- 📈 v2.80
+	if ST.mp then ST.mp:scoreIntent("carry") end -- 🔮 v2.86: the intent read is now scored
 
 	-- 🎯 Who owns the ball right now?
 	--   1) NETWORK OWNERSHIP (v2.34, authoritative): the server sets the
@@ -7427,6 +7672,7 @@ local function mainStep(deltaTime)
 				end
 				ST.hChar = hKey
 				ST.prof:handle(attackerPlayer.Name, now) -- 📈 v2.80 pass ledger
+				if ST.mp then ST.mp:scoreIntent("pass") end -- 🔮 v2.86: the intent read is now scored
 			end
 			ST.hUntil = now + 1.2
 			ST.hPlayer = attackerPlayer
@@ -7540,7 +7786,7 @@ local function mainStep(deltaTime)
 			and speed < 15 and (ballPos - rootPos).Magnitude <= 30 and goal then
 			pullShape = velocity:Dot(goal.linePos - ballPos) < -3
 		end
-		-- 🪤 v2.83 BAIT 3.0 gate shapes: the second-generation fakes
+		-- 🪤 v2.83 BAIT 4.0 gate shapes: the second-generation fakes
 		-- open the net on their own motion signatures, not on a sprint.
 		-- A disengagement: the ball going away from the keeper at carrier
 		-- pace, well past the smother line (a clearance is a pass, not a
@@ -7611,7 +7857,7 @@ local function mainStep(deltaTime)
 	local aimPos = rootPos
 	local gkSlot = sampleSlot(GK.history, 24)
 	gkSlot.pos, gkSlot.t = rootPos, now
-	-- 🔮 v2.84 GK MOVE PREDICTION 2.0 (WHERE YOU ARE): feed the keeper's own
+	-- 🔮 v2.84 GK MOVE PREDICTION 3.0 (WHERE YOU ARE): feed the keeper's own
 	-- motion to the predictor EVERY frame — the 0.5s player-root scan is far
 	-- too coarse to see a dive recovery, and this is the one body in the
 	-- stadium whose position we can read without a round trip.
@@ -7877,7 +8123,7 @@ local function mainStep(deltaTime)
 		local cm = COUNTER_MODES[abilityAlert.counterKey or abilityAlert.moveKey]
 		if cm then
 			activeMode = cm
-			-- 🎭 v2.83 COUNTER 2.0: stamp the move's trust window onto ST
+			-- 🎭 v2.83 COUNTER 3.0: stamp the move's trust window onto ST
 			-- (armAbility carries it on the alert — it is defined above the
 			-- ST local and cannot see it). Re-stamped every frame the alert
 			-- is fresh, which is idempotent (same arm time, same duration).
@@ -8018,7 +8264,7 @@ local function mainStep(deltaTime)
 	-- would eat it, so the whole bait family stands aside for ONE strike,
 	-- then re-arms — the concession is single-use by construction.
 	local reactionStrike = ST.reactStrikeT and (now - ST.reactStrikeT) < CONFIG.REACTION_WINDOW
-	-- 🪤 v2.83 BAIT 3.0 TRUSTS — the reads that EARN the keeper his
+	-- 🪤 v2.83 BAIT 4.0 TRUSTS — the reads that EARN the keeper his
 	-- convictions: a launch out of a checked run is the real one (the check
 	-- WAS the feint), a cross out of a dead cross is the real one (the dead
 	-- one was the setup), a named move with a trust window is a strike.
@@ -8161,7 +8407,7 @@ local function mainStep(deltaTime)
 	-- the sprint itself is the heat: a ball closing at 20+/s is the shape
 	-- that becomes a stall the moment it dies
 	if approaching and speed > 20 then ST.baitHeatT = now end
-	-- 🪤 v2.83 BAIT 3.0: the hottest speed of the CURRENT credited
+	-- 🪤 v2.83 BAIT 4.0: the hottest speed of the CURRENT credited
 	-- burst — the BLEEDING CROSS read needs to know the cross was once FAST
 	-- before it died (a ball that was never fast was never a cross).
 	if lastShooterPlayer and (now - lastShooterTime) < 1.2 and speed > (ST.crossPeak or 0) then
@@ -8384,11 +8630,42 @@ local function mainStep(deltaTime)
 		row.x, row.y, row.z = sx, sy, sz
 
 		-- 🥅 GOAL LINE CROSSING: first +depth -> -depth transition,
-		-- interpolated to the exact crossing point.
+		-- solved for the exact crossing point.
 		if goal and not crossPos and prevDepth then
 			local depth = (sx - lgx) * gx + (sy - lgy) * gy + (sz - lgz) * gz
 			if prevDepth > 0 and depth <= 0 then
+				-- 🚀 v2.85 TRAJECTORY 4.0 (3/3) — EXACT CROSSING.
+				--
+				-- A linear split of the step (`prevDepth / (prevDepth - depth)`)
+				-- assumes the ball flew STRAIGHT across it. But a step is
+				-- 0.008–0.025 s — at 100 studs/s that is up to 2.5 studs of
+				-- travel — and a ball that is dropping or bending does not
+				-- cross at the straight-line fraction. The height of the
+				-- crossing is what decides "under the bar or over it", so a
+				-- systematic error here is a systematic error in the single
+				-- most consequential yes/no the script makes.
+				--
+				-- Under constant acceleration the depth is a PARABOLA in time,
+				-- so the exact root is available from the two samples we
+				-- already have:  depth(t) = prevDepth + vD*t + ½aD*t²
+				-- Solve the quadratic; keep the linear split as the fallback
+				-- for the degenerate (straight, aD = 0) case.
 				local f = prevDepth / (prevDepth - depth)
+				local aD = acx * dampMid * gx + gY * gy + acz * dampMid * gz
+				if aD ~= 0 then
+					local vD = ((depth - prevDepth) - 0.5 * aD * simStep * simStep) / simStep
+					local disc = vD * vD - 2 * aD * prevDepth
+					if disc >= 0 then
+						local sq = sqrt(disc)
+						local t1 = (-vD - sq) / aD
+						local t2 = (-vD + sq) / aD
+						local tRoot = nil
+						if t1 >= 0 and t1 <= simStep then tRoot = t1
+						elseif t2 >= 0 and t2 <= simStep then tRoot = t2 end
+						if tRoot then f = tRoot / simStep end
+					end
+				end
+				if f < 0 then f = 0 elseif f > 1 then f = 1 end
 				local cpx = psx + (sx - psx) * f
 				local cpY = psy + (sy - psy) * f
 				local cpz = psz + (sz - psz) * f
@@ -8425,7 +8702,7 @@ local function mainStep(deltaTime)
 
 	local impactPos = Vector3.new(impactX, impactY, impactZ)
 
-	-- 🚀 v2.83 TRAJECTORY 3.0 (2/5) APEX SETTLE: a ball that is still
+	-- 🚀 v2.83 TRAJECTORY 4.0 (2/5) APEX SETTLE: a ball that is still
 	-- climbing does not yet HAVE a crossing height — the arc it is on can
 	-- still clear the bar or drop under it, so its predicted height is
 	-- PROVISIONAL. Once |vertical speed| falls under APEX_SETTLE_VY the
@@ -8437,7 +8714,7 @@ local function mainStep(deltaTime)
 	-- waited on.)
 	ST.apexSettled = abs(velocity.Y) <= CONFIG.APEX_SETTLE_VY
 
-	-- 🚀 v2.83 TRAJECTORY 3.0 (3/5) FRAME GRAZE: a crossing that reads
+	-- 🚀 v2.83 TRAJECTORY 4.0 (3/5) FRAME GRAZE: a crossing that reads
 	-- just OUTSIDE the woodwork is not the same shot as one that reads
 	-- halfway into the stand. Inside FRAME_GRAZE the ball can clip the
 	-- post or the bar and come back in — the geometry is a hair off, not
@@ -8746,8 +9023,25 @@ local function mainStep(deltaTime)
 			patSide == "R" and "right-biased" or "left-biased"), true)
 	end
 
-	-- 🎭 v2.83 COUNTER 2.0: a researched MOVE-BIAS commits a side while the
+	-- 🎭 v2.83 COUNTER 3.0: a researched MOVE-BIAS commits a side while the
 	-- live crossing is still a coin flip. The bias kind rides the counter
+	-- 🎭 v2.85 COUNTER 3.0 — RESEARCH AUDIT.
+	--
+	-- COUNTER 3.0 gave the script RESEARCH: a move's documented side, taken
+	-- from the wiki ("Sae's curve always goes left") and committed in flight
+	-- while the crossing is still ambiguous. That is a real edge — but
+	-- research is about a CHARACTER, and the thing on the pitch is a PLAYER.
+	--
+	-- This Raes-of-the-matter check: every time the script commits a side on
+	-- the strength of research, it remembers what it committed, and when the
+	-- crossing finally resolves it scores the call. N wrong calls from one man
+	-- and the research STANDS DOWN for him — the measurement outranks the wiki,
+	-- and it says so out loud instead of quietly going 0 for 6.
+	--
+	-- Nothing here changes what happens on the first shot from a man. It
+	-- changes what happens on the seventh.
+
+	ST.auditResolve(crossLateral, now)
 	-- row (COUNTER_MODES .sideBias):
 	--   "Left"/"Right" = the move's documented side (Sae's curve "always
 	--                     goes left" — wiki research, kept in-file);
@@ -8761,6 +9055,7 @@ local function mainStep(deltaTime)
 	-- stands down (same doctrine as the prime-side machinery above, but it
 	-- lives on the MOVE, not just the alert).
 	if crossLateral and activeMode and activeMode.sideBias
+		and auditStanding(lastShooterPlayer and lastShooterPlayer.Name, activeMode.name)
 		and abs(crossLateral) < CONFIG.COUNTER_BIAS_BAND then
 		local wantMirror = activeMode.sideBias == "MIRROR"
 		local biasOk = (wantMirror and (direction == "Left" or direction == "Right"))
@@ -8774,6 +9069,12 @@ local function mainStep(deltaTime)
 				biasSide = (ps == "R") and "Right" or ((ps == "L") and "Left" or nil)
 			end
 			if biasSide == "Left" or biasSide == "Right" then
+				-- 🎭 COUNTER 3.0: remember what research committed, so the
+				-- crossing can score it when it resolves
+				ST.biasPending = {
+					player = lastShooterPlayer and lastShooterPlayer.Name,
+					mode = activeMode.name, side = biasSide,
+				}
 				direction = biasSide
 				if (not ST.biasT) or (now - ST.biasT > 3) then
 					ST.biasT = now
@@ -8784,7 +9085,7 @@ local function mainStep(deltaTime)
 		end
 	end
 
-	-- 🚀 v2.83 TRAJECTORY 3.0 (5/5) STICKY SIDE: within one shot reset the
+	-- 🚀 v2.83 TRAJECTORY 4.0 (5/5) STICKY SIDE: within one shot reset the
 	-- committed side must not flip on a single frame of jitter. A struck
 	-- ball inherits its shooter's run-up and the network's snap, and one
 	-- disagreeing frame used to swing the dive from Left to Right and back
@@ -8834,7 +9135,7 @@ local function mainStep(deltaTime)
 		-- inside it gets stepped on, not dived at. And a live TRICKY move
 		-- (backheel, balloon, wobble kit) widens the far band: its lateral
 		-- read lies more, so the trust bar is higher, not lower.
-		-- 🎭 v2.83 COUNTER 2.0: a researched sideBias commits carry their own
+		-- 🎭 v2.83 COUNTER 3.0: a researched sideBias commits carry their own
 		-- lateral proof (the wiki row or the ledger's two+ seen corners) —
 		-- same exemption the primed counters already get.
 		and not (activeMode and (activeMode.primeSide or activeMode.sideBias))
@@ -9117,7 +9418,7 @@ local function mainStep(deltaTime)
 		else
 			ST.whipDir = nil
 		end
-		-- ═══ 🪤 v2.83 BAIT 3.0 — the second-generation fake shapes ═══
+		-- ═══ 🪤 v2.83 BAIT 4.0 — the second-generation fake shapes ═══
 		-- Each is read from the ball's own motion history and the man's own
 		-- pattern (the v2.80 ledger is the memory; these are the shapes).
 		-- Episodes are billed AT DETECTION (like stall/whip), never again at
@@ -9147,8 +9448,8 @@ local powerPull = false
 				-- slow), and the second pull must still see the first.
 				ST.powerPullT = now
 				if epKey then
-					baitEpisode(epKey, now)
-					if dbl then baitEpisode(epKey, now) end -- the double pays double
+					baitEpisode(epKey, now, "POWER PULL")
+					if dbl then baitEpisode(epKey, now, "DOUBLE PULL") end -- the double pays double
 					ST.powerPullKey = epKey
 				end
 				-- the read is a read: it logs even for a teamless lobby player;
@@ -9177,9 +9478,11 @@ local powerPull = false
 			local name = carrierPlayer.Name
 			local dbl = ST.carryStallKey == name
 				and (now - ST.carryStallT) < CONFIG.CARRY_STALL_REPEAT
-			if cKey and dbl then baitEpisode(cKey, now) end
+			if cKey and dbl then baitEpisode(cKey, now, "CARRY STALL") end
+			ST.shapeTally(cKey, "CARRY STALL") -- 4.0: the shape is recorded whether or not it is billed twice
 			ST.carryStallT, ST.carryStallKey = now, name
-			ST.carryTrustT, ST.carryTrustKey, ST.carryTrustDur = now, name, CONFIG.CARRY_TRUST_TIME
+			ST.carryTrustT, ST.carryTrustKey = now, name
+			ST.carryTrustDur = ST.shapeTrust(CONFIG.CARRY_TRUST_TIME, cKey, "CARRY STALL")
 			if (now - ST.carryLogged) > 3 then
 				ST.carryLogged = now
 				log((dbl and "[AI-Dive] 🪤 CARRY STALL ×2 — two checked runs in one breath — the second launch is the fake"
@@ -9203,7 +9506,9 @@ local powerPull = false
 			if now - ST.walkT >= CONFIG.WALKAWAY_TIME and ST.walkBillT ~= ST.walkT then
 				ST.walkBillT = ST.walkT
 				ST.baitHeatT = -1e9 -- the disengagement burns the heat
-				ST.carryTrustT, ST.carryTrustKey, ST.carryTrustDur = now, carrierPlayer.Name, CONFIG.WALKAWAY_TRUST
+				ST.shapeTally(teamKeyOf(carrierPlayer), "WALKAWAY") -- 4.0: walkaway never billed an episode; it still has a shape
+				ST.carryTrustT, ST.carryTrustKey = now, carrierPlayer.Name
+				ST.carryTrustDur = ST.shapeTrust(CONFIG.WALKAWAY_TRUST, teamKeyOf(carrierPlayer), "WALKAWAY")
 				if (now - ST.walkLogged) > 4 then
 					ST.walkLogged = now
 					log(string.format("[AI-Dive] 🪤 WALKAWAY — %s is disengaging — heat cleared, his next launch is the real one",
@@ -9240,7 +9545,7 @@ local powerPull = false
 			bleedCross = true
 			local epKey = lastShooterKey
 			if epKey then
-				baitEpisode(epKey, now)
+				baitEpisode(epKey, now, "BLEEDING CROSS")
 				ST.crossTrustT, ST.crossTrustKey = now, lastShooterPlayer.Name
 				if (now - ST.bleedLogged) > 3 then
 					ST.bleedLogged = now
@@ -9274,7 +9579,7 @@ local powerPull = false
 					local epKey = teamKeyOf(nearPlayer)
 					if epKey and ST.orbitBillT ~= ST.orbitT then
 						ST.orbitBillT = ST.orbitT
-						baitEpisode(epKey, now)
+						baitEpisode(epKey, now, "CIRCLE")
 						if (now - ST.orbitLogged) > 3 then
 							ST.orbitLogged = now
 							log(string.format("[AI-Dive] 🪤 CIRCLE — %s is orbiting the dead ball — a setup, not a strike",
@@ -9309,7 +9614,7 @@ local powerPull = false
 					ST.classSoftCredit = ST.lastShotReset
 					classSoft = true
 					local epKey = lastShooterKey
-					if epKey then baitEpisode(epKey, now) end
+					if epKey then baitEpisode(epKey, now, "CLASS SOFT") end
 					if (now - ST.classSoftLogged) > 3 then
 						ST.classSoftLogged = now
 						local cls = tostring(ST.prof:classOf(lastShooterPlayer.Name) or "class")
@@ -9336,6 +9641,7 @@ local powerPull = false
 			local oldName = lastShooterPlayer.Name
 			lastShooterPlayer = nearPlayer
 			lastShooterKey = teamKeyOf(nearPlayer) or lastShooterKey
+			ST.shapeTally(lastShooterKey, "HANDOFF") -- 4.0: the handoff never billed an episode; it still has a shape
 			if (now - ST.handoffLogged) > 3 then
 				ST.handoffLogged = now
 				log(string.format("[AI-Dive] 🪤 HANDOFF — %s picked it up off %s — a pass wearing a shot's costume; the read follows the ball",
@@ -9735,7 +10041,7 @@ local powerPull = false
 		end
 		ST.commitDir, ST.commitFrames = nil, 0 -- threat gone: clear the read
 	elseif not onTarget and (ST.grazeFrames or 0) >= 2 then
-		-- 🚀 v2.83 TRAJECTORY 3.0: grazing the woodwork is NOT the same shot
+		-- 🚀 v2.83 TRAJECTORY 4.0: grazing the woodwork is NOT the same shot
 		-- as one heading into the stand. The crossing reads a hair outside
 		-- the post/bar, which is one deflection away from being on target —
 		-- so the keeper HOLDS his read instead of clearing it. Standing down
@@ -9879,7 +10185,7 @@ local powerPull = false
 		if isExtreme or standOp then
 			activeReach = math.max(activeReach, CONFIG.EXTREME_REACH)
 		end
-		-- 🚀 v2.83 TRAJECTORY 3.0 (4/5) TIME-SCALED REACH: the reach ring
+		-- 🚀 v2.83 TRAJECTORY 4.0 (4/5) TIME-SCALED REACH: the reach ring
 		-- used to be one flat number, so a ball 40 studs out and a ball at
 		-- the keeper's feet were measured against the SAME lateral limit.
 		-- Physically they are not the same: lateral reach is how far the
@@ -10254,7 +10560,7 @@ local powerPull = false
 		end
 	end
 
-	-- 🚀 v2.83 TRAJECTORY 3.0 — HEARTBEAT: one honest status line every
+	-- 🚀 v2.83 TRAJECTORY 4.0 — HEARTBEAT: one honest status line every
 	-- HEARTBEAT_SECS while the match is otherwise quiet. A keeper script
 	-- that only speaks when it dives is indistinguishable from one that
 	-- has silently died; this is the proof-of-life line, and it carries the
@@ -10366,7 +10672,7 @@ local powerPull = false
 		stateInfo.shadeDepth = shadeDepth
 		ST.lastAngle, ST.lastNearPost, ST.lastShade = stateInfo.angle, nearP, shadeLat
 	end
-	-- 🔮 v2.84 GK MOVE PREDICTION 2.0 — WHAT HAPPENS NEXT.
+	-- 🔮 v2.84 GK MOVE PREDICTION 3.0 — WHAT HAPPENS NEXT.
 	-- Every frame the predictor answers four questions from MEASURED inputs and
 	-- publishes them: where the keeper IS, where the keeper is GOING, where the
 	-- attacker is going, and what this possession is about to become
@@ -10518,13 +10824,36 @@ createHud()
 CONSOLE.build(CONFIG)
 -- 🧪 test hook: the harness can inspect the ledger directly (S166)
 -- 🔮 v2.84: expose the move predictor to the test harness too, so GK MOVE
--- PREDICTION 2.0 can be pinned by scenarios instead of trusted by eye.
+-- PREDICTION 3.0 can be pinned by scenarios instead of trusted by eye.
 if _G.SIM then _G.SIM.prof = ST.prof end
 if _G.SIM then _G.SIM.mp = ST.mp end
 -- 📊 v2.85: the dive ledger, readable by the harness so S177 can prove the
 -- report formats, survives an empty ledger, and actually books a dive.
 if _G.SIM then _G.SIM.diveReport = ST.diveReport end
 if _G.SIM then _G.SIM.diveLedger = diveLedger end
+-- 🚪 v2.86 BAIT 4.0: the shape ledger, driveable by the harness so S182
+-- can prove a man's signature feint is remembered and earns a longer
+-- trust window than a shape he has never run before.
+if _G.SIM then
+	_G.SIM.baitShape = {
+		tally = function(key, shape) ST.shapeTally(key, shape) end,
+		favourite = function(key) return ST.shapeFavourite(key) end,
+		trust = function(base, key, shape) return ST.shapeTrust(base, key, shape) end,
+		table = function() return ST.baitShape end,
+	}
+end
+-- 🎭 v2.85: the COUNTER 3.0 research audit, driveable by the harness so S178
+-- can prove that research which is repeatedly wrong for one man stands down.
+if _G.SIM then
+	_G.SIM.audit = {
+		pend = function(player, mode, side)
+			ST.biasPending = { player = player, mode = mode, side = side }
+		end,
+		resolve = function(crossLat) ST.auditResolve(crossLat, os.clock()) end,
+		standing = function(player, mode) return ST.auditStanding(player, mode) end,
+		table = function() return ST.counterAudit end,
+	}
+end
 -- 🚀 v2.85: expose the trajectory integrator's ANSWER to the harness. A test
 -- that infers the arc from "did he dive" is testing the whole decision chain;
 -- this tests the physics directly, which is what TRAJECTORY 4.0 changed.
