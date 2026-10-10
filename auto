@@ -1,5 +1,5 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.88 "the frame finally stays in the frame."
+	⚡ ZERO-LATENCY GK AI — v2.89 "the box is a CFrame, not a corner."
 	--
 	-- 🧱 v2.87 IS A STRUCTURAL REWRITE, not a feature release. mainStep was
 	-- 3,622 lines — 35% of the entire script in one function, against a
@@ -587,6 +587,14 @@
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
 	ST / CHARGE / MOVE / GK instead (lint.py fails the build if you forget).
 
+	🩹 v2.89 — ROBLOX GOAL MODEL BOUNDS. `Model:GetBoundingBox()` returns a
+	(CFrame, Vector3 size), not min/max corners. The old scan subtracted and
+	averaged those different types, aborting the heartbeat whenever a named
+	Goal/Net Model was present — the live console showed a loop error instead of
+	moving on from its ball scan. Discovery now reads the center from the CFrame;
+	measurement uses the returned size and frame orientation. The simulator's
+	mock now returns the actual Roblox contract, so S186 catches regressions.
+
 	🩹 v2.88 — HOTFIX FOR THE FRAME SPLIT. Four values that used to be locals
 	inside mainStep were still bare names after the split: acceleration,
 	crossing height/width, and the trail's threatColor. Lua silently made those
@@ -606,11 +614,11 @@
 	that should not have happened. Read it before changing a number.
 ]]
 -- ==========================================
--- VERSION — one string, printed at boot. The banner above and this constant
--- are the only two places the release number is written, so bump BOTH.
+-- VERSION — one string, printed at boot. The current-release banner above and
+-- this constant are the two identifiers that must agree; bump both together.
 -- (The boot line used to hard-code "v2.44" and stayed frozen for ~39
 -- releases — the console lied about which script was running.)
-local VERSION = "v2.88"
+local VERSION = "v2.89"
 -- ==========================================
 -- SERVICES
 -- ==========================================
@@ -4755,12 +4763,13 @@ local function goalFindParts(keeperPos)
 	local bestModel, modelScore
 	for _, obj in ipairs(models) do
 		if obj.Parent then
-			local ok, minV, maxV = pcall(function() return obj:GetBoundingBox() end)
-			if ok and minV and maxV then
-				local size = maxV - minV
+			-- Roblox returns (CFrame, Vector3), not (min, max) corners.
+			local ok, boxCFrame, size = pcall(function() return obj:GetBoundingBox() end)
+			local center = ok and boxCFrame and boxCFrame.Position
+			if center and size and type(size.X) == "number"
+				and type(size.Y) == "number" and type(size.Z) == "number" then
 				local halfWidth = math.max(size.X, size.Z) / 2
 				local depth = math.min(size.X, size.Z)
-				local center = (minV + maxV) / 2
 				local d = (center - keeperPos).Magnitude
 				if halfWidth >= 3 and halfWidth <= 30 and depth >= 1 and depth <= 40
 					and size.Y >= 3 and size.Y <= 20 and d < 90
@@ -4820,28 +4829,36 @@ local function goalMeasure(keeperPos)
 		end
 	end
 
-	-- Case B: a goal model (bbox: the mouth is the side facing the keeper)
+	-- Case B: a goal model (bbox: the mouth is the side facing the keeper).
+	-- Model:GetBoundingBox returns (CFrame, Vector3); use the box frame rather
+	-- than treating its center as a minimum corner. Keep its yaw so streamed
+	-- nets rotated relative to world axes still produce the right mouth normal.
 	if not info and goalModel and goalModel.Parent then
-		local minV, maxV = goalModel:GetBoundingBox()
-		local size   = maxV - minV
-		local center = (minV + maxV) / 2
+		local ok, boxCFrame, size = pcall(function() return goalModel:GetBoundingBox() end)
+		local center = ok and boxCFrame and boxCFrame.Position
+		if center and size and type(size.X) == "number"
+			and type(size.Y) == "number" and type(size.Z) == "number" then
+			local axis, halfWidth, extent
+			if size.X >= size.Z then
+				axis, halfWidth, extent = boxCFrame.RightVector, size.X / 2, size.Z
+			else
+				axis, halfWidth, extent = -boxCFrame.LookVector, size.Z / 2, size.X
+			end
+			local horizontalAxis = Vector3.new(axis.X, 0, axis.Z)
+			if horizontalAxis.Magnitude > 0.5 then
+				axis = horizontalAxis.Unit
+				local n1 = axis:Cross(UP)
+				local normal = (keeperPos - center):Dot(n1) >= 0 and n1 or -n1
+				local linePos = center - (normal * (extent / 2))
+				local minY, bar = center.Y - size.Y / 2, center.Y + size.Y / 2
 
-		local axis, halfWidth, extent
-		if size.X >= size.Z then
-			axis, halfWidth, extent = Vector3.x, size.X / 2, size.Z
-		else
-			axis, halfWidth, extent = Vector3.z, size.Z / 2, size.X
-		end
-		local n1 = axis:Cross(UP)
-		local normal = (keeperPos - center):Dot(n1) >= 0 and n1 or -n1
-		local linePos = center - (normal * (extent / 2))
-		local bar = maxV.Y
-
-		if halfWidth >= 3 and halfWidth <= 30
-			and (bar - minV.Y) >= 3 and (bar - minV.Y) <= 20
-			and (keeperPos - center).Magnitude < 60
-			and (keeperPos - center):Dot(normal) > 2 then
-			info = { linePos = linePos, axis = axis, normal = normal, halfWidth = halfWidth, crossbarY = bar }
+				if halfWidth >= 3 and halfWidth <= 30
+					and (bar - minY) >= 3 and (bar - minY) <= 20
+					and (keeperPos - center).Magnitude < 60
+					and (keeperPos - center):Dot(normal) > 2 then
+					info = { linePos = linePos, axis = axis, normal = normal, halfWidth = halfWidth, crossbarY = bar }
+				end
+			end
 		end
 	end
 
