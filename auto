@@ -1,5 +1,5 @@
 --[[
-	⚡ ZERO-LATENCY GK AI — v2.87 "the 3,622-line function, taken apart."
+	⚡ ZERO-LATENCY GK AI — v2.88 "the frame finally stays in the frame."
 	--
 	-- 🧱 v2.87 IS A STRUCTURAL REWRITE, not a feature release. mainStep was
 	-- 3,622 lines — 35% of the entire script in one function, against a
@@ -7,14 +7,14 @@
 	-- 43 of them read or written by three or more phases, so no feature had
 	-- an interface and none could say what it needed from another.
 	--
-	-- It is now TWELVE phases over one frame context F (82 fields), and
+	-- It is now TWELVE phases over one frame context F (88 fields), and
 	-- mainStep is 97 lines: the pipeline, documented above itself.
 	--
 	-- F is created fresh every frame ON PURPOSE. An unassigned field reads
 	-- nil exactly like an unassigned local did, so no phase can quietly
 	-- inherit last frame's value — the one way a split like this could have
 	-- introduced a stale-read bug, closed by construction. tools/flow.py
-	-- checks every producer/consumer edge: 82 fields, 0 problems.
+	-- checks every producer/consumer edge: 88 fields, 0 problems.
 	--
 	-- ⚠️ A phase returning false means ABANDON THE FRAME, not "skip this
 	-- phase". Phases are ST fields, not `local function`s: the main chunk
@@ -581,11 +581,25 @@
 	DIVE_EVENT_NAMES, NET_CROSSBAR_STUDS / NET_WIDTH_STUDS (the fallback net).
 
 	🧪 VERIFY BEFORE YOU SHIP — this file is runnable off-engine:
-		python3 tools/run_sim.py      # 132 scenarios against a mock Roblox runtime
+		python3 tools/run_sim.py      # 186 scenarios against a mock Roblox runtime
 		python3 tools/lint.py         # mainStep upvalue budget, blocks, roster data
 	The 60-upvalue ceiling below is a real compile limit on Lua 5.1 executors, so
 	DO NOT add file-scope `local`s that the main loop reads — put per-frame state in
 	ST / CHARGE / MOVE / GK instead (lint.py fails the build if you forget).
+
+	🩹 v2.88 — HOTFIX FOR THE FRAME SPLIT. Four values that used to be locals
+	inside mainStep were still bare names after the split: acceleration,
+	crossing height/width, and the trail's threatColor. Lua silently made those
+	globals (and Dive read nil for threatColor), which is why the live loop could
+	lose its trajectory, abort a HUD paint with a nil Color3, or carry bait flags
+	from one frame into the next. They are now fields on F or reset phase locals;
+	88 frame fields, 0 flow problems. `run_sim.py` now traps every undeclared
+	global read/write, so this class of split bug fails the suite instead.
+	Phone ECO_LOCK still paints the live trajectory at 8 Hz; goal lookup accepts
+	streamed/no-PrimaryPart meshes and caches a failed scan instead of walking
+	20,000 workspace objects every frame. Ability names tolerate VFX suffixes
+	and aliases (`BigBang`, `DragonDrive`), burst duplicates are debounced, and
+	unlisted registered-style moves still arm a generic read. S183–S187 pin it.
 
 	History of in-game misses (why each threshold is what it is) is in CHANGELOG.md —
 	each version was written against a goal that should have been saved or a dive
@@ -596,7 +610,7 @@
 -- are the only two places the release number is written, so bump BOTH.
 -- (The boot line used to hard-code "v2.44" and stayed frozen for ~39
 -- releases — the console lied about which script was running.)
-local VERSION = "v2.87"
+local VERSION = "v2.88"
 -- ==========================================
 -- SERVICES
 -- ==========================================
@@ -2247,9 +2261,9 @@ if PLAT.isMobile then
 end
 
 -- Goal part names — edit here if your game names them differently.
-local GOAL_LEFT_NAMES  = { leftpost = true, postleft = true, leftgoalpost = true, ["left goalpost"] = true }
-local GOAL_RIGHT_NAMES = { rightpost = true, postright = true, rightgoalpost = true, ["right goalpost"] = true }
-local GOAL_MODEL_NAMES = { goal = true, gkgoal = true, goalmodel = true, goalframe = true }
+local GOAL_LEFT_NAMES  = { leftpost = true, postleft = true, leftgoalpost = true, goalpostleft = true, goalpostl = true, postl = true }
+local GOAL_RIGHT_NAMES = { rightpost = true, postright = true, rightgoalpost = true, goalpostright = true, goalpostr = true, postr = true }
+local GOAL_MODEL_NAMES = { goal = true, goals = true, gkgoal = true, goalmodel = true, goalframe = true, goalnet = true, net = true, netmodel = true }
 local DIVE_GLYPHS      = { Left = "◀", Right = "▶", Forward = "▲", Middle = "●" }
 
 -- 📏 STUD BANDS: name the distance zone the ball is in
@@ -2907,6 +2921,7 @@ end
 local MOVE_INFO = {
 	-- Shidou
 	bigbangdrive   = { char = "shidou", speed = "extreme", aerial = false, barrage = false },
+	bigbang        = { char = "shidou", speed = "extreme", aerial = false, barrage = false, counterKey = "bigbangdrive" }, -- effect variants often omit "Drive"
 	demonswings    = { char = "shidou", speed = "fast",    aerial = true,  barrage = false },
 	demonrush      = { char = "shidou", speed = "fast",    aerial = false, barrage = false },
 	backheelshot   = { char = "shidou", speed = "tricky",  aerial = false, barrage = false },
@@ -4211,6 +4226,9 @@ local function roleForensics(info, inst)
 	local best = nearestOpponentNear(pos, ROLE_FORENSIC_RADIUS)
 	if not best then return end
 	local ev = liveRoleEvidence[best]
+	-- Multiple emitters/attachments in one VFX burst are one cast, not two
+	-- independent style proofs. A second deliberate cast still clears 0.3s.
+	if ev and ev.char == charKey and (now - ev.t) < 0.3 then return end
 	if (not ev) or ev.char ~= charKey or (now - ev.t) > 6 then
 		liveRoleEvidence[best] = { char = charKey, n = 1, t = now }
 		return
@@ -4296,9 +4314,18 @@ local MOVE_PREFIXES = {
 -- that are particles and attachments — the old handler lower+gsub-normalised
 -- EVERY name and then tried 33 prefix strips against ~150 moves.
 local MOVE_EXACT_INFO, MOVE_EXACT_KEY = {}, {}
+MOVE_EXACT_INFO._TRIE = {} -- fast substring fallback for suffixed/prefixed VFX names
+MOVE_EXACT_KEY._SEEN, MOVE_EXACT_KEY._SWEEP = {}, 0 -- bounded event debounce, not per-frame state
 for key, info in pairs(MOVE_INFO) do
 	MOVE_EXACT_INFO[key] = info
 	MOVE_EXACT_KEY[key]  = key
+	local node = MOVE_EXACT_INFO._TRIE
+	for i = 1, #key do
+		local byte = string.byte(key, i)
+		if not node[byte] then node[byte] = {} end
+		node = node[byte]
+	end
+	node._key, node._info = key, info
 end
 for _, prefix in ipairs(MOVE_PREFIXES) do
 	for key, info in pairs(MOVE_INFO) do
@@ -4312,13 +4339,34 @@ local function lookupMove(key)
 	if MOVE_INFO[key] then
 		return MOVE_INFO[key], key
 	end
+	local search, allowShortAtStart = key, false
 	for _, prefix in ipairs(MOVE_PREFIXES) do
-		local rest = key:sub(#prefix + 1)
-		if rest and MOVE_INFO[rest] then
-			return MOVE_INFO[rest], rest
+		if key:sub(1, #prefix) == prefix then
+			search, allowShortAtStart = key:sub(#prefix + 1), true
+			if MOVE_INFO[search] then return MOVE_INFO[search], search end
+			break -- MOVE_PREFIXES is longest-first; strip only the character once
 		end
 	end
-	return nil, nil
+	-- The effect object is often named `ShidouDragonDriveVFX` or
+	-- `BigBangShotEffect`, not exactly the move. Scan the normalized name with
+	-- the prebuilt trie; take the longest signature, and only accept a short
+	-- token when it begins immediately after a known character prefix.
+	local trie = MOVE_EXACT_INFO._TRIE
+	local bestInfo, bestKey, bestLen = nil, nil, 0
+	for i = 1, #search do
+		local node, j = trie, i
+		while node and j <= #search do
+			node = node[string.byte(search, j)]
+			if node and node._key then
+				local n = j - i + 1
+				if (n >= 7 or (allowShortAtStart and i == 1)) and n > bestLen then
+					bestInfo, bestKey, bestLen = node._info, node._key, n
+				end
+			end
+			j = j + 1
+		end
+	end
+	return bestInfo, bestKey
 end
 
 -- 🎯 ONE workspace watcher (v2.44). The ball tracker and the move-effect
@@ -4333,6 +4381,17 @@ local function armAbility(info, moveKey, rawName, counterKey)
 	-- Timestop moves arm longer: the 3s stop ends, THEN the shot comes.
 	local armed = (cm and cm.armed) or 4
 	local t = os.clock()
+	local seen = MOVE_EXACT_KEY._SEEN
+	local signature = tostring((info and info.char) or "?") .. ":"
+		.. tostring(counterKey or (info and info.counterKey) or moveKey or "unknown")
+	if seen[signature] and (t - seen[signature]) < 1.5 then return false end
+	seen[signature] = t
+	if t - (MOVE_EXACT_KEY._SWEEP or 0) > 20 then
+		MOVE_EXACT_KEY._SWEEP = t
+		for k, stamp in pairs(seen) do
+			if t - stamp > 20 then seen[k] = nil end
+		end
+	end
 	abilityAlert = {
 		char = info and info.char,
 		speed = info and info.speed,
@@ -4342,7 +4401,7 @@ local function armAbility(info, moveKey, rawName, counterKey)
 		moveKey = moveKey,
 		moveShape = info and info.shape, -- 📖 v2.73: the playbook rides the alert (no per-frame table walk)
 		moveTricky = info ~= nil and (info.speed == "tricky" or info.tricky == true), -- 🃏 v2.74: wobble class rides the same alert
-		counterKey = info and info.counterKey,
+		counterKey = counterKey or (info and info.counterKey),
 		t = t,
 		expiresAt = t + armed,
 	}
@@ -4360,6 +4419,7 @@ local function armAbility(info, moveKey, rawName, counterKey)
 		abilityAlert.trustT = t
 		abilityAlert.trustDur = cm.trust
 	end
+	return true
 end
 
 workspace.DescendantAdded:Connect(function(inst)
@@ -4388,19 +4448,19 @@ workspace.DescendantAdded:Connect(function(inst)
 		end
 	end
 
-	-- 2) move effects: exact hit first (the shape the game actually uses)
+	-- 2) move effects: cutscenes announce an awakening, not a move cast.
+	-- This must precede fuzzy matching ("BigBangCutscene" contains a move name).
 	local lower = string.lower(name)
+	if lower:find("cutscene", 1, true) or lower:find("awakening", 1, true) then
+		awakeningWatch(inst)
+		return
+	end
 	local info = MOVE_EXACT_INFO[lower]
 	if info then
 		armAbility(info, MOVE_EXACT_KEY[lower], name)
 		roleForensics(info, inst)
 		if info.cutscene then awakeningWatch(inst) end
 		return
-	end
-	if not lower:find("[^%a%d]") and lower:sub(1, 6) ~= "ichigo"
-		and lower:sub(1, 5) ~= "naoya" and not lower:find("cutscene", 1, true)
-		and not lower:find("awakening", 1, true) then
-		return -- plain alphanumeric name that is not a known effect: nothing to do
 	end
 
 	local key = normName(name)
@@ -4411,35 +4471,45 @@ workspace.DescendantAdded:Connect(function(inst)
 		roleForensics(info, inst)
 		if info.cutscene then awakeningWatch(inst) end
 	else
-		-- 🥅 GENERIC CATCH-ALL (v2.40, extended v2.69): a crossover whose
-		-- in-game move names are UNPUBLISHED gets the same deal — ANY effect
-		-- named "<char><Move>" arms that character's wall and the console
-		-- asks for the exact spelling. A plain character model (no move
-		-- suffix) is ignored. NAOYA joins the protocol: added to the game
-		-- 2026-09-05 ("naoya" launch code, 50k), reported instant-release OP,
-		-- and NERFED six days later (the "NaoyaNerf" apology code — the
-		-- community literally got cash for the nerf). No moveset is published
-		-- anywhere; every Naoya main's real weapon is what his EFFECT REFS
-		-- say, so the wall self-reports instead of guessing.
-		local rest, cat, wall, spd = nil
-		if key:sub(1, 6) == "ichigo" then
-			rest, cat, wall, spd = key:sub(7), "ichigo", "ichigomove", "fast"
-		elseif key:sub(1, 5) == "naoya" then
-			rest, cat, wall, spd = key:sub(6), "naoya", "naoyamove", "extreme"
-		end
-		if rest and #rest >= 4 then
-			armAbility({ char = cat, speed = spd, aerial = false, barrage = false,
-				tricky = cat == "naoya" }, -- 🃏 v2.75: the newcomer's whole kit is frame-feint flavor (see the profile note) — his UNNAMED moves inherit the widened trust band while every other crossover keeps the standard one
-				nil, name, wall)
-			log("[AI-Dive] 🎯 " .. name .. " — send me the exact console name for a dedicated "
-				.. (cat == "naoya" and "Naoya" or "Ichigo") .. " counter")
-		elseif lower:find("cutscene", 1, true) or lower:find("awakening", 1, true) then
-			-- 👑 v2.69 AWAKENING CATCH: an UNKNOWN effect part that announces
-			-- itself as a cutscene/awakening is STILL a promise — any new
-			-- character's G-pose arms the awakening watch instead of sailing
-			-- past the tome. No ability armed (a promise is not a shot) — the
-			-- keeper just starts reading FULL against whoever stood in it.
+		-- 🥅 GENERIC CATCH-ALL: known move rows above get their researched
+		-- counter. If the game renames an ability/VFX, a registered style prefix
+		-- still arms that handler's generic read instead of silently vanishing.
+		-- A cutscene is a promise, not a shot: preserve the awakening watch first.
+		if lower:find("cutscene", 1, true) or lower:find("awakening", 1, true) then
 			awakeningWatch(inst)
+		else
+			local rest, prefix = nil, nil
+			for _, pfx in ipairs(MOVE_PREFIXES) do
+				if key:sub(1, #pfx) == pfx then
+					prefix, rest = pfx, key:sub(#pfx + 1)
+					break
+				end
+			end
+			local cat = prefix
+			if cat == "demonsidou" then cat = "shidou"
+			elseif cat == "devilfruit" then cat = "devilfruituser"
+			elseif cat and cat:sub(1, 3) == "nel" then cat = cat:sub(4) end
+			-- Ignore ordinary character-model suffixes, not ability names.
+			local ordinary = { char = true, character = true, model = true, player = true,
+				avatar = true, root = true, humanoid = true, humanoidrootpart = true }
+			if rest and #rest >= 4 and not ordinary[rest] and CHAR_PROFILES[cat] then
+				local profile = CHAR_PROFILES[cat]
+				local genericSpeed = (cat == "naoya" and "extreme") or (cat == "ichigo" and "fast") or "normal"
+				local generic = { char = cat, speed = genericSpeed, aerial = profile.aerial,
+					barrage = profile.barrage, tricky = cat == "naoya" }
+				local genericCounter = (cat == "ichigo" and "ichigomove") or (cat == "naoya" and "naoyamove")
+				local didArm = armAbility(generic, nil, name, genericCounter)
+				roleForensics(generic, inst)
+				if didArm then
+					if cat == "ichigo" or cat == "naoya" then
+						log("[AI-Dive] 🎯 " .. name .. " — send me the exact console name for a dedicated "
+							.. (cat == "naoya" and "Naoya" or "Ichigo") .. " counter")
+					else
+						log("[AI-Dive] 🎯 " .. name .. " — unlisted " .. string.upper(cat)
+							.. " move: generic read armed; exact-name signature retained")
+					end
+				end
+			end
 		end
 	end
 end)
@@ -4613,33 +4683,102 @@ local goalDirty = true
 local GOAL_MEASURE_EVERY = 2  -- seconds between re-measures from the cached parts
 
 local function goalPartsAlive()
-	return (goalParts.left ~= nil and goalParts.left.Parent ~= nil)
-		and (goalParts.right ~= nil and goalParts.right.Parent ~= nil)
+	if goalParts.left and goalParts.left.Parent and goalParts.right and goalParts.right.Parent then
+		return true
+	end
+	return goalParts.model ~= nil and goalParts.model.Parent ~= nil
 end
 
-local function goalFindParts()
-	local left, right, bar, model
+local function goalFindParts(keeperPos)
+	local lefts, rights, models, genericPosts = {}, {}, {}, {}
+	local bar
 	local visited = 0
 	for _, obj in ipairs(workspace:GetDescendants()) do
 		visited = visited + 1
-		-- class check FIRST: most instances in a live match are decals,
-		-- attachments, sounds and folders, and none of them need a name lowered
+		-- Class check first: the tree is mostly effects/attachments. Normalize only
+		-- actual geometry, and allow the game's common GoalPostLeft / LeftGoalPost
+		-- spellings rather than requiring one exact capitalization.
 		if obj:IsA("BasePart") then
-			local n = string.lower(obj.Name)
-			if GOAL_LEFT_NAMES[n] and not left then
-				left = obj
-			elseif GOAL_RIGHT_NAMES[n] and not right then
-				right = obj
-			elseif n == "crossbar" and not bar then
-				bar = obj
+			local n = normName(obj.Name)
+			local isLeft = GOAL_LEFT_NAMES[n] or (n:find("left", 1, true) and n:find("post", 1, true))
+			local isRight = GOAL_RIGHT_NAMES[n] or (n:find("right", 1, true) and n:find("post", 1, true))
+			if isLeft and #lefts < 32 then lefts[#lefts + 1] = obj end
+			if isRight and #rights < 32 then rights[#rights + 1] = obj end
+			if (n == "crossbar" or n == "goalbar" or n == "goalcrossbar") and not bar then bar = obj end
+			-- Last-resort geometry for GoalPost1/GoalPost2 or unnamed mesh posts.
+			-- A post is a tall, narrow part; the pair test below rejects lamps and
+			-- unrelated poles by mouth width, matching height and distance to GK.
+			local z = obj.Size
+			if not isLeft and not isRight and z and z.Y >= 5 and z.Y <= 20
+				and math.max(z.X, z.Z) <= 3.5 and #genericPosts < 96 then
+				genericPosts[#genericPosts + 1] = obj
 			end
-		elseif obj:IsA("Model") and not model and obj.PrimaryPart then
-			if GOAL_MODEL_NAMES[string.lower(obj.Name)] then model = obj end
+		elseif obj:IsA("Model") and #models < 64 then
+			local n = normName(obj.Name)
+			local goalNamed = GOAL_MODEL_NAMES[n]
+				or ((n:find("goal", 1, true) or n:find("net", 1, true))
+					and n ~= "goalkeeper" and n ~= "goalie")
+			if goalNamed then models[#models + 1] = obj end
 		end
-		if left and right and bar then break end
 		if visited >= CONFIG.GOAL_SCAN_CAP then break end
 	end
-	goalParts.left, goalParts.right, goalParts.bar, goalParts.model = left, right, bar, model
+
+	-- Pick the nearest geometrically valid named pair; both nets may be called
+	-- LeftPost/RightPost, so taking the first pair in the tree can select the
+	-- far end of the pitch and fail the keeper-distance sanity check.
+	local function pairScore(a, b)
+		if a == b or not a.Parent or not b.Parent then return nil end
+		local ap, bp = a.Position, b.Position
+		local width = (bp - ap).Magnitude
+		local aBottom, bBottom = ap.Y - a.Size.Y / 2, bp.Y - b.Size.Y / 2
+		local aTop, bTop = ap.Y + a.Size.Y / 2, bp.Y + b.Size.Y / 2
+		local mid = (ap + bp) / 2
+		local d = (mid - keeperPos).Magnitude
+		if width < 6 or width > 60 or math.abs(aBottom - bBottom) > 3
+			or math.abs(aTop - bTop) > 3 or d >= 90 then return nil end
+		return d + math.abs(aBottom - bBottom) * 3 + math.abs(aTop - bTop) * 3
+	end
+	local bestLeft, bestRight, bestScore
+	local function tryPairs(aList, bList)
+		for _, a in ipairs(aList) do
+			for _, b in ipairs(bList) do
+				local score = pairScore(a, b)
+				if score and (not bestScore or score < bestScore) then
+					bestLeft, bestRight, bestScore = a, b, score
+				end
+			end
+		end
+	end
+	tryPairs(lefts, rights)
+	if not bestLeft then tryPairs(genericPosts, genericPosts) end
+
+	local bestModel, modelScore
+	for _, obj in ipairs(models) do
+		if obj.Parent then
+			local ok, minV, maxV = pcall(function() return obj:GetBoundingBox() end)
+			if ok and minV and maxV then
+				local size = maxV - minV
+				local halfWidth = math.max(size.X, size.Z) / 2
+				local depth = math.min(size.X, size.Z)
+				local center = (minV + maxV) / 2
+				local d = (center - keeperPos).Magnitude
+				if halfWidth >= 3 and halfWidth <= 30 and depth >= 1 and depth <= 40
+					and size.Y >= 3 and size.Y <= 20 and d < 90
+					and (not modelScore or d < modelScore) then
+					bestModel, modelScore = obj, d
+				end
+			end
+		end
+	end
+
+	if bestLeft then
+		goalParts.left, goalParts.right, goalParts.bar, goalParts.model = bestLeft, bestRight, bar, nil
+	elseif bestModel then
+		-- GetBoundingBox works without PrimaryPart; many streamed game models have none.
+		goalParts.left, goalParts.right, goalParts.bar, goalParts.model = nil, nil, nil, bestModel
+	else
+		goalParts.left, goalParts.right, goalParts.bar, goalParts.model = nil, nil, nil, nil
+	end
 end
 
 local function goalMeasure(keeperPos)
@@ -4745,15 +4884,16 @@ local function scanGoal(keeperPos)
 	end
 	local now = os.clock()
 	local haveParts = goalPartsAlive()
-	if goalInfo and haveParts and not goalDirty and (now - lastGoalScan) < GOAL_MEASURE_EVERY then
+	local age = now - lastGoalScan
+	-- Cached models/parts are cheap to re-measure; no match geometry is a
+	-- negative cache too. The old `and goalInfo` condition rescanned the full
+	-- 20,000-instance workspace tree EVERY FRAME when no names matched.
+	if not goalDirty and age < (haveParts and GOAL_MEASURE_EVERY or 1.5) then
 		return goalInfo
 	end
-	-- a full tree walk is the expensive part: at most one per second, and only
-	-- when the cached parts are gone or the world changed
-	if (not haveParts or goalDirty) then
-		if (now - lastGoalScan) < 1 and goalInfo then return goalInfo end
+	if not haveParts or goalDirty then
 		goalDirty = false
-		goalFindParts()
+		goalFindParts(keeperPos)
 	end
 	lastGoalScan = now
 	local info = goalMeasure(keeperPos)
@@ -4766,6 +4906,22 @@ end
 workspace.DescendantRemoving:Connect(function(inst)
 	if inst == goalParts.left or inst == goalParts.right or inst == goalParts.bar or inst == goalParts.model then
 		goalDirty = true
+	end
+end)
+-- A goal can stream in after the keeper script. Mark only goal-like additions
+-- dirty so the negative cache does not wait 1.5s to notice the real geometry.
+workspace.DescendantAdded:Connect(function(inst)
+	local n = normName(inst.Name)
+	if inst:IsA("BasePart") then
+		if GOAL_LEFT_NAMES[n] or GOAL_RIGHT_NAMES[n] or n:find("post", 1, true)
+			or n == "crossbar" or n == "goalbar" or n == "goalcrossbar" then
+			goalDirty = true
+		end
+	elseif inst:IsA("Model") then
+		if GOAL_MODEL_NAMES[n] or ((n:find("goal", 1, true) or n:find("net", 1, true))
+			and n ~= "goalkeeper" and n ~= "goalie") then
+			goalDirty = true
+		end
 	end
 end)
 
@@ -5338,8 +5494,8 @@ ST.prof = (function()
 	end
 	-- every ball-state frame: flush the armed shot when it ages, close stale
 	-- carrier segments, keep the pending strike's live speed warm, tick.
-	function P:feed(now)
-		local shooter = lastShooterPlayer and lastShooterPlayer.Name
+	function P:feed(now, shooterPlayer)
+		local shooter = shooterPlayer and shooterPlayer.Name
 		if shooter then
 			P:flush(shooter, now)
 			local pd = P.pend[shooter]
@@ -6712,7 +6868,7 @@ end
 local prevRealDepth = nil -- ball depth vs goal line, previous frame (real-time crossing)
 local lastShooterKey  = nil -- team key of whoever last kicked the ball
 local lastShooterTime = 0   -- when that kick happened
-local lastShooterPlayer = nil -- the player object (for shot-power learning)
+local lastShooterPlayer = nil -- player reference for shot ownership and profile learning
 local pendingShotRecord = nil -- { player, t, maxSpeed } — sampling a new shot's power
 -- (playerShotStats is declared earlier — see the PlayerRemoving section)
 local lastRiseTime      = 0   -- when the ball was last rising (juggle detection)
@@ -6755,7 +6911,7 @@ local pathPos   = {}
 for i = 1, MAX_STEPS do
 	pathPos[i] = { x = 0, y = 0, z = 0 }
 end
-local pathCount = 0
+-- pathCount is carried by F; pathPos remains a stable preallocated buffer.
 
 -- 🧤 ONE DIVE PATH (v2.44). The five dive sites each repeated the same six steps
 -- (re-arm cooldown, recover stamp, save watch, impact tint, auto-jump, fire) —
@@ -7211,23 +7367,34 @@ function ST.phaseVisuals(F)
 		else
 		threatColor = Color3.fromRGB(255, 255, 50)   -- yellow: middle
 	end
+	F.threatColor = threatColor -- one color producer shared by the trail and dive/HUD
 
-	if impactPart and (ST.ecoTier or 0) == 0 then
-		visualsHidden = false
-		impactPart.CFrame = CFrame.new(F.impactPos)
-		impactPart.Color  = threatColor
-		impactPart.Transparency = 0
+	-- ECO_LOCK=1 is the phone default: ease decorative paint, never erase the
+	-- trajectory. The old tier-0-only gate hid the entire path on mobile, so
+	-- physics still ran but the feature looked dead. Keep it live at 8 Hz.
+	local tier = ST.ecoTier or 0
+	if tier >= 2 then
+		hideVisuals()
+	elseif impactPart then
+		local paintDue = tier == 0 or (F.now - (ST.trailPaintT or -1e9)) >= 0.12
+		if paintDue then
+			ST.trailPaintT = F.now
+			visualsHidden = false
+			impactPart.CFrame = CFrame.new(F.impactPos)
+			impactPart.Color  = F.threatColor
+			impactPart.Transparency = 0
 
-		-- Dots span the predicted path 0.5s PAST the impact, so you can see
-		-- where the ball is going after it gets past you.
-		local dotEnd = math.min(F.timeToImpact + 0.5, CONFIG.SIM_HORIZON)
-		for i, dot in ipairs(pathDots) do
-			local tDot = dotEnd * (i / (#pathDots + 1))
-			local idx  = math.clamp(math.floor(tDot / F.simStep) + 1, 1, pathCount)
-			local rowP = pathPos[idx]
-			dot.CFrame       = CFrame.new(rowP.x, rowP.y, rowP.z)
-			dot.Color        = threatColor
-			dot.Transparency = 0.1 + 0.55 * (i / #pathDots) -- older dots fade out
+			-- Dots span the predicted path 0.5s PAST the impact, so you can see
+			-- where the ball is going after it gets past you.
+			local dotEnd = math.min(F.timeToImpact + 0.5, CONFIG.SIM_HORIZON)
+			for i, dot in ipairs(pathDots) do
+				local tDot = dotEnd * (i / (#pathDots + 1))
+				local idx  = math.clamp(math.floor(tDot / F.simStep) + 1, 1, F.pathCount)
+				local rowP = F.pathPos[idx]
+				dot.CFrame       = CFrame.new(rowP.x, rowP.y, rowP.z)
+				dot.Color        = F.threatColor
+				dot.Transparency = 0.1 + 0.55 * (i / #pathDots) -- older dots fade out
+			end
 		end
 	end
 
@@ -7391,7 +7558,7 @@ function ST.phaseSave(F)
 			if not F.onTarget and F.goal and F.crossPos and (F.now - ST.lastWidePrint) > 2.5 then
 				ST.lastWidePrint = F.now
 				log(string.format("[AI-Dive] ruled WIDE/MISS — lateral %.1f (post %.1f), height %.1f (bar %.1f)",
-					crossWide or 0, F.goal.halfWidth, crossY or 0, F.goal.crossbarY))
+					F.crossWide or 0, F.goal.halfWidth, F.crossY or 0, F.goal.crossbarY))
 			end
 
 end
@@ -7563,10 +7730,14 @@ end
 -- ⚠️ A ST field, not a `local function`: mainStep is at Lua 5.1's 60-upvalue
 -- ceiling and the main chunk is at the 200-local ceiling.
 function ST.phaseTrajectory(F)
+		F.pathPos = pathPos -- stable preallocated array; the frame owns its published view
+		F.pathCount = 0
 		local minDistance  = math.huge
-		impactX, F.impactY, impactZ = F.ballPos.X, F.ballPos.Y, F.ballPos.Z
+		local impactX, impactZ = F.ballPos.X, F.ballPos.Z
+		F.impactY = F.ballPos.Y
+		local gCrossbarY
 		F.timeToImpact = 0
-		crossY, F.crossLateral, crossWide = nil, nil, nil
+		F.crossY, F.crossLateral, F.crossWide = nil, nil, nil
 
 		-- Ground level = the lowest the ball has been recently (its contact height).
 		-- v2.44: the minimum is recomputed at 4Hz (and instantly when the ball beats
@@ -7643,27 +7814,27 @@ function ST.phaseTrajectory(F)
 	if CONFIG.SIM_CACHE_MAX > 0 and ST.simT and ST.simReset == ST.lastShotReset
 		and (F.now - ST.simT) < CONFIG.SIM_CACHE_MAX
 		and math.abs(F.speed - ST.simV) <= 8
-		and accel.X == 0 and accel.Z == 0 then
+		and F.accel.X == 0 and F.accel.Z == 0 then
 		simHit = true
 		minDistance  = ST.simMinD
 		impactX, F.impactY, impactZ = ST.simIX, ST.simIY, ST.simIZ
 		F.timeToImpact = math.max(0, ST.simTTI
 			- math.max(0, ST.simDist - F.distToGoalie) / math.max(F.speed, 1))
-		crossY, F.crossLateral, crossWide = ST.simCY, ST.simCL, ST.simCW
+		F.crossY, F.crossLateral, F.crossWide = ST.simCY, ST.simCL, ST.simCW
 		F.crossPos, crossOnTarget = ST.simCP, ST.simCOT
-		pathCount = ST.simPathN
+		F.pathCount = ST.simPathN
 	end
 	if not simHit then
 	local sx, sy, sz = F.ballPos.X, F.ballPos.Y, F.ballPos.Z
 	local vx, vy, vz = F.velocity.X, F.velocity.Y, F.velocity.Z
-	local acx, acy, acz = accel.X, accel.Y, accel.Z
-	pathCount = 0
+	local acx, acy, acz = F.accel.X, F.accel.Y, F.accel.Z
+	F.pathCount = 0
 
 	local prevDepth = F.goal and ((sx - lgx) * gx + (sy - lgy) * gy + (sz - lgz) * gz) or nil
 	local psx, psy, psz = sx, sy, sz
 
 	F.t = 0
-	while F.t < CONFIG.SIM_HORIZON and pathCount < MAX_STEPS - 1 do
+	while F.t < CONFIG.SIM_HORIZON and F.pathCount < MAX_STEPS - 1 do
 		-- Magnus physics: a real curve holds (almost) full sideways force
 		-- early in the flight, then decays — full curve for the first
 		-- CURVE_FULL_TIME, then decay (stops over-curving on noisy estimates).
@@ -7737,8 +7908,8 @@ function ST.phaseTrajectory(F)
 			F.timeToImpact = F.t
 		end
 
-		pathCount = pathCount + 1
-		local row = pathPos[pathCount]
+		F.pathCount = F.pathCount + 1
+		local row = F.pathPos[F.pathCount]
 		row.x, row.y, row.z = sx, sy, sz
 
 		-- 🥅 GOAL LINE CROSSING: first +depth -> -depth transition,
@@ -7786,10 +7957,10 @@ function ST.phaseTrajectory(F)
 				-- decides which way to dive (identical to the old Cross+Dot)
 				local latAxis = dlx * lax + dlz * laz
 				F.crossPos = Vector3.new(cpx, cpY, cpz)
-				crossY = cpY
-				crossWide = abs(latAxis)
+				F.crossY = cpY
+				F.crossWide = abs(latAxis)
 				F.crossLateral = dlx * krx + dlz * krz
-				crossOnTarget = (crossWide <= F.gHalfWidth + ballMargin)
+				crossOnTarget = (F.crossWide <= F.gHalfWidth + ballMargin)
 					and (cpY <= gCrossbarY + ballMargin)
 			end
 			prevDepth = depth
@@ -7799,8 +7970,8 @@ function ST.phaseTrajectory(F)
 	end
 		ST.simT, ST.simV, ST.simReset = F.now, F.speed, ST.lastShotReset
 		ST.simMinD, ST.simIX, ST.simIY, ST.simIZ, ST.simTTI = minDistance, impactX, F.impactY, impactZ, F.timeToImpact
-		ST.simCY, ST.simCL, ST.simCW, ST.simCP, ST.simCOT = crossY, F.crossLateral, crossWide, F.crossPos, crossOnTarget
-		ST.simPathN, ST.simDist = pathCount, F.distToGoalie
+		ST.simCY, ST.simCL, ST.simCW, ST.simCP, ST.simCOT = F.crossY, F.crossLateral, F.crossWide, F.crossPos, crossOnTarget
+		ST.simPathN, ST.simDist = F.pathCount, F.distToGoalie
 		-- 📈 v2.82 PATTERN LEAD feed: the predicted crossing that reaches the
 		-- line is the shot's AIM — banked per name, once per shot (the
 		-- lastShotReset dedupe). A save or a goal does not erase the aim:
@@ -7833,9 +8004,9 @@ function ST.phaseTrajectory(F)
 	-- wrong. Consecutive graze frames are counted so the keeper holds
 	-- rather than stands down: the frame is the last thing between him
 	-- and a goal, and a graze is one deflection away from being on target.
-	if crossWide and F.goal and (not crossOnTarget)
-		and (crossWide <= F.goal.halfWidth + CONFIG.FRAME_GRAZE
-			or (crossY and crossY <= F.goal.crossbarY + CONFIG.FRAME_GRAZE and crossY > F.goal.crossbarY)) then
+	if F.crossWide and F.goal and (not crossOnTarget)
+		and (F.crossWide <= F.goal.halfWidth + CONFIG.FRAME_GRAZE
+			or (F.crossY and F.crossY <= F.goal.crossbarY + CONFIG.FRAME_GRAZE and F.crossY > F.goal.crossbarY)) then
 		ST.grazeFrames = (ST.grazeFrames or 0) + 1
 	else
 		ST.grazeFrames = 0
@@ -7862,7 +8033,7 @@ function ST.phaseTrajectory(F)
 	-- is NOT gated.
 	F.receiverInPath = false
 	if CONFIG.USE_RECEIVER_GATE then
-		local maxSteps = math.min(pathCount, math.ceil(1.2 / F.simStep))
+		local maxSteps = math.min(F.pathCount, math.ceil(1.2 / F.simStep))
 		for _, e in ipairs(refreshPlayerRoots()) do
 			-- v2.44: opponents only, exactly as the gate is documented. Our own
 			-- defender standing in the lane suppressed the dive too, and defenders
@@ -7886,7 +8057,7 @@ function ST.phaseTrajectory(F)
 					if epx*epx + epy*epy + epz*epz < 35*35 then
 						local r2 = CONFIG.RECEIVER_RADIUS * CONFIG.RECEIVER_RADIUS
 						for i = 1, maxSteps do
-							local p = pathPos[i]
+							local p = F.pathPos[i]
 							local dx = p.x - ePos.X
 							local dy = p.y - ePos.Y
 							local dz = p.z - ePos.Z
@@ -7914,16 +8085,16 @@ function ST.phaseTrajectory(F)
 		-- disappears, which used to flip onTarget back to true and send the
 		-- keeper diving at a ball 50 studs behind the goal.)
 		F.definitelyMiss = ((F.ballPos.X - lgx) * gx + (F.ballPos.Y - lgy) * gy + (F.ballPos.Z - lgz) * gz) < 0
-		if crossWide then
-			-- crossWide is the |axis-lateral| computed once inside the integrator
+		if F.crossWide then
+			-- F.crossWide is the |axis-lateral| computed once inside the integrator
 			-- v2.41 honest wide ruling: a ball crossing 3.5 studs outside
 			-- the post (ball radius + prediction tolerance) or 4 studs over
 			-- the bar CANNOT score — the keeper stays on its feet. This is
 			-- what stopped the "he passed it wide, why did you dive" false
 			-- dives. True corner balls (crossing at the post) are untouched.
 			F.definitelyMiss = F.definitelyMiss
-				or (crossWide > F.goal.halfWidth + CONFIG.WIDE_POST_MARGIN)
-				or (crossY > F.goal.crossbarY + CONFIG.BAR_OVER_MARGIN)
+				or (F.crossWide > F.goal.halfWidth + CONFIG.WIDE_POST_MARGIN)
+				or (F.crossY > F.goal.crossbarY + CONFIG.BAR_OVER_MARGIN)
 		end
 	end
 
@@ -8013,7 +8184,8 @@ function ST.phaseCamera(F)
 		-- does: it demands one more agreeing frame before committing to a SIDE,
 		-- and it will not pretend to read a side through a crowd. Nothing here
 		-- changes whether it dives — only how sure it is before it picks one.
-		F.screened, screenCount = false, 0
+		F.screened = false
+		local screenCount = 0
 		do
 		local toMouth = F.goal and (F.goal.linePos - F.ballPos) or nil
 		local dist = toMouth and toMouth.Magnitude or 0
@@ -8327,7 +8499,7 @@ function ST.phasePublish(F)
 			stateInfo.tti     = F.timeToImpact
 			stateInfo.dir     = F.direction
 			stateInfo.label   = displayLabel
-			stateInfo.color   = F.hudColor
+			stateInfo.color   = F.hudColor or F.threatColor or Color3.fromRGB(120, 120, 120)
 			stateInfo.zoneOn  = (F.hudLabel:find("DIVE", 1, true) ~= nil) or (F.hudLabel:sub(1, 7) == "READING")
 			stateInfo.rootPos = F.rootPos
 			stateInfo.toLine  = F.goal and ((F.ballPos - F.goal.linePos):Dot(F.goal.normal)) or nil
@@ -8519,10 +8691,11 @@ function ST.phaseSensor(F)
 
 	if CONFIG.USE_ASSEMBLY_VELOCITY then
 		F.velocity = F.ballPart.AssemblyLinearVelocity
-		accel    = Vector3.zero -- no curve estimate when using the direct sensor
+		F.accel = Vector3.zero -- no curve estimate when using the direct sensor
 	else
-		F.velocity, accel = estimateMotion() -- nil until fresh samples exist
+		F.velocity, F.accel = estimateMotion() -- nil until fresh samples exist
 	end
+	F.accel = F.accel or Vector3.zero -- every downstream phase gets a vector, never a stale/global nil
 
 	if not F.velocity then
 		markIdle()
@@ -8531,7 +8704,7 @@ function ST.phaseSensor(F)
 
 	F.speed = F.velocity.Magnitude
 	ST.smoothedSpeed = ST.smoothedSpeed + (F.speed - ST.smoothedSpeed) * 0.6
-	ST.prof:feed(F.now) -- 📈 v2.80 the man-ledger breathes with the ball
+	ST.prof:feed(F.now, lastShooterPlayer) -- 📈 v2.80 the man-ledger breathes with the ball
 	ST.swing:check(F.now, abilityAlert, baitEpisode) -- 🎭 v2.81 the swing read rides the same breath
 
 	-- 🪤 v2.76 DANCE READ: while the ball is dead, watch the nearest FIELD
@@ -9274,6 +9447,7 @@ function ST.phaseThreat(F)
 	-- inline carrier lookup, it survives the one-two's flight, and it flips to
 	-- the receiver the moment the catch makes him the live holder.
 
+	local attackerChar
 	if abilityAlert and (F.now - abilityAlert.t) < 2.5 then
 		attackerChar = abilityAlert.char
 		F.profile = CHAR_PROFILES[attackerChar]
@@ -9702,7 +9876,9 @@ function ST.phaseBaitHold(F)
 	-- in the box (v2.65). — and the BAITER PROFILE: BAITER_LOCK holds on one
 	-- man inside BAITER_WINDOW flags him; his suspect bar rises for
 	-- BAITER_HUNT seconds. A bait farmer gets taxed, not re-seduced.
-	F.baitHold, baitWhy = false, ""
+	local baitWhy = ""
+	local whip, classSoft = false, false
+	F.baitHold = false
 	-- The SHAPE gate runs even while the feint system holds (fakeHold): a
 	-- soft ball the keeper declines to chase is a bait episode whether the
 	-- feint or the bait net is the one keeping him home — the profile counts
@@ -10265,13 +10441,14 @@ end
 -- ⚠️ A ST field, not a `local function`: mainStep is at Lua 5.1's 60-upvalue
 -- ceiling and the main chunk is at the 200-local ceiling.
 function ST.phaseDive(F)
-
+		F.hudLabel = F.hudLabel or "WATCHING"
+		F.hudColor = F.hudColor or F.threatColor or Color3.fromRGB(120, 120, 120)
 
 				-- 🦘 The top-bin jump test is identical at every dive site — solved once here.
 				-- Judged at the PREDICTED LINE CROSSING (where the ball meets the net), never
 				-- the ball's current height: an arc that peaks high then drops low must not
 				-- make the keeper jump for a low ball (v2.41 rule, now shared by all sites).
-				local jumpImpact = (crossY or math.max(F.impactY, F.ballPos.Y)) - F.rootPos.Y
+				local jumpImpact = (F.crossY or math.max(F.impactY, F.ballPos.Y)) - F.rootPos.Y
 				local jumpGoal   = F.goal and (F.goal.crossbarY - F.rootPos.Y) or nil
 
 				-- 6t) 🤾 GK TACKLE (v2.40 — fan wiki mechanic): a FORWARD save on the
@@ -10353,7 +10530,7 @@ function ST.phaseDive(F)
 				-- v2.44: same gravity the trajectory simulator resolved. The game may run
 				-- workspace.Gravity != 196.2; a hard-coded constant solved the catch time
 				-- for a different world than the one being predicted.
-				local gY = (accel.Y < -50) and accel.Y or F.gravity
+				local gY = (F.accel.Y < -50) and F.accel.Y or F.gravity
 				local y0, vy = F.ballPos.Y, F.velocity.Y
 				local catchY = F.aimPos.Y + 1.5 -- hand height at the predicted position
 				if y0 > catchY then
@@ -10392,7 +10569,7 @@ function ST.phaseDive(F)
 				and (F.now >= ST.cooldownUntil) then
 				local catchY3 = F.aimPos.Y + 1.5
 				if F.ballPos.Y > catchY3 then
-					local gY3 = (accel and accel.Y < -50) and accel.Y or F.gravity
+					local gY3 = (F.accel and F.accel.Y < -50) and F.accel.Y or F.gravity
 					local vy3 = F.velocity.Y
 					local D3 = vy3 * vy3 - 2 * gY3 * (F.ballPos.Y - catchY3)
 					if D3 > 0 then
@@ -10476,7 +10653,7 @@ function ST.phaseDive(F)
 				if (F.now - ST.grazeLogged) > 2.5 then
 					ST.grazeLogged = F.now
 					log(string.format("[AI-Dive] 🚀 OFF THE FRAME — crossing %.1f vs post %.1f: holding the read, the woodwork is one deflection away",
-						crossWide or 0, F.goal and F.goal.halfWidth or 0), true)
+						F.crossWide or 0, F.goal and F.goal.halfWidth or 0), true)
 				end
 			elseif not F.onTarget then
 				F.hudLabel, F.hudColor = "WIDE — STAYING ON FEET", Color3.fromRGB(120, 120, 120)
@@ -10723,8 +10900,8 @@ function ST.phaseDive(F)
 				-- INHUMANE bar (GYRO_ACCEL 55) needs nobody's permission: a ball bending
 				-- that hard is a gyro whoever fired it — the counter to "an inhumane
 				-- gyro shot" is a keeper who chases it instead of guessing at the kick.
-				local lat = accel and accel:Dot(F.camRight) or nil
-				if not curveDir and lat and accel and F.onTarget and F.approachSpeed > 0
+				local lat = F.accel and F.accel:Dot(F.camRight) or nil
+				if not curveDir and lat and F.accel and F.onTarget and F.approachSpeed > 0
 					and F.speed >= CONFIG.MIN_SHOT_SPEED and not F.isDribbling and not F.fakeHold then
 					local absLat = math.abs(lat)
 					local famTier = (F.activeMode and F.activeMode.curveChase) and absLat >= CONFIG.CURVE_CHASE_ACCEL
@@ -10777,7 +10954,7 @@ function ST.phaseDive(F)
 					if curveDir then
 						F.hudLabel, F.hudColor = "CURVE " .. curveDir .. " — ARMED", Color3.fromRGB(255, 200, 60)
 					else
-						F.hudLabel, F.hudColor = "READING " .. F.direction, threatColor
+						F.hudLabel, F.hudColor = "READING " .. F.direction, F.threatColor
 					end
 				else
 					-- 🧠 COMMIT DISCIPLINE by urgency + counter mode:
@@ -10863,7 +11040,7 @@ function ST.phaseDive(F)
 						else
 							F.hudLabel = "DIVE " .. F.direction .. "!"
 						end
-						F.hudColor = threatColor
+						F.hudColor = F.threatColor
 
 						ST.commitDir, ST.commitFrames = nil, 0
 
@@ -10908,7 +11085,7 @@ function ST.phaseDive(F)
 						fireDive(F.direction, F.now, F.speed, F.approachSpeed, F.effCooldown, jumpImpact, jumpGoal)
 					else
 						F.hudLabel = (isQuickShot and (not instant) and "QUICK READ " or "READING ") .. F.direction
-						F.hudColor = threatColor
+						F.hudColor = F.threatColor
 					end
 				end
 			end
@@ -11114,6 +11291,13 @@ if _G.SIM then
 			crossOnTarget = ST.simCOT, tti = ST.simTTI, minDist = ST.simMinD,
 			pathN = ST.simPathN,
 		}
+	end
+	_G.SIM.visualProbe = function()
+		return ST.ecoTier or 0, impactPart and impactPart.Transparency,
+			pathDots[1] and pathDots[1].Transparency, stateInfo.color
+	end
+	_G.SIM.goalProbe = function()
+		return goalInfo ~= nil, goalInfo and goalInfo.halfWidth or nil, lastGoalScan, goalDirty, goalPartsAlive()
 	end
 end
 createBillboard()
